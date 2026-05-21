@@ -1,10 +1,25 @@
 const TIINGO_KEY = process.env.TIINGO_API_KEY;
 
 const STOCKS = [
- "NVDA","AMD","TSLA","META","AMZN","PLTR","SOFI","RIVN","SOUN","ASTS",
- "AFRM","NIO","HIMS","IONQ","RKLB","HOOD","UPST","BNGO","MVIS","GOVX",
- "CETX","SPWR","GFAI","WKHS","CLOV","NKLA","PLUG","BLNK","STEM","ARRY",
- "ENVX","JOBY","ACHR","LIDR","LAZR","OUST","RIDE","GOEV","HYLN","MVST",
+  "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AMD","PLTR","SOFI",
+  "RIVN","SOUN","ASTS","AFRM","NIO","HIMS","IONQ","RKLB","HOOD","UPST",
+  "BNGO","MVIS","GOVX","CETX","SPWR","GFAI","WKHS","CLOV","NKLA","PLUG",
+  "BLNK","STEM","ARRY","ENVX","JOBY","ACHR","LIDR","LAZR","OUST","MVST",
+  "RIDE","GOEV","HYLN","NKLA","LCID","PTRA","REE","ZEV","WKHS","FSR",
+  "XPEV","LI","NIO","IDEX","SOLO","HOFV","MGNI","AGEN","MMAT","MNMD",
+  "NURO","SURF","EYES","DARE","CTIC","SGBX","ATNF","ALBT","BFRI","IMRN",
+  "NCTY","AULT","CODA","SIGA","SHOT","ADTX","CUEN","INKW","TPVG","PEGY",
+  "QCOM","AMAT","LRCX","KLAC","MRVL","AVGO","TXN","ADI","MPWR","ENPH",
+  "JNJ","UNH","PFE","ABBV","MRK","TMO","DHR","ISRG","BSX","EW",
+  "CAT","DE","HON","ETN","EMR","XOM","CVX","COP","SLB","OXY",
+  "NKE","SBUX","MCD","HD","LOW","TGT","COST","WMT","AMZN","TSLA",
+  "CSCO","ORCL","CRM","NOW","ADBE","INTU","SNPS","CDNS","ANSS","PTC",
+  "RIOT","MARA","COIN","HOOD","AFRM","UPST","OPEN","LMND","ROOT","HIMS",
+  "RBLX","U","DKNG","PENN","MGAM","SGHC","GENI","EVEX","JOBY","ACHR",
+  "SPCE","RDW","ASTS","RKLB","MNTS","ASTR","BKSY","SFET","PL","MAXR",
+  "LAZR","OUST","LIDAR","VLDR","INVZ","MVIS","AEYE","CPTN","QUBT","IONQ",
+  "RGTI","ARQQ","QBTS","IQM","ZPTA","SOUN","DTSS","AITX","BBAI","MIND",
+  "KGEI","TPVG","GAIN","HTGC","MAIN","ARCC","ORCC","SLRC","PSEC","GSBD",
 ];
 
 function calcEMA(p,n){if(p.length<n)return null;const k=2/(n+1);let e=p.slice(0,n).reduce((a,b)=>a+b,0)/n;for(let i=n;i<p.length;i++)e=p[i]*k+e*(1-k);return e;}
@@ -36,7 +51,7 @@ const r=await fetch(url,{headers:{"Content-Type":"application/json"}});
 if(!r.ok)return null;
 const d=await r.json();
 if(!d||d.length<25)return null;
-return d.map(b=>({t:new Date(b.date).getTime(),o:b.open,h:b.high,l:b.low,c:b.close,v:b.volume||0}));
+return d.map(b=>({t:new Date(b.date).getTime(),o:b.open||b.close,h:b.high||b.close,l:b.low||b.close,c:b.close,v:b.volume||0}));
 }catch{return null;}}
 
 export default async function handler(req,res){
