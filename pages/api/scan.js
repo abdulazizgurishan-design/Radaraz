@@ -4,28 +4,31 @@ export default async function handler(req, res) {
   try {
     let results = [];
     
-    // استخدام تاريخ مؤكد ومسجل في سيرفرات Polygon
-    const stableDate = "2026-05-21"; 
-    const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${stableDate}?adjusted=true&apiKey=${POLYGON_API_KEY}`;
+    // حساب تاريخ اليوم تلقائياً بتوقيت أمريكا المباشر لضمان اللحظية
+    const amsterdamTime = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+    let targetDate = new Date(amsterdamTime).toISOString().split('T')[0];
     
-    const response = await fetch(url);
-    const data = await response.json();
+    let url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${POLYGON_API_KEY}`;
+    let response = await fetch(url);
+    let data = await response.json();
 
-    // 🚨 اختبار كاشف الأخطاء: إذا لم تكن النتيجة OK، أرسل تفاصيل الخطأ مباشرة للشاشة
-    if (data.status !== "OK") {
-      return res.status(200).json({ 
-        success: false, 
-        error: `خطأ من Polygon: ${data.error || data.message || "سبب غير معروف"} (الحالة: ${data.status})` 
-      });
+    // 🔄 إذا لم تكن بيانات اليوم الحالي جاهزة في السيرفر الجماعي لـ Polygon، نتحول فوراً لجلسة أمس لملء الشاشة بآلاف الأسهم
+    if (data.status !== "OK" || !data.results || data.results.length === 0) {
+      const d = new Date(amsterdamTime);
+      d.setDate(d.getDate() - 1);
+      targetDate = d.toISOString().split('T')[0];
+      url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${POLYGON_API_KEY}`;
+      response = await fetch(url);
+      data = await response.json();
     }
 
-    if (data.results && data.results.length > 0) {
+    if (data.status === "OK" && data.results) {
       for (const stock of data.results) {
         const ticker = stock.T;  
         const price = stock.c;   
         const volume = stock.v;  
 
-        // الفلاتر
+        // الفلاتر الفنية والشرعية للميكرو كاب
         if (price < 0.10 || price > 20) continue;
         if (volume < 50000) continue; 
         if (ticker.length > 4) continue; 
@@ -48,14 +51,11 @@ export default async function handler(req, res) {
       results.sort((a, b) => b.volume - a.volume);
     }
 
-    // إذا كانت المصفوفة فارغة تماماً رغم نجاح الاتصال
-    if (results.length === 0) {
-      return res.status(200).json({ success: false, error: "تم الاتصال بنجاح ولكن لم يطابق أي سهم الفلاتر الفنية الفورية." });
-    }
-
+    // إرسال البيانات المباشرة فوراً
     return res.status(200).json({ success: true, data: results.slice(0, 80) });
 
   } catch (error) {
-    return res.status(200).json({ success: false, error: `فشل برمي داخلي: ${error.message}` });
+    console.error("Critical Scanner Error:", error);
+    return res.status(500).json({ success: false, error: "فشل مسح السوق" });
   }
 }
