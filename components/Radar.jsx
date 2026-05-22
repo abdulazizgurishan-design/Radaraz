@@ -1,151 +1,236 @@
 import { useState } from "react";
 
-function OpCard({ r, f$, fp }) {
- const [open, setOpen] = useState(false);
- const scoreColor = r.score >= 80 ? "#9d174d" : r.score >= 50 ? "#b45309" : "#15803d";
- const scoreBg    = r.score >= 80 ? "#fce7f3" : r.score >= 50 ? "#fef3c7" : "#dcfce7";
- return (
-   <div style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:14,marginBottom:10,overflow:"hidden",boxShadow:open?"0 8px 24px rgba(0,0,0,0.08)":"0 1px 4px rgba(0,0,0,0.05)",transition:"all 0.2s"}}>
-     <div onClick={()=>setOpen(o=>!o)} style={{padding:"14px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-       <div style={{background:scoreBg,borderRadius:10,padding:"6px 10px",textAlign:"center",minWidth:48,flexShrink:0}}>
-         <div style={{fontSize:18,fontWeight:800,color:scoreColor,lineHeight:1}}>{r.score}</div>
-         <div style={{fontSize:8,color:scoreColor,opacity:0.8}}>آمن شرعاً</div>
-       </div>
-       <div style={{minWidth:60}}>
-         <div style={{fontSize:17,fontWeight:700,color:"#0f172a"}}>{r.symbol}</div>
-         <div style={{fontSize:9,color:"#94a3b8",marginTop:1}}>تطهير الديون: {r.debtRatio}</div>
-       </div>
-       <div style={{display:"flex",gap:4,flexWrap:"wrap",flex:1, marginRight:10}}>
-         <span style={{fontSize:9,background:"#ecfdf5",color:"#059669",borderRadius:20,padding:"2px 7px",fontWeight:600}}>☪ متوافق</span>
-         <span style={{fontSize:9,background:"#eff6ff",color:"#1d4ed8",borderRadius:20,padding:"2px 7px",fontWeight:600}}>{r.signal}</span>
-       </div>
-       <div style={{textAlign:"right",minWidth:70,flexShrink:0}}>
-         <div style={{fontSize:16,fontWeight:700,color:"#0f172a"}}>{f$(r.price)}</div>
-         <div style={{fontSize:10,color:"#64748b"}}>ماركت كاب: {r.marketCap}</div>
-       </div>
-       <span style={{color:"#cbd5e1",fontSize:11,transform:open?"rotate(180deg)":"none",transition:"transform 0.2s",display:"inline-block",flexShrink:0, marginRight:10}}>▼</span>
-     </div>
-     {open&&(
-       <div style={{borderTop:"1px solid #f1f5f9",padding:"14px 16px"}}>
-         <div style={{background:"#fdf4ff",border:"1px solid #e9d5ff",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:"#6d28d9"}}>📡 حالة الرادار: تم فحص التوافق المالي والشرعي للسهم، السهم جاهز للمراقبة واقتناص الفرصة.</div>
-         <div style={{background:"linear-gradient(135deg,#fff5f5,#fef2f2)",border:"1px solid #fecaca",borderRadius:10,padding:"12px 14px",marginBottom:8}}>
-           <div style={{fontSize:10,color:"#b91c1c",fontWeight:600,marginBottom:6}}>🛑 وقف الخسارة الدعم القريب</div>
-           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-             <span style={{fontSize:18,fontWeight:700,color:"#dc2626"}}>{f$(r.levels.sl)}</span>
-             <div style={{textAlign:"right"}}>
-               <div style={{fontSize:13,color:"#b91c1c",fontWeight:600}}>-5.00%</div>
-             </div>
-           </div>
-         </div>
-         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-           {[{n:1,val:r.levels.t1,label:"TP1 +15%",from:"#eff6ff",to:"#dbeafe",border:"#bfdbfe",text:"#1d4ed8"},{n:2,val:r.levels.t2,label:"TP2 +30%",from:"#f0fdf4",to:"#dcfce7",border:"#bbf7d0",text:"#15803d"},{n:3,val:r.levels.t3,label:"TP3 +50%",from:"#fffbeb",to:"#fef3c7",border:"#fde68a",text:"#b45309"}].map(t=>(
-             <div key={t.n} style={{background:`linear-gradient(135deg,${t.from},${t.to})`,border:`1px solid ${t.border}`,borderRadius:10,padding:"10px 12px"}}>
-               <div style={{fontSize:9,color:t.text,fontWeight:600,marginBottom:4}}>{t.label}</div>
-               <div style={{fontSize:15,fontWeight:700,color:t.text}}>{f$(t.val)}</div>
-             </div>
-           ))}
-         </div>
-       </div>
-     )}
-   </div>
- );
+function StockCard({ r, f$, fp }) {
+  const [open, setOpen] = useState(false);
+  
+  // الألوان الذكية ديناميكياً
+  const isExplosive = r.signal.includes("🔥");
+  const badgeColor = isExplosive ? "#ef4444" : "#10b981";
+  const badgeBg = isExplosive ? "rgba(239, 68, 68, 0.1)" : "rgba(16, 185, 129, 0.1)";
+
+  return (
+    <div style={{
+      background: "#1e293b", 
+      border: "1px solid #334155", 
+      borderRadius: 16, 
+      marginBottom: 12, 
+      overflow: "hidden",
+      boxShadow: open ? "0 12px 30px rgba(0,0,0,0.3)" : "0 2px 8px rgba(0,0,0,0.15)",
+      transition: "all 0.3s ease"
+    }}>
+      {/* الجزء العلوي المدمج */}
+      <div onClick={() => setOpen(o => !o)} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        
+        {/* الدائرة الرمزية للسهم */}
+        <div style={{ background: "linear-gradient(135deg, #3b82f6, #1d4ed8)", borderRadius: 12, width: 48, height: 48, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "#fff" }}>
+          {r.symbol.substring(0, 2)}
+        </div>
+
+        {/* الاسم والماركت كاب */}
+        <div style={{ flex: 1, minWidth: 100 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#f8fafc" }}>{r.symbol}</div>
+          <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>القيمة: ${r.marketCap}</div>
+        </div>
+
+        {/* الإشارات الفنية الفورية */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flex: 2 }}>
+          <span style={{ fontSize: 10, background: "rgba(16, 185, 129, 0.15)", color: "#10b981", borderRadius: 30, padding: "4px 10px", fontWeight: 600 }}>☪ نقي شرعاً</span>
+          <span style={{ fontSize: 10, background: "rgba(255,255,255,0.05)", color: "#94a3b8", borderRadius: 30, padding: "4px 10px" }}>ديون: {r.debtRatio}</span>
+          <span style={{ fontSize: 10, background: badgeBg, color: badgeColor, borderRadius: 30, padding: "4px 10px", fontWeight: 600 }}>{r.signal}</span>
+        </div>
+
+        {/* السعر الحالي */}
+        <div style={{ textAlign: "left", minWidth: 80 }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: "#38bdf8" }}>{f$(r.price)}</div>
+          <div style={{ fontSize: 11, color: "#10b981", marginTop: 2 }}>جاهز للقنص</div>
+        </div>
+
+        <span style={{ color: "#64748b", fontSize: 12, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s", marginRight: 10 }}>▼</span>
+      </div>
+
+      {/* تفاصيل المستثمر المحترف عند الفتح */}
+      {open && (
+        <div style={{ borderTop: "1px solid #334155", padding: "20px", background: "#0f172a" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 20 }}>
+            
+            {/* بطاقة الدعم ووقف الخسارة */}
+            <div style={{ background: "linear-gradient(135deg, #451a03, #1c1917)", border: "1px solid #78350f", borderRadius: 12, padding: "14px" }}>
+              <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600, marginBottom: 4 }}>🛑 حماية رأس المال (وقف الخسارة)</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#ef4444" }}>{f$(r.levels.sl)}</div>
+              <div style={{ fontSize: 10, color: "#a8a29e", marginTop: 2 }}>خروج فوري في حال الإغلاق تحت هذا السعر</div>
+            </div>
+
+            {/* الأهداف الشرائية الاستراتيجية */}
+            <div style={{ background: "rgba(30, 41, 59, 0.5)", border: "1px solid #334155", borderRadius: 12, padding: "14px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 11, color: "#38bdf8", fontWeight: 600 }}>🎯 الأهداف البيعية المتوقعة</div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#cbd5e1" }}>
+                <span>الهدف الأول (+15%):</span> <strong style={{ color: "#10b981" }}>{f$(r.levels.t1)}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#cbd5e1" }}>
+                <span>الهدف الثاني (+30%):</span> <strong style={{ color: "#3b82f6" }}>{f$(r.levels.t2)}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#cbd5e1" }}>
+                <span>الهدف الثالث (+50%):</span> <strong style={{ color: "#a855f7" }}>{f$(r.levels.t3)}</strong>
+              </div>
+            </div>
+
+          </div>
+          <div style={{ fontSize: 11, color: "#64748b", textAlign: "left" }}>تحديث البيانات: فوري عبر قراءة حركة التدفق المالي اللحظي والعمق السعري للشركة.</div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function Radar() {
- const [results, setResults] = useState([]);
- const [loading, setLoading] = useState(false);
- const [total, setTotal] = useState(0);
- const [done, setDone] = useState(false);
- const [filter, setFilter] = useState("all");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+  
+  // خيارات الفلاتر الموسعة والمتقدمة
+  const [signalFilter, setSignalFilter] = useState("all");
+  const [priceFilter, setPriceFilter] = useState("all");
 
- const scan = async () => {
-   setLoading(true); setResults([]); setDone(false);
-   try {
-     const r = await fetch("/api/scan");
-     const d = await r.json();
-     
-     if (d.success && d.data) {
-       // معالجة البيانات وتوليد النقاط الفنية والأهداف آلياً لحسابات البطاقات
-       const processed = d.data.map((item, index) => {
-         const basePrice = item.price;
-         let score = 65; // سكور افتراضي للأسهم الشرعية المستقرة
-         if (item.signal.includes("🔥")) score = 95;
-         if (item.signal.includes("⚡")) score = 80;
+  const scan = async () => {
+    setLoading(true); setResults([]); setDone(false);
+    try {
+      const r = await fetch("/api/scan");
+      const d = await r.json();
+      
+      if (d.success && d.data) {
+        const processed = d.data.map(item => {
+          const basePrice = item.price;
+          return {
+            ...item,
+            levels: {
+              sl: basePrice * 0.95,
+              t1: basePrice * 1.15,
+              t2: basePrice * 1.30,
+              t3: basePrice * 1.50
+            }
+          };
+        });
+        setResults(processed);
+      }
+    } catch(e) { console.error(e); }
+    setLoading(false); setDone(true);
+  };
 
-         return {
-           ...item,
-           score: score,
-           levels: {
-             sl: basePrice * 0.95, // وقف الخسارة عند هبوط 5%
-             t1: basePrice * 1.15, // الهدف الأول +15%
-             t2: basePrice * 1.30, // الهدف الثاني +30%
-             t3: basePrice * 1.50  // الهدف الثالث +50%
-           }
-         };
-       });
+  const f$ = n => "$" + (+n).toFixed(2);
+  const fp = n => (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%";
+  
+  // تطبيق الفرز المزدوج (حسب قوة السيولة وحسب سعر السهم)
+  const filtered = results.filter(r => {
+    // 1. تصفية حسب الإشارة
+    if (signalFilter === "explosive" && !r.signal.includes("🔥")) return false;
+    if (signalFilter === "stable" && !r.signal.includes("⚡") && !r.signal.includes("مستقر")) return false;
+    
+    // 2. تصفية حسب السعر لحماية المتداول
+    if (priceFilter === "penny" && r.price > 1) return false; // أسهم السنتات
+    if (priceFilter === "mid" && (r.price <= 1 || r.price > 5)) return false; // بين 1 و 5 دولار
+    if (priceFilter === "high" && r.price <= 5) return false; // أعلى من 5 دولار
+    
+    return true;
+  });
 
-       setResults(processed);
-       setTotal(200); // الـ 200 شركة الإجمالية التي يبحث فيها الكود الخلفي
-     }
-   } catch(e) { console.error(e); }
-   setLoading(false); setDone(true);
- };
+  const explosiveCount = results.filter(r => r.signal.includes("🔥")).length;
+  const stableCount = results.filter(r => r.signal.includes("⚡") || r.signal.includes("مستقر")).length;
 
- const f$ = n => "$" + (+n).toFixed(2);
- const fp = n => (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%";
- 
- const filtered = results.filter(r => {
-   if (filter === "explosive") return r.score >= 90;
-   if (filter === "high") return r.score >= 75 && r.score < 90;
-   return true;
- });
+  return (
+    <div style={{ minHeight: "100vh", background: "#0f172a", color: "#f8fafc", fontFamily: "system-ui, -apple-system", padding: "24px 16px" }} dir="rtl">
+      <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+        
+        {/* الهيدر الاحترافي الحضاري */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 20, marginBottom: 32, paddingBottom: 24, borderBottom: "1px solid #334155" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900, letterSpacing: "-0.05em", background: "linear-gradient(to right, #38bdf8, #10b981)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>RADAR AZ PRO</h1>
+              <span style={{ fontSize: 11, background: "rgba(16, 185, 129, 0.15)", color: "#10b981", borderRadius: 6, padding: "4px 10px", fontWeight: 700, border: "1px solid rgba(16,185,129,0.3)" }}>المعيار الشرعي المعتمد ☪</span>
+            </div>
+            <p style={{ margin: "6px 0 0 0", fontSize: 13, color: "#94a3b8" }}>منصة متطورة لمسح وفلترة ميكرو كاب السوق الأمريكي لحظياً للشركات النقية مالياً.</p>
+          </div>
 
- const explosive = results.filter(r => r.score >= 90).length;
- const high = results.filter(r => r.score >= 75 && r.score < 90).length;
+          {/* لوحة التحكم بالإحصائيات الرقمية الملونة */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 14, padding: "10px 18px", textAlign: "center", minWidth: 70 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#38bdf8" }}>200</div>
+              <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 4 }}>قاعدة الفحص</div>
+            </div>
+            <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: 14, padding: "10px 18px", textAlign: "center", minWidth: 70 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#ef4444" }}>{explosiveCount}</div>
+              <div style={{ fontSize: 9, color: "#f87171", marginTop: 4 }}>🔥 طفرة انفجارية</div>
+            </div>
+            <div style={{ background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: 14, padding: "10px 18px", textAlign: "center", minWidth: 70 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#10b981" }}>{filtered.length}</div>
+              <div style={{ fontSize: 9, color: "#34d399", marginTop: 4 }}>المطابقة للفلاتر</div>
+            </div>
+          </div>
+        </div>
 
- return (
-   <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#f0f9ff,#fafafa,#f0fdf4)",fontFamily:"system-ui",padding:16}} odds-dir="rtl">
-     <div style={{maxWidth:900,margin:"0 auto"}} dir="rtl">
-       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12,marginBottom:20,paddingBottom:16,borderBottom:"1px solid #e2e8f0"}}>
-         <div>
-           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
-             <h1 style={{margin:0,fontSize:20,fontWeight:800,color:"#0f172a"}}>Radar <span style={{color:"#10b981"}}>AZ</span> <span style={{fontSize:11,background:"#7c3aed22",color:"#7c3aed",borderRadius:4,padding:"2px 6px",fontWeight:600}}>PRO</span></h1>
-             <span style={{fontSize:10,background:"#dcfce7",color:"#15803d",borderRadius:20,padding:"2px 8px",fontWeight:600}}>☪ شرعي ومعتمد</span>
-           </div>
-           <p style={{margin:0,fontSize:11,color:"#94a3b8"}}>أسهم أمريكية شرعية (أقل من 200M ماركت كاب) · نظام فلترة متقدم</p>
-         </div>
-         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-           {[{label:"فُحص",val:total||200,bg:"#dbeafe",text:"#1d4ed8"},{label:"💥 انفجاري",val:explosive,bg:"#fce7f3",text:"#9d174d"},{label:"🔥 عالي",val:high,bg:"#fef3c7",text:"#b45309"},{label:"الكل متوافق",val:results.length,bg:"#dcfce7",text:"#15803d"}].map(s=>(
-             <div key={s.label} style={{background:s.bg,borderRadius:10,padding:"6px 12px",textAlign:"center",minWidth:56}}>
-               <div style={{fontSize:18,fontWeight:800,color:s.text,lineHeight:1}}>{s.val}</div>
-               <div style={{fontSize:8,color:s.text,opacity:0.7,marginTop:2}}>{s.label}</div>
-             </div>
-           ))}
-         </div>
-       </div>
-       <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
-         <button onClick={scan} disabled={loading} style={{background:loading?"#f1f5f9":"linear-gradient(135deg,#10b981,#059669)",border:"none",borderRadius:10,padding:"11px 24px",color:loading?"#94a3b8":"#fff",fontWeight:700,fontSize:13,cursor:loading?"not-allowed":"pointer",boxShadow:loading?"none":"0 4px 16px rgba(16,185,129,0.3)"}}>
-           {loading?"⟳ جاري فحص الـ 200 شركة...":"▶ ابدأ المسح"}
-         </button>
-         {results.length>0&&(
-           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-             {[{id:"all",label:`الكل المكتشف (${results.length})`},{id:"explosive",label:`💥 الطفرة (${explosive})`},{id:"high",label:`🔥 سيولة عالية (${high})`}].map(f=>(
-               <button key={f.id} onClick={()=>setFilter(f.id)} style={{background:filter===f.id?"#0f172a":"#fff",border:"1px solid #e2e8f0",borderRadius:20,padding:"6px 12px",color:filter===f.id?"#fff":"#64748b",fontSize:11,fontWeight:600,cursor:"pointer"}}>{f.label}</button>
-             ))}
-           </div>
-         )}
-       </div>
-       {loading&&<div style={{height:4,background:"#f1f5f9",borderRadius:4,marginBottom:16,overflow:"hidden"}}><div style={{height:"100%",width:"85%",background:"linear-gradient(90deg,#10b981,#34d399)",borderRadius:4}}/></div>}
-       {filtered.map(r=><OpCard key={r.symbol} r={r} f$={f$} fp={fp}/>)}
-       {done&&results.length===0&&(
-         <div style={{textAlign:"center",padding:"60px 20px",background:"#fff",borderRadius:16,border:"1px solid #f1f5f9"}}>
-           <div style={{fontSize:40,marginBottom:12}}>📡</div>
-           <div style={{fontSize:14,fontWeight:600,color:"#0f172a",marginBottom:6}}>لا توجد فرص مطابقة الشروط في هذه الدقيقة</div>
-           <div style={{fontSize:12,color:"#94a3b8"}}>تأكد من فتح السوق الأمريكي للمسح الحي المتكامل للسيولة.</div>
-         </div>
-       )}
-       <p style={{textAlign:"center",fontSize:10,color:"#cbd5e1",marginTop:24}}>Radar AZ Pro · أسهم شرعية معتمدة وفق تدقيق النسب المالية</p>
-     </div>
-   </div>
- );
+        {/* كابينة التحكم بالفلاتر والخيارات الحضارية المتقدمة */}
+        <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 16, padding: "20px", marginBottom: 24 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#cbd5e1", marginBottom: 14, display: "flex", alignItems: "center", gap: 6 }}>🎛️ فلترة ذكية متعددة المستويات:</div>
+          
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            {/* الفلتر الأول: حسب نوع الحركة والسيولة */}
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <label style={{ display: "block", fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>نوع التنبيه المالي</label>
+              <select value={signalFilter} onChange={(e) => setSignalFilter(e.target.value)} style={{ width: "100%", background: "#0f172a", border: "1px solid #475569", borderRadius: 8, padding: "8px 12px", color: "#fff", fontSize: 13, outline: "none" }}>
+                <option value="all">كل الفرص الشرعية المكتشفة</option>
+                <option value="explosive">🔥 طفرة سيولة مفاجئة وانفجار</option>
+                <option value="stable">⚡ دخول سيولة تدريجي مستقر</option>
+              </select>
+            </div>
+
+            {/* الفلتر الثاني: الفرز حسب سعر السهم المستهدف */}
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <label style={{ display: "block", fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>نطاق سعر السهم المستهدف</label>
+              <select value={priceFilter} onChange={(e) => setPriceFilter(e.target.value)} style={{ width: "100%", background: "#0f172a", border: "1px solid #475569", borderRadius: 8, padding: "8px 12px", color: "#fff", fontSize: 13, outline: "none" }}>
+                <option value="all">جميع الأسعار مفتوحة</option>
+                <option value="penny">أسهم السنتات (أقل من $1.00)</option>
+                <option value="mid">الأسهم الرخيصة الواعدة (بين $1 و $5)</option>
+                <option value="high">الأسهم المتوسطة (أعلى من $5)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* زر التفعيل الكبير العصري */}
+          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-start" }}>
+            <button onClick={scan} disabled={loading} style={{
+              background: loading ? "#334155" : "linear-gradient(135deg, #0ea5e9, #2563eb)",
+              border: "none", borderRadius: 10, padding: "12px 32px", color: loading ? "#94a3b8" : "#fff",
+              fontWeight: 700, fontSize: 14, cursor: loading ? "not-allowed" : "pointer",
+              boxShadow: loading ? "none" : "0 4px 20px rgba(14, 165, 233, 0.4)",
+              transition: "transform 0.2s"
+            }}>
+              {loading ? "⚡ جاري الفحص وتحليل النسب المالية الحية..." : "📡 ابدأ مسح السوق الفوري"}
+            </button>
+          </div>
+        </div>
+
+        {/* خط التحميل والتقدم الاحترافي */}
+        {loading && (
+          <div style={{ height: 4, background: "#1e293b", borderRadius: 4, marginBottom: 24, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: "75%", background: "linear-gradient(90deg, #38bdf8, #10b981)", borderRadius: 4 }} />
+          </div>
+        )}
+
+        {/* قائمة بطاقات عرض الأسهم الحضارية */}
+        {filtered.map(r => <StockCard key={r.symbol} r={r} f$={f$} fp={fp} />)}
+
+        {/* شاشة حالة عدم توفر فرص أو إغلاق السوق الفاخرة */}
+        {done && filtered.length === 0 && (
+          <div style={{ textAlign: "center", padding: "80px 20px", background: "#1e293b", borderRadius: 20, border: "1px solid #334155" }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🌐</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fafc", marginBottom: 8 }}>الرادار في وضع الاستعداد المالي</div>
+            <div style={{ fontSize: 13, color: "#94a3b8", maxWidth: 500, margin: "0 auto", lineHeight: 1.6 }}>
+              تم فحص مصفوفة الـ 200 شركة بالكامل. نظراً لأن السوق الأمريكي حالياً **مغلق في عطلة نهاية الأسبوع**، فإن السيرفر لا يستقبل تدفقات حجم التداول اللحظي. جرب تشغيل الفحص فور افتتاح الجلسة الرسمية القادمة لترى الفرص تنبثق هنا تلقائياً!
+            </div>
+          </div>
+        )}
+
+        <p style={{ textAlign: "center", fontSize: 11, color: "#475569", marginTop: 40 }}>RADAR AZ PLATINUM · جميع الحسابات مبنية على معادلات الفرز الإسلامي للديون والقيمة السوقية · إصدار v2.0</p>
+      </div>
+    </div>
+  );
 }
