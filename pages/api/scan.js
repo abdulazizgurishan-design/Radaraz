@@ -1,6 +1,6 @@
 export default async function handler(req, res) {
   // مفتاح الـ API الخاص بك والمشترك في الباقة المدفوعة
-  const POLYGON_API_KEY = "ZNfkvVZ46f53LayyNmA7a2dcfkJEZQqG";
+  const POLYGON_API_KEY = "zNfkvVZ46f53LayyNmA7a2dcfkJEZQqG";
 
   try {
     let results = [];
