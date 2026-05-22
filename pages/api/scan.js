@@ -1,26 +1,31 @@
 export default async function handler(req, res) {
-  // مفتاح الـ API الخاص باشتراكك الفعال
   const POLYGON_API_KEY = "ZNfkvVZ46f53LayyNmA7a2dcfkJEZQqG";
 
   try {
     let results = [];
-
-    // 🎯 استخدام تاريخ آخر جلسة تداول مغلقة بالكامل لتخطي قيود باقة الـ Starter وجلب الـ 8000 شركة فوراً
-    const stableDate = "2026-05-21"; 
     
+    // استخدام تاريخ مؤكد ومسجل في سيرفرات Polygon
+    const stableDate = "2026-05-21"; 
     const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${stableDate}?adjusted=true&apiKey=${POLYGON_API_KEY}`;
     
     const response = await fetch(url);
     const data = await response.json();
 
-    // معالجة البيانات وفلترتها فوراً عند نجاح الطلب
-    if (data.status === "OK" && data.results) {
+    // 🚨 اختبار كاشف الأخطاء: إذا لم تكن النتيجة OK، أرسل تفاصيل الخطأ مباشرة للشاشة
+    if (data.status !== "OK") {
+      return res.status(200).json({ 
+        success: false, 
+        error: `خطأ من Polygon: ${data.error || data.message || "سبب غير معروف"} (الحالة: ${data.status})` 
+      });
+    }
+
+    if (data.results && data.results.length > 0) {
       for (const stock of data.results) {
         const ticker = stock.T;  
-        const price = stock.c;   // سعر إغلاق الجلسة المستهدفة
-        const volume = stock.v;  // إجمالي السيولة المتداولة في الجلسة
+        const price = stock.c;   
+        const volume = stock.v;  
 
-        // الفلاتر الذكية لأسهم ميكرو كاب الواعدة
+        // الفلاتر
         if (price < 0.10 || price > 20) continue;
         if (volume < 50000) continue; 
         if (ticker.length > 4) continue; 
@@ -40,15 +45,17 @@ export default async function handler(req, res) {
         });
       }
 
-      // ترتيب تصاعدي حسب السيولة (الأعلى نشاطاً أولاً)
       results.sort((a, b) => b.volume - a.volume);
     }
 
-    // إرسال البيانات فوراً للواجهة لتظهر على الشاشة
+    // إذا كانت المصفوفة فارغة تماماً رغم نجاح الاتصال
+    if (results.length === 0) {
+      return res.status(200).json({ success: false, error: "تم الاتصال بنجاح ولكن لم يطابق أي سهم الفلاتر الفنية الفورية." });
+    }
+
     return res.status(200).json({ success: true, data: results.slice(0, 80) });
 
   } catch (error) {
-    console.error("Polygon Grouped Scan Error:", error);
-    return res.status(500).json({ success: false, error: "فشل مسح السوق" });
+    return res.status(200).json({ success: false, error: `فشل برمي داخلي: ${error.message}` });
   }
 }
