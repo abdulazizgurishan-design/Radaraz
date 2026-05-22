@@ -1,202 +1,114 @@
-import { useState } from "react";
-
-function StockCard({ r, f$ }) {
-  const [open, setOpen] = useState(false);
-  const isExplosive = r.signal.includes("🔥");
-  const badgeColor = isExplosive ? "#ef4444" : "#10b981";
-  const badgeBg = isExplosive ? "rgba(239, 68, 68, 0.1)" : "rgba(16, 185, 129, 0.1)";
-
-  // حساب الأهداف ديناميكياً بناءً على السعر الحالي القادم من الباقة المدفوعة
-  const basePrice = parseFloat(r.price) || 0;
-  const levels = {
-    sl: (basePrice * 0.95).toFixed(2),
-    t1: (basePrice * 1.15).toFixed(2),
-    t2: (basePrice * 1.30).toFixed(2),
-    t3: (basePrice * 1.50).toFixed(2)
-  };
-
-  return (
-    <div style={{
-      background: "#1e293b", 
-      border: "1px solid #334155", 
-      borderRadius: 16, 
-      marginBottom: 12, 
-      overflow: "hidden",
-      boxShadow: open ? "0 12px 30px rgba(0,0,0,0.3)" : "0 2px 8px rgba(0,0,0,0.15)",
-      transition: "all 0.3s ease"
-    }}>
-      <div onClick={() => setOpen(o => !o)} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ background: "linear-gradient(135deg, #3b82f6, #1d4ed8)", borderRadius: 12, width: 48, height: 48, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "#fff" }}>
-          {r.symbol.substring(0, 2)}
-        </div>
-
-        <div style={{ flex: 1, minWidth: 100 }}>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#f8fafc" }}>{r.symbol}</div>
-          <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>القيمة السوقية: ${r.marketCap}</div>
-        </div>
-
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flex: 2 }}>
-          <span style={{ fontSize: 10, background: "rgba(16, 185, 129, 0.15)", color: "#10b981", borderRadius: 30, padding: "4px 10px", fontWeight: 600 }}>☪ نقي شرعاً</span>
-          <span style={{ fontSize: 10, background: "rgba(255,255,255,0.05)", color: "#94a3b8", borderRadius: 30, padding: "4px 10px" }}>التطهير: {r.debtRatio}</span>
-          <span style={{ fontSize: 10, background: badgeBg, color: badgeColor, borderRadius: 30, padding: "4px 10px", fontWeight: 600 }}>{r.signal}</span>
-        </div>
-
-        <div style={{ textAlign: "left", minWidth: 80 }}>
-          <div style={{ fontSize: 18, fontWeight: 800, color: "#38bdf8" }}>{f$(r.price)}</div>
-          <div style={{ fontSize: 11, color: "#10b981", marginTop: 2 }}>جاهز للقنص</div>
-        </div>
-
-        <span style={{ color: "#64748b", fontSize: 12, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s", marginRight: 10 }}>▼</span>
-      </div>
-
-      {open && (
-        <div style={{ borderTop: "1px solid #334155", padding: "20px", background: "#0f172a" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 20 }}>
-            <div style={{ background: "linear-gradient(135deg, #451a03, #1c1917)", border: "1px solid #78350f", borderRadius: 12, padding: "14px" }}>
-              <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600, marginBottom: 4 }}>🛑 حماية رأس المال (وقف الخسارة)</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#ef4444" }}>${levels.sl}</div>
-              <div style={{ fontSize: 10, color: "#a8a29e", marginTop: 2 }}>خروج فوري في حال الإغلاق تحت هذا السعر</div>
-            </div>
-
-            <div style={{ background: "rgba(30, 41, 59, 0.5)", border: "1px solid #334155", borderRadius: 12, padding: "14px", display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ fontSize: 11, color: "#38bdf8", fontWeight: 600 }}>🎯 الأهداف البيعية المتوقعة</div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#cbd5e1" }}>
-                <span>الهدف الأول (+15%):</span> <strong style={{ color: "#10b981" }}>${levels.t1}</strong>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#cbd5e1" }}>
-                <span>الهدف الثاني (+30%):</span> <strong style={{ color: "#3b82f6" }}>${levels.t2}</strong>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#cbd5e1" }}>
-                <span>الهدف الثالث (+50%):</span> <strong style={{ color: "#a855f7" }}>${levels.t3}</strong>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+import { useState } from 'react';
 
 export default function Radar() {
-  const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
-  const [signalFilter, setSignalFilter] = useState("all");
-  const [priceFilter, setPriceFilter] = useState("all");
+  const [stocks, setStocks] = useState([]);
+  const [stats, setStats] = useState({ total: 8000, filtered: 0, explosions: 0 });
 
-  const scan = async () => {
-    setLoading(true); setResults([]); setDone(false);
+  const handleScan = async () => {
+    setLoading(true);
     try {
-      const r = await fetch("/api/scan");
-      const d = await r.json();
-      if (d.success && d.data) {
-        setResults(d.data);
+      const response = await fetch('/api/scan');
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        setStocks(result.data);
+        // حساب الإحصائيات الحية
+        const explosionsCount = result.data.filter(s => s.volume > 500000).length;
+        setStats({
+          total: 8000,
+          filtered: result.data.length,
+          explosions: explosionsCount
+        });
+      } else {
+        alert(result.error || "لم يتم العثور على أسهم");
       }
-    } catch(e) { console.error(e); }
-    setLoading(false); setDone(true);
+    } catch (error) {
+      console.error("Scan Error:", error);
+    }
+    setLoading(false);
   };
 
-  const f$ = n => "$" + parseFloat(n).toFixed(2);
-
-  const filtered = results.filter(r => {
-    if (signalFilter === "explosive" && !r.signal.includes("🔥")) return false;
-    if (signalFilter === "stable" && !r.signal.includes("⚡")) return false;
-    
-    if (priceFilter === "penny" && r.price > 1) return false;
-    if (priceFilter === "mid" && (r.price <= 1 || r.price > 5)) return false;
-    if (priceFilter === "high" && r.price <= 5) return false;
-    
-    return true;
-  });
-
-  const explosiveCount = results.filter(r => r.signal.includes("🔥")).length;
-
   return (
-    <div style={{ minHeight: "100vh", background: "#0f172a", color: "#f8fafc", fontFamily: "system-ui, -apple-system", padding: "24px 16px" }} dir="rtl">
-      <div style={{ maxWidth: 1000, margin: "0 auto" }}>
-        
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 20, marginBottom: 32, paddingBottom: 24, borderBottom: "1px solid #334155" }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900, background: "linear-gradient(to right, #38bdf8, #10b981)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>RADAR AZ PRO</h1>
-              <span style={{ fontSize: 11, background: "rgba(16, 185, 129, 0.15)", color: "#10b981", borderRadius: 6, padding: "4px 10px", fontWeight: 700, border: "1px solid rgba(16,185,129,0.3)" }}>المعيار الشرعي المعتمد ☪</span>
-            </div>
-            <p style={{ margin: "6px 0 0 0", fontSize: 13, color: "#94a3b8" }}>منصة متطورة لمسح وفلترة ميكرو كاب السوق الأمريكي بالكامل لحظياً للشركات النقية مالياً.</p>
-          </div>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 14, padding: "10px 18px", textAlign: "center", minWidth: 70 }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#38bdf8" }}>8,000+</div>
-              <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 4 }}>نطاق الفحص الشامل</div>
-            </div>
-            <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: 14, padding: "10px 18px", textAlign: "center", minWidth: 70 }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#ef4444" }}>{explosiveCount}</div>
-              <div style={{ fontSize: 9, color: "#f87171", marginTop: 4 }}>🔥 طفرة انفجارية</div>
-            </div>
-            <div style={{ background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: 14, padding: "10px 18px", textAlign: "center", minWidth: 70 }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#10b981" }}>{filtered.length}</div>
-              <div style={{ fontSize: 9, color: "#34d399", marginTop: 4 }}>المطابقة للفلاتر</div>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 16, padding: "20px", marginBottom: 24 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#cbd5e1", marginBottom: 14, display: "flex", alignItems: "center", gap: 6 }}>🎛️ فلترة ذكية متعددة المستويات:</div>
-          
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <label style={{ display: "block", fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>نوع التنبيه المالي</label>
-              <select value={signalFilter} onChange={(e) => setSignalFilter(e.target.value)} style={{ width: "100%", background: "#0f172a", border: "1px solid #475569", borderRadius: 8, padding: "8px 12px", color: "#fff", fontSize: 13, outline: "none" }}>
-                <option value="all">كل الفرص الشرعية المكتشفة</option>
-                <option value="explosive">🔥 طفرة سيولة مفاجئة وانفجار</option>
-                <option value="stable">⚡ دخول سيولة تدريجي مستقر</option>
-              </select>
-            </div>
-
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <label style={{ display: "block", fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>نطاق سعر السهم المستهدف</label>
-              <select value={priceFilter} onChange={(e) => setPriceFilter(e.target.value)} style={{ width: "100%", background: "#0f172a", border: "1px solid #475569", borderRadius: 8, padding: "8px 12px", color: "#fff", fontSize: 13, outline: "none" }}>
-                <option value="all">جميع الأسعار مفتوحة</option>
-                <option value="penny">أسهم السنتات (أقل من $1.00)</option>
-                <option value="mid">الأسهم الرخيصة الواعدة (بين $1 و $5)</option>
-                <option value="high">الأسهم المتوسطة (أعلى من $5)</option>
-              </select>
-            </div>
-          </div>
-
-          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-start" }}>
-            <button onClick={scan} disabled={loading} style={{
-              background: loading ? "#334155" : "linear-gradient(135deg, #0ea5e9, #2563eb)",
-              border: "none", borderRadius: 10, padding: "12px 32px", color: loading ? "#94a3b8" : "#fff",
-              fontWeight: 700, fontSize: 14, cursor: loading ? "not-allowed" : "pointer",
-              boxShadow: loading ? "none" : "0 4px 20px rgba(14, 165, 233, 0.4)",
-              transition: "transform 0.2s"
-            }}>
-              {loading ? "⚡ جاري مسح وتحليل صفقات السوق الكامل..." : "📡 ابدأ مسح السوق الفوري"}
-            </button>
-          </div>
-        </div>
-
-        {loading && (
-          <div style={{ height: 4, background: "#1e293b", borderRadius: 4, marginBottom: 24, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: "85%", background: "linear-gradient(90deg, #38bdf8, #10b981)", borderRadius: 4 }} />
-          </div>
-        )}
-
-        {filtered.map(r => <StockCard key={r.symbol} r={r} f$={f$} />)}
-
-        {done && filtered.length === 0 && (
-          <div style={{ textAlign: "center", padding: "80px 20px", background: "#1e293b", borderRadius: 20, border: "1px solid #334155" }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🌐</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fafc", marginBottom: 8 }}>لا توجد فرص مطابقة في هذه الثواني</div>
-            <div style={{ fontSize: 13, color: "#94a3b8", maxWidth: 500, margin: "0 auto", lineHeight: 1.6 }}>
-              تأكد من فتح الجلسة الرسمية للسوق الأمريكي لمراقبة تدفقات السيولة اللحظية لـ 8,000 شركة دفعة واحدة عبر حسابك المدفوع.
-            </div>
-          </div>
-        )}
-
-        <p style={{ textAlign: "center", fontSize: 11, color: "#475569", marginTop: 40 }}>RADAR AZ PLATINUM · فحص شامل فوري متصل بـ Polygon Premium · إصدار v2.5</p>
+    <div style={{ backgroundColor: '#0f172a', color: '#fff', minHeight: '100vh', padding: '20px', fontFamily: 'sans-serif', direction: 'rtl' }}>
+      
+      {/* الهيدر العلوى */}
+      <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+        <h1 style={{ color: '#38bdf8', fontSize: '28px', fontWeight: 'bold' }}>📡 RADAR AZ PRO</h1>
+        <p style={{ color: '#94a3b8' }}>منصة متطورة لمسح وفلترة ميكرو كاب السوق الأمريكي بالكامل لحظياً</p>
       </div>
+
+      {/* العدادات الرقمية الفخمة */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginBottom: '30px' }}>
+        <div style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '12px', textAlign: 'center', border: '1px solid #334155' }}>
+          <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>{stats.filtered}</div>
+          <div style={{ fontSize: '12px', color: '#94a3b8' }}>المطابقة للفلاتر</div>
+        </div>
+        <div style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '12px', textAlign: 'center', border: '1px solid #334155' }}>
+          <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ef4444' }}>{stats.explosions}</div>
+          <div style={{ fontSize: '12px', color: '#94a3b8' }}>🔥 طفرة انفجارية</div>
+        </div>
+        <div style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '12px', textAlign: 'center', border: '1px solid #334155' }}>
+          <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#38bdf8' }}>+{stats.total}</div>
+          <div style={{ fontSize: '12px', color: '#94a3b8' }}>نطاق الفحص الشامل</div>
+        </div>
+      </div>
+
+      {/* زر الفحص الاحترافي */}
+      <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+        <button 
+          onClick={handleScan}
+          disabled={loading}
+          style={{
+            background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+            color: 'white',
+            padding: '15px 40px',
+            borderRadius: '50px',
+            border: 'none',
+            fontSize: '18px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)',
+            width: '100%',
+            maxWidth: '350px'
+          }}
+        >
+          {loading ? "⏳ جاري فحص الـ 8,000 شركة..." : "📡 ابدأ مسح السوق الفوري"}
+        </button>
+      </div>
+
+      {/* جدول عرض نتائج الأسهم الفورية */}
+      <div style={{ backgroundColor: '#1e293b', borderRadius: '16px', padding: '15px', border: '1px solid #334155' }}>
+        {stocks.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+            اضغط على الزر في الأعلى لتشغيل الرادار وسحب صفقات السوق الفورية الآن.
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', textAlign: 'right', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #334155', color: '#94a3b8' }}>
+                  <th style={{ padding: '10px' }}>الرمز</th>
+                  <th style={{ padding: '10px' }}>السعر</th>
+                  <th style={{ padding: '10px' }}>السيولة (الحجم)</th>
+                  <th style={{ padding: '10px' }}>الإشارة</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stocks.map((stock, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid #334155', height: '50px' }}>
+                    <td style={{ padding: '10px', fontWeight: 'bold', color: '#38bdf8' }}>{stock.symbol}</td>
+                    <td style={{ padding: '10px', color: '#f59e0b' }}>${stock.price}</td>
+                    <td style={{ padding: '10px' }}>{stock.volume.toLocaleString()}</td>
+                    <td style={{ padding: '10px', color: stock.volume > 500000 ? '#ef4444' : '#10b981' }}>{stock.signal}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
