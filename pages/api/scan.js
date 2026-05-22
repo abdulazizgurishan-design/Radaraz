@@ -2,8 +2,9 @@ export default async function handler(req, res) {
   const POLYGON_API_KEY = "ZNfkvVZ46f53LayyNmA7a2dcfkJEZQqG";
 
   try {
-    // استخدام تاريخ تداول ثابت ومستقر لضمان جلب البيانات فوراً وتخطي قيود الباقة اللحظية
-    const stableDate = "2026-05-21"; 
+    // استخدام تاريخ جلسة تداول رسمية ومؤكدة ومكتملة تماماً في سيرفرات باقة الـ Starter
+    const stableDate = "2026-05-19"; 
+    
     const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${stableDate}?adjusted=true&apiKey=${POLYGON_API_KEY}`;
     
     const response = await fetch(url);
@@ -18,9 +19,9 @@ export default async function handler(req, res) {
         const price = stock.c || 0;
         const volume = stock.v || 0;
 
-        // فلاتر الميكرو كاب الصارمة
-        if (price < 0.10 || price > 20) continue;
-        if (volume < 50000) continue;
+        // فلاتر الميكرو كاب المفتوحة والمرنة لضمان جلب البيانات كاملة
+        if (price < 0.01 || price > 30) continue;
+        if (volume < 10000) continue; // تقليل شرط السيولة لامتصاص أكبر عدد من الشركات
         if (ticker.length > 4) continue;
 
         let signal = "⚡ دخول سيولة تدريجي";
@@ -38,11 +39,11 @@ export default async function handler(req, res) {
         });
       }
 
-      // ترتيب حسب الأعلى سيولة ونشاطاً
+      // ترتيب حسب الأعلى نشاطاً وسيولة
       results.sort((a, b) => b.volume - a.volume);
     }
 
-    // إرسال البيانات المصفاة (أول 80 سهم واعد)
+    // إرسال البيانات المصفاة فوراً للواجهة
     return res.status(200).json({ success: true, data: results.slice(0, 80) });
 
   } catch (error) {
