@@ -165,7 +165,7 @@ export default function Radar() {
         )}
       </div>
 
-      {/* الملاحظات القانونية والشرعية والتحذيرية المحدثة بالأسفل خط صغير */}
+      {/* الملاحظات القانونية والشرعية والتحذيرية المحدثة بالأسفل بخط صغير */}
       <footer style={{ textAlign: 'center', marginTop: '40px', paddingBottom: '20px', paddingHorizontal: '15px' }}>
         <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '0 0 8px 0', lineHeight: '1.6' }}>
           💡 يرجى البحث عن شرعية الأسهم في التطبيقات المعتمدة (مثل الفلتر الشرعي أو يقين) قبل اتخاذ أي قرار استثماري.
