@@ -1,6 +1,7 @@
 الكود كامل مع الـ Key — الصقه في pages/api/scan.js:
-
 const POLYGON_KEY = "ZNfkvVZ46f53LayyNmA7a2dcfkJEZQqG";
+
+";
 
 const HALAL_WATCHLIST = [
   "SOUN","BNGO","MVIS","GOVX","CETX","ATNF","BFRI","DARE","EYES","SURF",
