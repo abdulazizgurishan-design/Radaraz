@@ -17,16 +17,16 @@ export default function Radar() {
           let liquidityStatus = "عادي";
           
           if (stock.volume > 1000000) {
-            score = 95;
+            score = 98;
             liquidityStatus = "انفجاري 🔥";
           } else if (stock.volume > 500000) {
-            score = 85;
+            score = 88;
             liquidityStatus = "انفجاري 🔥";
           } else if (stock.volume > 200000) {
-            score = 75;
+            score = 78;
             liquidityStatus = "عالي ⚡";
           } else if (stock.volume > 100000) {
-            score = 65;
+            score = 68;
             liquidityStatus = "عالي ⚡";
           } else {
             liquidityStatus = "مراقبة ⏱️";
@@ -67,7 +67,7 @@ export default function Radar() {
           🎯 RADAR AZ PRO v2
         </h1>
         <p style={{ color: '#8892b0', fontSize: '1rem', margin: '0' }}>
-          رادار مسح السوق الأمريكي الفوري (تحت 500 مليون$ )
+          رادار مسح السوق الأمريكي الفوري الآمن (تحت 500 مليون$ )
         </p>
       </header>
 
@@ -89,11 +89,11 @@ export default function Radar() {
             transition: 'all 0.3s ease'
           }}
         >
-          {loading ? '⏳ جاري تصفية السوق الأمريكي...' : '🚀 ابدأ مسح السوق الفوري'}
+          {loading ? '⏳ جاري تصفية وتأمين الفرص...' : '🚀 ابدأ مسح السوق الفوري'}
         </button>
       </div>
 
-      {/* الجدول المطور مع التعديلات الجديدة */}
+      {/* الجدول المطور مع لمسات الخبير */}
       <div style={{
         maxWidth: '1200px',
         margin: '0 auto',
@@ -106,7 +106,7 @@ export default function Radar() {
         {searched && stocks.length === 0 && !loading ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: '#ff4d4d' }}>
             <p style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: '0' }}>
-              ⚠️ لا توجد فرص تطابق الفلاتر حالياً (يفتح الاثنين 4:30 م بتوقيت الرياض)
+              ⚠️ لا توجد فرص تطابق فلاتر الأمان حالياً (يفتح الاثنين 4:30 م بتوقيت الرياض)
             </p>
           </div>
         ) : (
@@ -116,7 +116,7 @@ export default function Radar() {
                 <tr style={{ borderBottom: '2px solid #1f2937', color: '#00ffcc' }}>
                   <th style={{ padding: '15px 10px' }}>الرمز</th>
                   <th style={{ padding: '15px 10px' }}>السكور 📊</th>
-                  <th style={{ padding: '15px 10px' }}>السعر</th>
+                  <th style={{ padding: '15px 10px' }}>السعر الحالي</th>
                   <th style={{ padding: '15px 10px' }}>حجم السيولة</th>
                   <th style={{ padding: '15px 10px' }}>حالة السيولة</th>
                   <th style={{ padding: '15px 10px' }}>الهدف 1</th>
@@ -133,9 +133,9 @@ export default function Radar() {
                     <td style={{ padding: '15px 10px', fontWeight: 'bold', color: '#fff' }}>{stock.symbol}</td>
                     <td style={{ padding: '15px 10px' }}>
                       <span style={{
-                        background: stock.score >= 85 ? 'rgba(0, 255, 204, 0.12)' : 'rgba(0, 119, 255, 0.12)',
+                        background: stock.score >= 85 ? 'rgba(0, 255, 204, 0.15)' : 'rgba(0, 119, 255, 0.15)',
                         color: stock.score >= 85 ? '#00ffcc' : '#38bdf8',
-                        padding: '4px 8px',
+                        padding: '4px 10px',
                         borderRadius: '6px',
                         fontWeight: 'bold',
                         fontSize: '0.85rem'
@@ -145,7 +145,6 @@ export default function Radar() {
                     </td>
                     <td style={{ padding: '15px 10px', color: '#38bdf8', fontWeight: '600' }}>${stock.price}</td>
                     <td style={{ padding: '15px 10px', color: '#e5e7eb' }}>{stock.volume.toLocaleString()}</td>
-                    {/* حالة السيولة بجانب الحجم مباشرة */}
                     <td style={{ padding: '15px 10px' }}>
                       <span style={{
                         color: stock.liquidityStatus.includes('🔥') ? '#ff4d4d' : (stock.liquidityStatus.includes('⚡') ? '#38bdf8' : '#8892b0'),
@@ -154,9 +153,10 @@ export default function Radar() {
                         {stock.liquidityStatus}
                       </span>
                     </td>
-                    <td style={{ padding: '15px 10px', color: '#4ade80' }}>${stock.target1}</td>
-                    <td style={{ padding: '15px 10px', color: '#22c55e', fontWeight: 'bold' }}>${stock.target2}</td>
-                    <td style={{ padding: '15px 10px', color: '#ef4444' }}>${stock.stopLoss}</td>
+                    {/* تلوين الأهداف بالبصريات الاحترافية الأخضر والوقف بالأحمر */}
+                    <td style={{ padding: '15px 10px', color: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.05)', fontWeight: '500' }}>${stock.target1}</td>
+                    <td style={{ padding: '15px 10px', color: '#00ffcc', backgroundColor: 'rgba(0, 255, 204, 0.05)', fontWeight: 'bold' }}>${stock.target2}</td>
+                    <td style={{ padding: '15px 10px', color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.05)', fontWeight: 'bold' }}>${stock.stopLoss}</td>
                   </tr>
                 ))}
               </tbody>
@@ -165,7 +165,7 @@ export default function Radar() {
         )}
       </div>
 
-      {/* الملاحظات القانونية والشرعية والتحذيرية المحدثة بالأسفل بخط صغير */}
+      {/* الملاحظات في الأسفل */}
       <footer style={{ textAlign: 'center', marginTop: '40px', paddingBottom: '20px', paddingHorizontal: '15px' }}>
         <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '0 0 8px 0', lineHeight: '1.6' }}>
           💡 يرجى البحث عن شرعية الأسهم في التطبيقات المعتمدة (مثل الفلتر الشرعي أو يقين) قبل اتخاذ أي قرار استثماري.
