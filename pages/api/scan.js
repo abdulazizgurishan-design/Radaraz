@@ -4,63 +4,103 @@ export default async function handler(req, res) {
   try {
     const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`;
     const response = await fetch(snapshotUrl);
-    
-    if (!response.ok) return res.status(200).json({ success: true, data: [] });
+
+    if (!response.ok) return res.status(200).json({ results: [], total: 0 });
 
     const snapshotData = await response.json();
-    if (!snapshotData || !snapshotData.tickers) return res.status(200).json({ success: true, data: [] });
+    if (!snapshotData?.tickers) return res.status(200).json({ results: [], total: 0 });
 
-    const finalResults = [];
-    const MAX_MARKET_CAP = 500000000; 
+    const MAX_MARKET_CAP = 500_000_000;
+    const rawResults = [];
 
     for (const stock of snapshotData.tickers) {
-      if (!stock || !stock.ticker) continue;
+      if (!stock?.ticker) continue;
       if (stock.marketCap && stock.marketCap > MAX_MARKET_CAP) continue;
 
-      let price = stock.min ? stock.min.c : (stock.lastTrade ? stock.lastTrade.p : (stock.day ? stock.day.c : 0));
-      let volume = stock.day ? stock.day.v : 0;
+      // ── السعر والحجم ──────────────────────────────────────────
+      let price  = stock.min?.c ?? stock.lastTrade?.p ?? stock.day?.c ?? 0;
+      let volume = stock.day?.v ?? 0;
 
       if (volume === 0 && stock.prevDay) {
-        price = stock.prevDay.c || price;
+        price  = stock.prevDay.c || price;
         volume = stock.prevDay.v || 0;
       }
 
       if (price < 0.1 || price > 20) continue;
-      if (volume < 10000) continue; 
+      if (volume < 10_000) continue;
 
-      // 🛡️ إضافة الخبير: فلتر الحماية من فخ الـ Spread (الفارق بين العرض والطلب)
-      // إذا كان الفارق بين آخر سعر تداول وسعر الطلب/العرض أكبر من 3% استبعد السهم فوراً لأنه خطير لحظياً
-      if (stock.lastTrade && stock.lastTrade.p) {
-        const ask = stock.lastQuote ? stock.lastQuote.P : price;
-        const bid = stock.lastQuote ? stock.lastQuote.p : price;
+      // ── فلتر الـ Spread (حماية من السيولة الوهمية) ────────────
+      if (stock.lastTrade?.p) {
+        const ask = stock.lastQuote?.P ?? price;
+        const bid = stock.lastQuote?.p ?? price;
         const spreadPercent = ((ask - bid) / price) * 100;
-        if (spreadPercent > 3) continue; // استبعاد الأسهم ذات السيولة الوهمية
+        if (spreadPercent > 3) continue;
       }
 
-      const stopLoss = (price * 0.97).toFixed(2);       
-      const target1 = (price * 1.10).toFixed(2);        
-      const target2 = (price * 1.20).toFixed(2);        
+      // ── المؤشرات الفنية ───────────────────────────────────────
+      const prevClose = stock.prevDay?.c || price;
+      const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
+      const vwap      = stock.day?.vw || price;
+      const aboveVWAP = price > vwap;
+      const preGap    = stock.day?.o && stock.prevDay?.c
+        ? ((stock.day.o - stock.prevDay.c) / stock.prevDay.c) * 100
+        : 0;
 
-      const debtRatio = (5 + (volume % 11)).toFixed(1);
-      const isExplosive = volume > 400000;
-      const statusText = isExplosive ? "🔥 طفرة وانفجار سيولة" : "👀 مراقبة وبداية دخول";
+      // حساب RVOL تقريبي (حجم اليوم ÷ متوسط وهمي)
+      const avgVolEst = stock.prevDay?.v || volume;
+      const rvol      = avgVolEst > 0 ? volume / avgVolEst : 1;
 
-      finalResults.push({
-        symbol: stock.ticker,
-        price: parseFloat(price.toFixed(2)),
-        volume: volume,
-        debtRatio: debtRatio + "%",
-        signal: statusText,
-        stopLoss: parseFloat(stopLoss),
-        target1: parseFloat(target1),
-        target2: parseFloat(target2)
+      // ── درجة الفرصة (Score) ───────────────────────────────────
+      let score = 40;
+      if (rvol > 2)        score += 15;
+      if (rvol > 5)        score += 10;
+      if (aboveVWAP)       score += 10;
+      if (preGap > 5)      score += 10;
+      if (changePct > 5)   score += 10;
+      if (changePct > 10)  score += 5;
+      if (volume > 500_000) score += 5;
+      if (price >= 1 && price <= 10) score += 5; // نطاق مثالي
+      score = Math.min(score, 99);
+
+      const confidence =
+        score >= 80 ? "💥 انفجاري" :
+        score >= 60 ? "🔥 عالي"    : "👀 مراقبة";
+
+      // ── مستويات الدخول والخروج ────────────────────────────────
+      const sl     = parseFloat((price * 0.97).toFixed(2));
+      const t1     = parseFloat((price * 1.10).toFixed(2));
+      const t2     = parseFloat((price * 1.20).toFixed(2));
+      const t3     = parseFloat((price * 1.35).toFixed(2));
+      const slPct  = -3;
+      const risk   = parseFloat((price - sl).toFixed(2));
+
+      rawResults.push({
+        symbol:     stock.ticker,
+        price:      parseFloat(price.toFixed(2)),
+        change_pct: parseFloat(changePct.toFixed(2)),
+        volume,
+        rvol:       parseFloat(rvol.toFixed(2)),
+        vwap:       parseFloat(vwap.toFixed(2)),
+        aboveVWAP,
+        preGap:     parseFloat(preGap.toFixed(2)),
+        marketCap:  stock.marketCap ? stock.marketCap / 1_000_000 : null,
+        score,
+        confidence,
+        ema9:  null, // يحتاج endpoint منفصل
+        ema20: null,
+        levels: { sl, t1, t2, t3, slPct, risk },
       });
     }
 
-    finalResults.sort((a, b) => b.volume - a.volume);
-    return res.status(200).json({ success: true, data: finalResults.slice(0, 100) });
+    // ترتيب حسب الـ Score ثم الـ RVOL
+    rawResults.sort((a, b) => b.score - a.score || b.rvol - a.rvol);
+
+    return res.status(200).json({
+      results: rawResults.slice(0, 100),
+      total:   snapshotData.tickers.length,
+    });
 
   } catch (error) {
-    return res.status(200).json({ success: true, data: [] });
+    return res.status(500).json({ error: error.message ?? "Server error" });
   }
 }
