@@ -2,13 +2,11 @@ const POLYGON_KEY = "Kv7F3MSRRgrH_8dOoFu4L0TpFO23Trix";
 const BASE = "https://api.polygon.io";
 
 const WATCHLIST = [
-  // Mining & Energy
   "SOUN","BBAI","KULR","CRKN","NKLA","MULN","WISA","CBAT","BFRI","ATXS",
   "HOLO","BHAT","CLSK","MARA","RIOT","CIFR","BTBT","IREN","ARBK","MIGI",
   "ATER","CLOV","NAKD","IDEX","SENS","ZKIN","ENSC","BKKT","NRDY","SMFL",
   "ALLR","GFAI","TYGO","AGRI","NVFY","SIGA","GOVX","XELA","IMPP","AEYE",
   "PRPB","PBAX","SBET","INPX","CLRB","ATNF","AULT","TAOP","KPLT","SHOT",
-  // Batch 2
   "ABOS","ACBA","ACER","ACHL","ACMR","ACNB","ACRX","ACST","ACTG","ACTU",
   "ADAP","ADCT","ADIL","ADMA","ADMP","ADMT","ADOC","ADSE","ADTX","ADUS",
   "ADVM","ADXN","AEAC","AEHR","AEIS","AENT","AERI","AESE","AEYE","AFAR",
@@ -19,37 +17,32 @@ const WATCHLIST = [
   "AKUS","AKYA","ALBT","ALCE","ALCO","ALDX","ALEC","ALGS","ALGT","ALHC",
   "ALIM","ALIT","ALJJ","ALKS","ALLK","ALLT","ALNY","ALOT","ALPA","ALPN",
   "ALPP","ALRS","ALRV","ALSA","ALSN","ALTO","ALTR","ALTS","ALTU","ALUR",
-  "ALVO","ALXO","ALYA","ALZN","AMAOX","AMBO","AMCI","AMCX","AMDX","AMGN",
-  "AMHC","AMID","AMIX","AMKR","AMMO","AMNB","AMOT","AMPE","AMPH","AMPI",
-  "AMPL","AMRK","AMRN","AMRS","AMSC","AMSF","AMST","AMSWA","AMTB","AMTX",
-  "AMWL","AMXT","ANAB","ANAC","ANDA","ANDX","ANEB","ANIK","ANIP","ANIX",
-  "ANNX","ANPC","ANSS","ANTE","ANTX","ANVS","AOGO","AONC","AOSL","APCA",
-  "APDN","APEI","APEN","APGE","APHA","APLD","APLM","APLS","APLT","APLY",
-  "APMI","APMO","APOG","APOP","APPF","APPH","APPN","APPS","APRE","APRL",
-  "APRT","APTO","APTX","APVO","APWC","APXI","APYX","AQMS","AQNB","AQST",
-  "ARAV","ARBB","ARBE","ARCE","ARCO","ARCT","AREC","ARGX","ARHS","ARIB",
-  "ARIZ","ARKO","ARKR","ARLP","ARMP","ARMT","ARNC","AROC","AROW","ARQQ",
-  "ARQT","ARRW","ARTE","ARTL","ARTNA","ARTW","ARVN","ARWR","ARYA","ARZN",
-  "ASAI","ASAL","ASAX","ASCA","ASEP","ASET","ASIX","ASKE","ASLEW","ASLN",
-  "ASND","ASNS","ASPC","ASPI","ASPS","ASRT","ASRV","ASTC","ASTE","ASTL",
-  "ASTR","ASTS","ASUR","ASYS","ATAI","ATAQ","ATCX","ATEC","ATEN","ATEX",
-  "ATHA","ATHE","ATHX","ATIF","ATIP","ATIS","ATIX","ATLC","ATLO","ATNX",
-  "ATOM","ATOS","ATPC","ATRA","ATRC","ATRI","ATRM","ATRS","ATSG","ATTO",
-  "ATXI","ATXS","ATYR","AUBN","AUDC","AUGX","AUID","AUPH","AURA","AURC",
-  "AUST","AUTL","AUUD","AUVI","AVAH","AVAV","AVBP","AVDL","AVGO","AVGR",
-  "AVHI","AVID","AVIR","AVNW","AVPT","AVRO","AVTE","AVTX","AVXL","AVYA",
-  "AWRE","AXDX","AXGN","AXGT","AXLA","AXNX","AXON","AXSM","AXTA","AXTI",
-  "AXTX","AYALA","AYRO","AYTU","AZEK","AZPN","AZRE","AZTA","AZUL","AZYO",
-  "BACK","BAND","BANF","BANR","BAOS","BARK","BBCP","BBIO","BBLG","BBSI",
-  "BCAB","BCAL","BCAN","BCDA","BCEL","BCLI","BCML","BCNP","BCOV","BCOW",
-  "BCPC","BCSA","BCTX","BCYC","BDSX","BDTX","BEAM","BEAT","BECN","BEEM",
-  "BELFA","BELFB","BENF","BEOX","BFIN","BFLY","BFRI","BGFV","BGRY","BHAT",
-  "BHIL","BHTG","BIAF","BIDU","BIGC","BIIB","BILI","BIMI","BINT","BIOX",
-  "BIRD","BIRK","BITE","BIVI","BJDX","BKCC","BKFG","BKKT","BKNG","BKSY",
-  "BKTI","BKUR","BLBD","BLBX","BLCT","BLDP","BLDR","BLEU","BLFS","BLFY",
-  "BLKB","BLMN","BLNK","BLPH","BLRX","BLSA","BLTE","BLUE","BLZE","BMBL",
-  "BMMJ","BMRA","BMRC","BMTX","BNGO","BNIX","BNKL","BNMV","BNOX","BNRG",
-  "BNSO","BNTC","BNTX","BNZI","BOCN","BOEL","BOLT","BOMN","BONE","BONT"
+  "ALVO","ALXO","ALYA","ALZN","AMBO","AMCI","AMCX","AMDX","AMHC","AMID",
+  "AMIX","AMKR","AMMO","AMNB","AMOT","AMPE","AMPH","AMPI","AMPL","AMRK",
+  "AMRN","AMRS","AMSC","AMSF","AMST","AMTB","AMTX","AMWL","AMXT","ANAB",
+  "ANAC","ANDA","ANDX","ANEB","ANIK","ANIP","ANIX","ANNX","ANPC","ANTE",
+  "ANTX","ANVS","AOGO","AONC","AOSL","APCA","APDN","APEI","APEN","APGE",
+  "APLD","APLM","APLS","APLT","APLY","APMI","APMO","APOG","APOP","APPF",
+  "APPH","APPN","APPS","APRE","APRL","APRT","APTO","APTX","APVO","APWC",
+  "APXI","APYX","AQMS","AQST","ARAV","ARBB","ARBE","ARCE","ARCO","ARCT",
+  "AREC","ARHS","ARIB","ARIZ","ARKO","ARKR","ARMP","ARMT","ARNC","AROC",
+  "AROW","ARQQ","ARQT","ARTE","ARTL","ARTW","ARVN","ARWR","ARYA","ARZN",
+  "ASAI","ASAL","ASAX","ASCA","ASEP","ASET","ASIX","ASKE","ASLN","ASND",
+  "ASNS","ASPC","ASPI","ASPS","ASRT","ASRV","ASTC","ASTE","ASTL","ASTR",
+  "ASTS","ASUR","ASYS","ATAI","ATAQ","ATCX","ATEC","ATEN","ATEX","ATHA",
+  "ATHE","ATHX","ATIF","ATIP","ATIS","ATIX","ATLC","ATLO","ATNX","ATOM",
+  "ATOS","ATPC","ATRA","ATRC","ATRI","ATRM","ATRS","ATSG","ATTO","ATXI",
+  "ATYR","AUBN","AUDC","AUGX","AUID","AUPH","AURA","AUST","AUTL","AUVI",
+  "AVAH","AVAV","AVDL","AVGR","AVID","AVIR","AVNW","AVPT","AVRO","AVTE",
+  "AVTX","AVXL","AWRE","AXDX","AXGN","AXGT","AXLA","AXNX","AXSM","AXTI",
+  "AYRO","AYTU","AZEK","AZPN","AZRE","AZTA","AZUL","BACK","BAND","BANF",
+  "BANR","BAOS","BARK","BBCP","BBIO","BBLG","BBSI","BCAB","BCAL","BCAN",
+  "BCDA","BCEL","BCLI","BCML","BCOV","BCPC","BCTX","BCYC","BDSX","BDTX",
+  "BEAM","BEAT","BECN","BEEM","BFLY","BGFV","BGRY","BHIL","BIAF","BIGC",
+  "BILI","BIMI","BIOX","BIRD","BITE","BIVI","BJDX","BKCC","BKFG","BKKT",
+  "BKSY","BKTI","BLBD","BLBX","BLDP","BLDR","BLFS","BLKB","BLMN","BLNK",
+  "BLPH","BLRX","BLTE","BLUE","BLZE","BMBL","BMRA","BMRC","BMTX","BNGO",
+  "BNIX","BNRG","BNSO","BNTC","BNTX","BOCN","BOLT","BONE","BONT","BOOM"
 ];
 
 export default async function handler(req, res) {
@@ -60,23 +53,20 @@ export default async function handler(req, res) {
 
     const isWeekend   = day === 0 || day === 6;
     const isPreMarket = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
+    const MIN_VOLUME  = isPreMarket ? 5000 : 20000;
 
-    const MIN_VOLUME = isPreMarket ? 5000 : 20000;
-
-    // تقسيم القائمة إلى chunks بحد أقصى 100 سهم لكل طلب
+    // Bulk chunks
     const CHUNK_SIZE = 100;
     const chunks = [];
     for (let i = 0; i < WATCHLIST.length; i += CHUNK_SIZE) {
       chunks.push(WATCHLIST.slice(i, i + CHUNK_SIZE));
     }
 
-    // جلب كل chunk بطلب Bulk واحد
     const allTickers = [];
     await Promise.all(
       chunks.map(async (chunk) => {
         try {
-          const symbols = chunk.join(",");
-          const url = `${BASE}/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${symbols}&apiKey=${POLYGON_KEY}`;
+          const url = `${BASE}/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${chunk.join(",")}&apiKey=${POLYGON_KEY}`;
           const r = await fetch(url);
           if (!r.ok) return;
           const d = await r.json();
@@ -110,9 +100,8 @@ export default async function handler(req, res) {
 
       const high = data.day?.h || price;
       const low  = data.day?.l || price;
-
-      const tr  = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
-      const atr = Math.max(tr, price * 0.02);
+      const tr   = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+      const atr  = Math.max(tr, price * 0.02);
 
       const target1  = parseFloat((price + atr * 1.5).toFixed(2));
       const target2  = parseFloat((price + atr * 3.0).toFixed(2));
@@ -125,16 +114,44 @@ export default async function handler(req, res) {
 
       if (!isPreMarket && parseFloat(rr) < 1.0) continue;
 
-      let score = 40;
-      if (aboveVWAP)      score += 15;
-      if (preGap > 2)     score += 10;
-      if (changePct > 3)  score += 10;
-      if (volume > 50000) score += 15;
-      score = Math.min(score, 99);
+      // ── نظام السكور المحسّن ──────────────────────────────
+      let score = 30; // نقطة بداية أقل
+
+      // الحجم — أهم عامل (0-25 نقطة)
+      if (volume > 2_000_000)     score += 25;
+      else if (volume > 500_000)  score += 18;
+      else if (volume > 100_000)  score += 12;
+      else if (volume > 50_000)   score += 6;
+
+      // التغيير اليومي (0-20 نقطة)
+      if (changePct > 20)         score += 20;
+      else if (changePct > 10)    score += 15;
+      else if (changePct > 5)     score += 10;
+      else if (changePct > 2)     score += 5;
+      else if (changePct < 0)     score -= 5; // عقوبة للأسهم الهابطة
+
+      // VWAP (0-15 نقطة)
+      if (aboveVWAP)              score += 15;
+
+      // Gap صباحي (0-10 نقطة)
+      if (preGap > 10)            score += 10;
+      else if (preGap > 5)        score += 7;
+      else if (preGap > 2)        score += 4;
+
+      // R:R جودة الصفقة (0-10 نقطة)
+      const rrNum = parseFloat(rr);
+      if (rrNum >= 3)             score += 10;
+      else if (rrNum >= 2)        score += 6;
+      else if (rrNum >= 1.5)      score += 3;
+
+      score = Math.max(30, Math.min(score, 99));
+
+      // فلتر: نعرض فقط السكور 55+
+      if (score < 55) continue;
 
       const confidence =
-        score >= 80 ? "💥 قوة قصوى" :
-        score >= 60 ? "🔥 إشارة ممتازة" : "👀 مراقبة";
+        score >= 85 ? "💥 قوة قصوى" :
+        score >= 70 ? "🔥 إشارة ممتازة" : "👀 مراقبة";
 
       finalResults.push({
         symbol:     ticker,
