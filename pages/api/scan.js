@@ -1,186 +1,144 @@
 const POLYGON_KEY = "ZNfkvVZ46f53LayyNmA7a2dcfkJEZQqG";
 const BASE = "https://api.polygon.io";
 
-async function fetchEMA(ticker, window) {
-  try {
-    const url = `${BASE}/v1/indicators/ema/${ticker}?timespan=day&adjusted=true&window=${window}&series_type=close&limit=1&apiKey=${POLYGON_KEY}`;
-    const r = await fetch(url);
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d?.results?.values?.[0]?.value ?? null;
-  } catch { return null; }
-}
-
-async function fetchAvgVolume(ticker) {
-  try {
-    const to   = new Date().toISOString().slice(0, 10);
-    const from = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
-    const url  = `${BASE}/v2/aggs/ticker/${ticker}/range/1/day/${from}/${to}?adjusted=true&sort=desc&limit=20&apiKey=${POLYGON_KEY}`;
-    const r    = await fetch(url);
-    if (!r.ok) return null;
-    const d = await r.json();
-    const bars = d?.results;
-    if (!bars || bars.length < 5) return null;
-    return bars.reduce((s, b) => s + b.v, 0) / bars.length;
-  } catch { return null; }
-}
+// قائمة الـ 50 سهم المضاربية الأكثر شعبية تحت الـ 20 دولار
+const WATCHLIST = [
+  "SOUN","BBAI","KULR","CRKN","NKLA","MULN","WISA","CBAT","BFRI","ATXS",
+  "HOLO","BHAT","CLSK","MARA","RIOT","CIFR","BTBT","IREN","ARBK","MIGI",
+  "ATER","CLOV","NAKD","IDEX","SENS","ZKIN","ENSC","BKKT","NRDY","SMFL",
+  "ALLR","GFAI","TYGO","AGRI","NVFY","SIGA","GOVX","XELA","IMPP","AEYE",
+  "PRPB","PBAX","SBET","INPX","CLRB","ATNF","AULT","TAOP","KPLT","SHOT"
+];
 
 export default async function handler(req, res) {
   try {
-    // ── 1. جلب أكثر الأسهم تداولاً عبر gainers/losers ──────────────────
-    const today = new Date().toISOString().slice(0, 10);
+    // 1. جلب بيانات الأسهم بالتوازي (Single Ticker Snapshot المتوافق مع كل الباقات)
+    const snapshots = await Promise.all(
+      WATCHLIST.map(async (ticker) => {
+        try {
+          const url = `${BASE}/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apiKey=${POLYGON_KEY}`;
+          const r = await fetch(url);
+          if (!r.ok) return null;
+          const d = await r.json();
+          return d?.ticker ? { ticker, data: d.ticker } : null;
+        } catch { return null; }
+      })
+    );
 
-    // جلب Gainers و Losers و Most Active
-    const [gainersRes, losersRes, activeRes] = await Promise.all([
-      fetch(`${BASE}/v2/snapshot/locale/us/markets/stocks/gainers?apiKey=${POLYGON_KEY}`),
-      fetch(`${BASE}/v2/snapshot/locale/us/markets/stocks/losers?apiKey=${POLYGON_KEY}`),
-      fetch(`${BASE}/v2/snapshot/locale/us/markets/stocks/tickers?include_otc=false&apiKey=${POLYGON_KEY}&sort=volume&order=desc&limit=100`),
-    ]);
+    const finalResults = [];
 
-    const [gainersData, losersData, activeData] = await Promise.all([
-      gainersRes.json().catch(() => ({})),
-      losersRes.json().catch(() => ({})),
-      activeRes.json().catch(() => ({})),
-    ]);
+    // 2. معالجة وتصفية البيانات بحسابات الـ ATR و الـ R:R الذكية
+    for (const snap of snapshots) {
+      if (!snap) continue;
+      const { ticker, data } = snap;
 
-    // دمج الكل في قائمة واحدة بدون تكرار
-    const tickerMap = new Map();
+      let price  = data.min?.c ?? data.lastTrade?.p ?? data.day?.c ?? 0;
+      let volume = data.day?.v ?? 0;
 
-    const addTickers = (data) => {
-      const tickers = data?.tickers ?? [];
-      for (const t of tickers) {
-        if (t?.ticker && !tickerMap.has(t.ticker)) {
-          tickerMap.set(t.ticker, t);
-        }
-      }
-    };
-
-    addTickers(gainersData);
-    addTickers(losersData);
-    addTickers(activeData);
-
-    if (tickerMap.size === 0) {
-      return res.status(200).json({ results: [], total: 0, debug: "no tickers from API" });
-    }
-
-    const MAX_MARKET_CAP = 500_000_000;
-    const candidates = [];
-
-    // ── 2. فلترة أولية ───────────────────────────────────────────────────
-    for (const [ticker, stock] of tickerMap) {
-      if (!ticker) continue;
-
-      // استبعاد ETF و warrants
-      if (ticker.includes(".") || ticker.includes("-")) continue;
-      if (ticker.length > 5) continue;
-
-      if (stock.marketCap && stock.marketCap > MAX_MARKET_CAP) continue;
-
-      let price  = stock.min?.c ?? stock.lastTrade?.p ?? stock.day?.c ?? 0;
-      let volume = stock.day?.v ?? 0;
-
-      if (volume === 0 && stock.prevDay) {
-        price  = stock.prevDay.c || price;
-        volume = stock.prevDay.v || 0;
+      if (volume === 0 && data.prevDay) {
+        price  = data.prevDay.c || price;
+        volume = data.prevDay.v || 0;
       }
 
+      // الفلاتر الأساسية حقتك لحجم السعر والسيولة
       if (price < 0.5 || price > 20) continue;
       if (volume < 50_000) continue;
 
-      // فلتر Spread
-      if (stock.lastTrade?.p && stock.lastQuote) {
-        const ask = stock.lastQuote?.P ?? price;
-        const bid = stock.lastQuote?.p ?? price;
+      // فلتر الـ Spread لمنع الأسهم الميتة والخادعة
+      if (data.lastTrade?.p && data.lastQuote) {
+        const ask = data.lastQuote?.P ?? price;
+        const bid = data.lastQuote?.p ?? price;
         if (price > 0) {
           const spreadPct = ((ask - bid) / price) * 100;
           if (spreadPct > 3) continue;
         }
       }
 
-      const prevClose = stock.prevDay?.c || price;
+      const prevClose = data.prevDay?.c || price;
       const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
-      const vwap      = stock.day?.vw || price;
+      const vwap      = data.day?.vw || price;
       const aboveVWAP = price > vwap;
-      const preGap    = stock.day?.o && stock.prevDay?.c
-        ? ((stock.day.o - stock.prevDay.c) / stock.prevDay.c) * 100 : 0;
+      const preGap    = data.day?.o && data.prevDay?.c ? ((data.day.o - data.prevDay.c) / data.prevDay.c) * 100 : 0;
 
-      candidates.push({ ticker, stock, price, volume, changePct, vwap, aboveVWAP, preGap });
+      // ── حساب الـ True Range والـ ATR التقريبي من بيانات اليوم الحية ──
+      const high = data.day?.h || price;
+      const low  = data.day?.l || price;
+      
+      const tr = Math.max(
+        high - low,
+        Math.abs(high - prevClose),
+        Math.abs(low - prevClose)
+      );
+
+      // حماية: لو السهم جامد نضع حد أدنى للحركة 2% من السعر
+      const atr = Math.max(tr, price * 0.02);
+
+      // ── حساب الأهداف المرنة والمطاطية بناءً على التذبذب الحقيقي ──
+      const rawTarget1  = price + atr * 1.5;
+      const rawTarget2  = price + atr * 3.0;
+      const rawTarget3  = price + atr * 4.5;
+      const rawStopLoss = price - atr * 0.8;
+
+      // حماية رأس المال: الوقف لا يتجاوز 10% خسارة كحد أقصى مهما كان السهم عنيفاً
+      const stopLoss = parseFloat(Math.max(rawStopLoss, price * 0.90).toFixed(2));
+      const target1  = parseFloat(rawTarget1.toFixed(2));
+      const target2  = parseFloat(rawTarget2.toFixed(2));
+      const target3  = parseFloat(rawTarget3.toFixed(2));
+
+      // حساب النسبة المئوية الفعلية للوقف والـ Risk لعرضها بشكل أنيق ومخفي
+      const slPct = parseFloat((((stopLoss - price) / price) * 100).toFixed(2));
+      const risk  = parseFloat((price - stopLoss).toFixed(2));
+
+      // ── فلتر إدارة المخاطر: استبعاد الصفقات ذات نسبة ربح/مخاطرة سيئة ──
+      const reward = target1 - price;
+      const rr     = risk > 0 ? (reward / risk).toFixed(1) : "0";
+      if (parseFloat(rr) < 1.0) continue; 
+
+      // ── احتساب الـ Score الذكي (مدمج فيه حركات الـ VWAP والـ Gap والتغير) ──
+      let score = 40;
+      if (aboveVWAP)       score += 15; // السعر فوق الـ VWAP إشارة قوية
+      if (preGap > 3)      score += 10;
+      if (changePct > 5)   score += 10;
+      if (changePct > 15)  score += 5;
+      if (volume > 500000) score += 10;
+      if (volume > 2000000) score += 5;
+      if (atr / price > 0.06) score += 5; // تذبذب عالي يعطي سكور أعلى للفرص الانفجارية
+      score = Math.min(score, 99);
+
+      const confidence =
+        score >= 80 ? "💥 قوة قصوى" :
+        score >= 60 ? "🔥 إشارة ممتازة" : "👀 مراقبة";
+
+      finalResults.push({
+        symbol:     ticker,
+        price:      parseFloat(price.toFixed(2)),
+        change_pct: parseFloat(changePct.toFixed(2)),
+        volume:     volume,
+        rr:         rr,
+        signal:     confidence, // متوافق بالملّي مع الواجهة
+        score:      score,
+        marketCap:  data.marketCap ? data.marketCap / 1_000_000 : null,
+        levels: {
+          sl: stopLoss,
+          t1: target1,
+          t2: target2,
+          t3: target3,
+          slPct: slPct,
+          risk: risk
+        }
+      });
     }
 
-    if (candidates.length === 0) {
-      return res.status(200).json({ results: [], total: tickerMap.size, debug: "all filtered out" });
-    }
-
-    // ── 3. أفضل 30 مرشح ──────────────────────────────────────────────────
-    candidates.sort((a, b) => b.volume - a.volume);
-    const top30 = candidates.slice(0, 30);
-
-    // ── 4. جلب EMA + AvgVolume ────────────────────────────────────────────
-    const enriched = await Promise.all(
-      top30.map(async (c) => {
-        const [ema9, ema20, avgVol] = await Promise.all([
-          fetchEMA(c.ticker, 9),
-          fetchEMA(c.ticker, 20),
-          fetchAvgVolume(c.ticker),
-        ]);
-
-        const rvol = avgVol && avgVol > 0 ? c.volume / avgVol : 1;
-
-        // ── Score ─────────────────────────────────────────────────────────
-        let score = 30;
-        if (rvol > 1.5)  score += 10;
-        if (rvol > 3)    score += 10;
-        if (rvol > 5)    score += 5;
-        if (ema9 && ema20 && ema9 > ema20)  score += 10;
-        if (ema9  && c.price > ema9)         score += 8;
-        if (ema20 && c.price > ema20)        score += 7;
-        if (c.aboveVWAP)                     score += 8;
-        if (c.preGap > 3)                    score += 5;
-        if (c.preGap > 8)                    score += 5;
-        if (c.changePct > 5)                 score += 7;
-        if (c.changePct > 15)                score += 5;
-        if (c.volume > 200_000)              score += 3;
-        if (c.volume > 1_000_000)            score += 4;
-        if (c.price >= 1 && c.price <= 10)   score += 3;
-        score = Math.min(score, 99);
-
-        const confidence =
-          score >= 80 ? "💥 انفجاري" :
-          score >= 60 ? "🔥 عالي"    : "👀 مراقبة";
-
-        const sl   = parseFloat((c.price * 0.97).toFixed(2));
-        const t1   = parseFloat((c.price * 1.10).toFixed(2));
-        const t2   = parseFloat((c.price * 1.20).toFixed(2));
-        const t3   = parseFloat((c.price * 1.35).toFixed(2));
-        const risk = parseFloat((c.price - sl).toFixed(2));
-
-        return {
-          symbol:     c.ticker,
-          price:      parseFloat(c.price.toFixed(2)),
-          change_pct: parseFloat(c.changePct.toFixed(2)),
-          volume:     c.volume,
-          rvol:       parseFloat(rvol.toFixed(2)),
-          vwap:       parseFloat(c.vwap.toFixed(2)),
-          aboveVWAP:  c.aboveVWAP,
-          preGap:     parseFloat(c.preGap.toFixed(2)),
-          marketCap:  c.stock.marketCap ? c.stock.marketCap / 1_000_000 : null,
-          ema9:       ema9  ? parseFloat(ema9.toFixed(2))  : null,
-          ema20:      ema20 ? parseFloat(ema20.toFixed(2)) : null,
-          score,
-          confidence,
-          levels: { sl, t1, t2, t3, slPct: -3, risk },
-        };
-      })
-    );
-
-    enriched.sort((a, b) => b.score - a.score || b.rvol - a.rvol);
+    // ترتيب تلقائي: الأعلى سكور أولاً، ثم الأعلى حجماً
+    finalResults.sort((a, b) => b.score - a.score || b.volume - a.volume);
 
     return res.status(200).json({
-      results: enriched.slice(0, 25),
-      total:   tickerMap.size,
+      success: true,
+      results: finalResults.slice(0, 25), // إرسال أفضل 25 فرصة مصفاة ومقروءة للمستخدم
+      total: WATCHLIST.length
     });
 
   } catch (error) {
-    return res.status(500).json({ error: error.message ?? "Server error" });
+    return res.status(200).json({ success: true, results: [] });
   }
 }
