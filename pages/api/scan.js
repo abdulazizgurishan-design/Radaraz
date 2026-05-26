@@ -1,4 +1,4 @@
-const POLYGON_KEY = "ZNfkvVZ46f53LayyNmA7a2dcfkJEZQqG";
+const POLYGON_KEY = "Kv7F3MSRRgrH_8dOoFu4L0TpFO23Trix";
 const BASE = "https://api.polygon.io";
 
 const WATCHLIST = [
@@ -11,19 +11,16 @@ const WATCHLIST = [
 
 export default async function handler(req, res) {
   try {
-    // 1. تحديد وضع السوق الحالي بناءً على توقيت نيويورك
     const now = new Date();
     const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
     const h = et.getHours(), m = et.getMinutes(), day = et.getDay();
-    
+
     const isWeekend = day === 0 || day === 6;
     const isPreMarket = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
 
-    // تعديل الفلاتر ديناميكياً: إذا pre-market نكتفي بحجم 5,000 سهم وسبريد 6% لضمان ظهور الفرص
-    const MIN_VOLUME = isPreMarket ? 5000 : 50000;
+    const MIN_VOLUME = isPreMarket ? 5000 : 20000;
     const MAX_SPREAD = isPreMarket ? 6 : 3;
 
-    // 2. جلب البيانات بالتوازي
     const snapshots = await Promise.all(
       WATCHLIST.map(async (ticker) => {
         try {
@@ -50,16 +47,15 @@ export default async function handler(req, res) {
         volume = data.prevDay.v || 0;
       }
 
-      if (price < 0.3 || price > 20) continue;
-      if (volume < MIN_VOLUME) continue; // الفلتر الديناميكي المرن
+      if (price < 0.5 || price > 50) continue;
+      if (volume < MIN_VOLUME) continue;
 
-      // فلتر الـ Spread المرن
       if (data.lastTrade?.p && data.lastQuote) {
         const ask = data.lastQuote?.P ?? price;
         const bid = data.lastQuote?.p ?? price;
         if (price > 0) {
           const spreadPct = ((ask - bid) / price) * 100;
-          if (spreadPct > MAX_SPREAD) continue; 
+          if (spreadPct > MAX_SPREAD) continue;
         }
       }
 
@@ -67,11 +63,13 @@ export default async function handler(req, res) {
       const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
       const vwap      = data.day?.vw || price;
       const aboveVWAP = price > vwap;
-      const preGap    = data.day?.o && data.prevDay?.c ? ((data.day.o - data.prevDay.c) / data.prevDay.c) * 100 : 0;
+      const preGap    = data.day?.o && data.prevDay?.c
+        ? ((data.day.o - data.prevDay.c) / data.prevDay.c) * 100
+        : 0;
 
       const high = data.day?.h || price;
       const low  = data.day?.l || price;
-      
+
       const tr = Math.max(
         high - low,
         Math.abs(high - prevClose),
@@ -92,19 +90,16 @@ export default async function handler(req, res) {
 
       const slPct = parseFloat((((stopLoss - price) / price) * 100).toFixed(2));
       const risk  = parseFloat((price - stopLoss).toFixed(2));
-
       const reward = target1 - price;
       const rr     = risk > 0 ? (reward / risk).toFixed(1) : "0";
-      
-      // في الـ Pre-market نتغاضى عن شرط الـ R:R الصارم لأن المدى السعري يكون ضيقاً ولم يتسع بعد
-      if (!isPreMarket && parseFloat(rr) < 1.0) continue; 
 
-      // احتساب السكور
+      if (!isPreMarket && parseFloat(rr) < 1.0) continue;
+
       let score = 40;
-      if (aboveVWAP)       score += 15;
-      if (preGap > 2)      score += 10;
-      if (changePct > 3)   score += 10;
-      if (volume > 100000) score += 15;
+      if (aboveVWAP)      score += 15;
+      if (preGap > 2)     score += 10;
+      if (changePct > 3)  score += 10;
+      if (volume > 50000) score += 15;
       score = Math.min(score, 99);
 
       const confidence =
@@ -121,12 +116,12 @@ export default async function handler(req, res) {
         score:      score,
         marketCap:  data.marketCap ? data.marketCap / 1_000_000 : null,
         levels: {
-          sl: stopLoss,
-          t1: target1,
-          t2: target2,
-          t3: target3,
+          sl:    stopLoss,
+          t1:    target1,
+          t2:    target2,
+          t3:    target3,
           slPct: slPct,
-          risk: risk
+          risk:  risk
         }
       });
     }
@@ -140,6 +135,6 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    return res.status(200).json({ success: true, results: [] });
+    return res.status(200).json({ success: true, results: [], error: error.message });
   }
 }
