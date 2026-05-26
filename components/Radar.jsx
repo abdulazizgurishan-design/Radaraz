@@ -1,6 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 
-// ─── Styles خارج الكومبوننت لتجنب re-render ──────────────────────────────
 const S = {
   root: {
     minHeight: "100vh",
@@ -134,7 +133,6 @@ const S = {
     borderTop: "1px solid rgba(255,255,255,0.04)",
     display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8,
   },
-  // ── Card ──
   cardWrap: (open, glowColor) => ({
     background: "linear-gradient(135deg,rgba(15,20,35,0.95),rgba(20,28,48,0.95))",
     border: "1px solid rgba(255,255,255,0.07)",
@@ -180,7 +178,6 @@ const S = {
   tpBox: (bg, border) => ({ background: bg, border: `1px solid ${border}`, borderRadius: 12, padding: 12 }),
   tpLabel: (color) => ({ fontSize: 9, color, fontWeight: 600, marginBottom: 4 }),
   tpValue: (color) => ({ fontSize: 16, fontWeight: 700, color, fontFamily: "monospace" }),
-  // ── Skeleton ──
   skeletonCard: {
     background: "rgba(255,255,255,0.03)",
     border: "1px solid rgba(255,255,255,0.06)",
@@ -194,7 +191,6 @@ const S = {
   }),
 };
 
-// ─── ScoreBar ─────────────────────────────────────────────────────────────
 const ScoreBar = ({ score }) => {
   const color = score >= 80 ? "#ff6b35" : score >= 60 ? "#ffd700" : "#00d4aa";
   return (
@@ -204,7 +200,6 @@ const ScoreBar = ({ score }) => {
   );
 };
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────
 const SkeletonCards = () => (
   <>
     {[1, 2, 3].map((k) => (
@@ -222,7 +217,6 @@ const SkeletonCards = () => (
   </>
 );
 
-// ─── Card ─────────────────────────────────────────────────────────────────
 function Card({ r, idx }) {
   const [open, setOpen] = useState(false);
 
@@ -242,14 +236,14 @@ function Card({ r, idx }) {
     { label: "EMA 9",  value: r.ema9  ? formatPrice(r.ema9)  : "—", color: "#a78bfa" },
     { label: "EMA 20", value: r.ema20 ? formatPrice(r.ema20) : "—", color: "#fbbf24" },
     { label: "VWAP",   value: r.vwap  ? formatPrice(r.vwap)  : "—", color: "#60a5fa" },
-    { label: "RVOL",   value: r.rvol.toFixed(1) + "x",               color: "#fb923c" },
+    { label: "RVOL",   value: r.rvol  ? r.rvol.toFixed(1) + "x" : "—", color: "#fb923c" },
     { label: "حجم",    value: ((r.volume || 0) / 1e6).toFixed(1) + "M", color: "#34d399" },
   ], [r, formatPrice]);
 
   const tpLevels = useMemo(() => [
-    { n: 1, value: r.levels.t1, pct: 15, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)",  border: "rgba(96,165,250,0.2)"  },
-    { n: 2, value: r.levels.t2, pct: 30, label: "TP2", color: "#34d399", bg: "rgba(52,211,153,0.08)",  border: "rgba(52,211,153,0.2)"  },
-    { n: 3, value: r.levels.t3, pct: 50, label: "TP3", color: "#fbbf24", bg: "rgba(251,191,36,0.08)", border: "rgba(251,191,36,0.2)" },
+    { n: 1, value: r.levels.t1, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)",  border: "rgba(96,165,250,0.2)"  },
+    { n: 2, value: r.levels.t2, label: "TP2", color: "#34d399", bg: "rgba(52,211,153,0.08)",  border: "rgba(52,211,153,0.2)"  },
+    { n: 3, value: r.levels.t3, label: "TP3", color: "#fbbf24", bg: "rgba(251,191,36,0.08)",  border: "rgba(251,191,36,0.2)"  },
   ], [r]);
 
   return (
@@ -265,13 +259,11 @@ function Card({ r, idx }) {
         <span style={S.cardIdx}>{String(idx + 1).padStart(2, "0")}</span>
         <div style={{ minWidth: 64 }}>
           <div style={S.cardSymbol}>{r.symbol}</div>
-          <div style={S.cardMcap}>{r.marketCap ? `$${r.marketCap.toFixed(0)}M · ` : ""}☪</div>
+          <div style={S.cardMcap}>{r.marketCap ? `$${r.marketCap.toFixed(0)}M` : ""}</div>
         </div>
         <div style={S.cardTags}>
-          <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.confidence}</span>
-          {r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
-          {r.aboveVWAP && <span style={S.tag("rgba(0,212,170,0.1)", "#00d4aa", "rgba(0,212,170,0.2)")}>VWAP ↑</span>}
-          {r.preGap > 5 && <span style={S.tag("rgba(100,200,255,0.1)", "#64c8ff", "rgba(100,200,255,0.2)")}>Gap +{r.preGap.toFixed(0)}%</span>}
+          <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.signal}</span>
+          {r.rvol && r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
         </div>
         <div style={{ textAlign: "right", minWidth: 80 }}>
           <div style={S.cardPrice}>{formatPrice(r.price)}</div>
@@ -307,7 +299,7 @@ function Card({ r, idx }) {
           <div style={S.tpGrid}>
             {tpLevels.map((t) => (
               <div key={t.n} style={S.tpBox(t.bg, t.border)}>
-                <div style={S.tpLabel(t.color)}>{t.label} <span style={{ opacity: 0.6 }}>+{t.pct}%</span></div>
+                <div style={S.tpLabel(t.color)}>{t.label}</div>
                 <div style={S.tpValue(t.color)}>{formatPrice(t.value)}</div>
               </div>
             ))}
@@ -318,9 +310,8 @@ function Card({ r, idx }) {
   );
 }
 
-// ─── StatusBanner ─────────────────────────────────────────────────────────
 const BANNER_CONFIG = {
-  error:     { bg: "rgba(255,71,87,0.1)",    border: "rgba(255,71,87,0.3)",    icon: "🔴", titleColor: "#ff4757", subColor: "rgba(255,71,87,0.7)",    title: "خطأ في الاتصال",    sub: "تعذر الاتصال بـ Polygon API — تحقق من الـ Key" },
+  error:     { bg: "rgba(255,71,87,0.1)",    border: "rgba(255,71,87,0.3)",    icon: "🔴", titleColor: "#ff4757", subColor: "rgba(255,71,87,0.7)",    title: "خطأ في الاتصال",    sub: "تعذر الاتصال بـ Polygon API" },
   closed:    { bg: "rgba(255,215,0,0.08)",   border: "rgba(255,215,0,0.2)",    icon: "🟡", titleColor: "#ffd700", subColor: "rgba(255,215,0,0.7)",    title: "السوق مغلق",        sub: "يفتح 4:30م بتوقيت الرياض — البيانات من آخر جلسة" },
   premarket: { bg: "rgba(100,200,255,0.08)", border: "rgba(100,200,255,0.2)",  icon: "🔵", titleColor: "#64c8ff", subColor: "rgba(100,200,255,0.7)", title: "Pre-Market نشط",    sub: "بيانات محدودة — أفضل النتائج بعد 4:30م" },
   ok:        { bg: "rgba(0,212,170,0.08)",   border: "rgba(0,212,170,0.2)",    icon: "🟢", titleColor: "#00d4aa", subColor: "rgba(0,212,170,0.7)",   title: "متصل — أسعار حية", sub: "Polygon API يعمل بشكل طبيعي" },
@@ -348,7 +339,6 @@ function StatusBanner({ status, lastUpdate, scanError }) {
   );
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────
 export default function Radar() {
   const [results,     setResults]     = useState([]);
   const [loading,     setLoading]     = useState(false);
@@ -362,7 +352,7 @@ export default function Radar() {
 
   const lastScanRef  = useRef(0);
   const autoTimerRef = useRef(null);
-  const COOLDOWN_MS  = 10_000; // منع الضغط المتكرر — 10 ثواني
+  const COOLDOWN_MS  = 10_000;
 
   const scan = useCallback(async () => {
     const now = Date.now();
@@ -397,7 +387,6 @@ export default function Radar() {
       setTotal(data.total ?? 0);
       setLastUpdate(new Date());
 
-      // تحديد حالة السوق
       const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
       const h   = etNow.getHours();
       const m   = etNow.getMinutes();
@@ -420,7 +409,6 @@ export default function Radar() {
     }
   }, []);
 
-  // Auto-refresh كل 60 ثانية
   useEffect(() => {
     if (autoRefresh) {
       autoTimerRef.current = setInterval(scan, 60_000);
@@ -450,7 +438,6 @@ export default function Radar() {
       </div>
 
       <div style={S.container}>
-        {/* Header */}
         <div style={S.header}>
           <div style={S.headerRow}>
             <div style={S.dot(dotColor)} />
@@ -462,10 +449,9 @@ export default function Radar() {
           <p style={S.subtitle}>أسهم أمريكية شرعية · ماركت كاب &lt; $500M · تحليل لحظي</p>
         </div>
 
-        {/* Stats */}
         <div style={S.statsRow}>
           {[
-            { label: "نطاق الفحص", value: total || 100, color: "#6366f1", bg: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)"  },
+            { label: "نطاق الفحص", value: total || 50,  color: "#6366f1", bg: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)"  },
             { label: "💥 انفجاري", value: explosive,     color: "#ff6b35", bg: "rgba(255,107,53,0.1)", border: "rgba(255,107,53,0.2)"  },
             { label: "🔥 عالي",    value: high,           color: "#ffd700", bg: "rgba(255,215,0,0.1)",  border: "rgba(255,215,0,0.2)"   },
             { label: "✅ الكل",    value: results.length, color: "#00d4aa", bg: "rgba(0,212,170,0.1)", border: "rgba(0,212,170,0.2)"   },
@@ -477,7 +463,6 @@ export default function Radar() {
           ))}
         </div>
 
-        {/* Actions */}
         <div style={S.actionRow}>
           <button onClick={scan} disabled={loading} style={S.scanBtn(loading)}>
             {loading ? "⟳  جاري المسح اللحظي..." : "📡  ابدأ مسح السوق الفوري"}
@@ -498,7 +483,6 @@ export default function Radar() {
           )}
         </div>
 
-        {/* Auto-refresh toggle */}
         <div style={S.autoRow}>
           <span style={S.autoLabel}>تحديث تلقائي كل دقيقة</span>
           <button style={S.toggleBtn(autoRefresh)} onClick={() => setAutoRefresh((v) => !v)}>
@@ -506,22 +490,18 @@ export default function Radar() {
           </button>
         </div>
 
-        {/* Progress bar */}
         {loading && (
           <div style={S.progressBar}>
             <div style={S.progressFill} />
           </div>
         )}
 
-        {/* Skeleton */}
         {loading && <SkeletonCards />}
 
-        {/* Status Banner */}
         {(done || loading) && (
           <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} />
         )}
 
-        {/* Results */}
         {!loading && filtered.length > 0 && (
           <>
             <div style={S.dividerRow}>
@@ -535,7 +515,6 @@ export default function Radar() {
           </>
         )}
 
-        {/* Empty state */}
         {done && !loading && results.length === 0 && (
           <div style={S.emptyBox}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>📡</div>
@@ -544,7 +523,6 @@ export default function Radar() {
           </div>
         )}
 
-        {/* Footer */}
         <div style={S.footer}>
           <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.2)", letterSpacing: 2, fontFamily: "monospace" }}>RADAR AZ PRO</span>
           <span style={{ fontSize: 10, color: "rgba(255,255,255,0.15)", fontStyle: "italic" }}>أسهم شرعية · ليست نصيحة استثمارية</span>
