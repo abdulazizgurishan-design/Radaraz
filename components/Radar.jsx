@@ -446,7 +446,8 @@ export default function Radar() {
             </h1>
             <span style={S.badge}>PRO</span>
           </div>
-          <p style={S.subtitle}>أسهم أمريكية شرعية · ماركت كاب &lt; $500M · تحليل لحظي</p>
+          <p style={S.subtitle}>الشرعية مسؤوليتك · الالتزام بوقف الخسارة يخفف المخاطرة</p>
+
         </div>
 
         <div style={S.statsRow}>
