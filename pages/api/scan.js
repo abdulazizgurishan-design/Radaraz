@@ -9,9 +9,9 @@ const WATCHLIST = [
   "PRPB","PBAX","SBET","INPX","CLRB","ATNF","AULT","TAOP","KPLT","SHOT",
   "ABOS","ACBA","ACER","ACHL","ACMR","ACNB","ACRX","ACST","ACTG","ACTU",
   "ADAP","ADCT","ADIL","ADMA","ADMP","ADMT","ADOC","ADSE","ADTX","ADUS",
-  "ADVM","ADXN","AEAC","AEHR","AEIS","AENT","AERI","AESE","AEYE","AFAR",
+  "ADVM","ADXN","AEAC","AEHR","AEIS","AENT","AERI","AESE","AFAR",
   "AFBI","AFCG","AFIB","AFMD","AFRI","AFYA","AGBA","AGEN","AGFY","AGIL",
-  "AGIO","AGMH","AGNS","AGPX","AGRI","AGRO","AGTI","AGYS","AHCO","AHPI",
+  "AGIO","AGMH","AGNS","AGPX","AGRO","AGTI","AGYS","AHCO","AHPI",
   "AIFU","AIMD","AINC","AIRC","AIRI","AIRJ","AIRS","AIRT","AISA","AISP",
   "AIVA","AIXI","AJRD","AKBA","AKCA","AKER","AKLI","AKRO","AKTS","AKTX",
   "AKUS","AKYA","ALBT","ALCE","ALCO","ALDX","ALEC","ALGS","ALGT","ALHC",
@@ -55,7 +55,6 @@ export default async function handler(req, res) {
     const isPreMarket = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
     const MIN_VOLUME  = isPreMarket ? 5000 : 20000;
 
-    // Bulk chunks
     const CHUNK_SIZE = 100;
     const chunks = [];
     for (let i = 0; i < WATCHLIST.length; i += CHUNK_SIZE) {
@@ -93,6 +92,10 @@ export default async function handler(req, res) {
 
       const prevClose = data.prevDay?.c || price;
       const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
+
+      // ✅ فلتر جديد: استبعاد الأسهم التي ارتفعت أكثر من 20% في نفس اليوم
+      if (changePct > 20) continue;
+
       const vwap      = data.day?.vw || price;
       const aboveVWAP = price > vwap;
       const preGap    = data.day?.o && data.prevDay?.c
@@ -114,31 +117,24 @@ export default async function handler(req, res) {
 
       if (!isPreMarket && parseFloat(rr) < 1.0) continue;
 
-      // ── نظام السكور المحسّن ──────────────────────────────
-      let score = 30; // نقطة بداية أقل
-
-      // الحجم — أهم عامل (0-25 نقطة)
+      let score = 30;
       if (volume > 2_000_000)     score += 25;
       else if (volume > 500_000)  score += 18;
       else if (volume > 100_000)  score += 12;
       else if (volume > 50_000)   score += 6;
 
-      // التغيير اليومي (0-20 نقطة)
-      if (changePct > 20)         score += 20;
+      if (changePct > 15)         score += 20;
       else if (changePct > 10)    score += 15;
       else if (changePct > 5)     score += 10;
       else if (changePct > 2)     score += 5;
-      else if (changePct < 0)     score -= 5; // عقوبة للأسهم الهابطة
+      else if (changePct < 0)     score -= 5;
 
-      // VWAP (0-15 نقطة)
       if (aboveVWAP)              score += 15;
 
-      // Gap صباحي (0-10 نقطة)
       if (preGap > 10)            score += 10;
       else if (preGap > 5)        score += 7;
       else if (preGap > 2)        score += 4;
 
-      // R:R جودة الصفقة (0-10 نقطة)
       const rrNum = parseFloat(rr);
       if (rrNum >= 3)             score += 10;
       else if (rrNum >= 2)        score += 6;
@@ -146,7 +142,6 @@ export default async function handler(req, res) {
 
       score = Math.max(30, Math.min(score, 99));
 
-      // فلتر: نعرض فقط السكور 55+
       if (score < 55) continue;
 
       const confidence =
