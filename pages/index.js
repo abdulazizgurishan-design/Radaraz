@@ -1,10 +1,9 @@
-export default function Home() {}
+export default function Home() {
+  return null;
+}
 
-export async function getServerSideProps() {
-  return {
-    redirect: {
-      destination: '/landing.html',
-      permanent: false,
-    },
-  };
+export async function getServerSideProps(context) {
+  context.res.writeHead(302, { Location: '/landing.html' });
+  context.res.end();
+  return { props: {} };
 }
