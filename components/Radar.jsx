@@ -258,7 +258,7 @@ function LoginScreen({ onLogin }) {
 
         <div style={{ marginTop: 24, padding: "16px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)" }}>
           <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>ليس لديك مفتاح؟</div>
-          <a href="/api/create-trial?email=your@email.com" style={{ fontSize: 12, color: "#6366f1" }}>جرّب مجاناً 24 ساعة ←</a>
+          <a href="/trial" style={{ fontSize: 12, color: "#6366f1" }}>جرّب مجاناً 24 ساعة ←</a>
         </div>
       </div>
     </div>
