@@ -8,17 +8,18 @@ export default async function handler(req, res) {
 
     if (!email) return res.status(400).json({ error: 'no email' });
 
-    // تحديد مدة الاشتراك حسب المنتج
     let days = 30;
     let plan = 'monthly';
+    let planAr = 'شهري';
     if (productId === 'ereqyb') {
       days = 90;
       plan = '3months';
+      planAr = '3 أشهر';
     }
 
     const expires_at = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    const expires_date = new Date(expires_at).toLocaleDateString('ar-SA');
 
-    // توليد مفتاح فريد
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let access_key = '';
     for (let i = 0; i < 16; i++) {
@@ -34,7 +35,6 @@ export default async function handler(req, res) {
       'Content-Type': 'application/json',
     };
 
-    // تحقق إذا العميل مشترك مسبقاً — جدد اشتراكه
     const check = await fetch(
       `${SUPABASE_URL}/rest/v1/subscribers?email=eq.${encodeURIComponent(email)}&select=id`,
       { headers }
@@ -42,7 +42,6 @@ export default async function handler(req, res) {
     const existing = await check.json();
 
     if (Array.isArray(existing) && existing.length > 0) {
-      // تجديد الاشتراك
       await fetch(
         `${SUPABASE_URL}/rest/v1/subscribers?email=eq.${encodeURIComponent(email)}`,
         {
@@ -52,7 +51,6 @@ export default async function handler(req, res) {
         }
       );
     } else {
-      // مشترك جديد
       await fetch(`${SUPABASE_URL}/rest/v1/subscribers`, {
         method: 'POST',
         headers: { ...headers, Prefer: 'return=minimal' },
@@ -60,8 +58,38 @@ export default async function handler(req, res) {
       });
     }
 
-    // إرسال إيميل للعميل عبر Resend (اختياري لاحقاً)
-    console.log(`✅ New subscriber: ${email} | Key: ${access_key} | Plan: ${plan}`);
+    // إرسال الإيميل عبر Resend
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'RADAR AZ PRO <onboarding@resend.dev>',
+        to: email,
+        subject: '🎉 مفتاح اشتراكك في RADAR AZ PRO',
+        html: `
+          <div dir="rtl" style="font-family:Arial;max-width:500px;margin:0 auto;background:#080c18;color:#fff;padding:32px;border-radius:16px;">
+            <h1 style="color:#6366f1;text-align:center;letter-spacing:3px;">RADAR AZ PRO</h1>
+            <p style="font-size:16px;">مرحباً! 🎉</p>
+            <p>شكراً لاشتراكك في <strong>RADAR AZ PRO</strong> — باقة <strong>${planAr}</strong></p>
+            <div style="background:#0d1829;border:1px solid #6366f1;border-radius:12px;padding:20px;text-align:center;margin:24px 0;">
+              <p style="color:rgba(255,255,255,0.5);font-size:12px;margin-bottom:8px;">مفتاح الدخول الخاص بك</p>
+              <p style="font-size:24px;font-weight:900;letter-spacing:4px;color:#00d4ff;font-family:monospace;">${access_key}</p>
+              <p style="color:rgba(255,255,255,0.3);font-size:11px;">صالح حتى: ${expires_date}</p>
+            </div>
+            <p style="font-size:14px;">خطوات الدخول:</p>
+            <ol style="font-size:13px;color:rgba(255,255,255,0.7);line-height:1.8;">
+              <li>افتح <a href="https://radaraz.vercel.app" style="color:#6366f1;">radaraz.vercel.app</a></li>
+              <li>أدخل المفتاح أعلاه</li>
+              <li>اضغط دخول وابدأ المسح 🚀</li>
+            </ol>
+            <p style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:24px;text-align:center;">الشرعية مسؤوليتك · الالتزام بوقف الخسارة يخفف المخاطرة</p>
+          </div>
+        `,
+      }),
+    });
 
     return res.status(200).json({ success: true });
 
