@@ -1,10 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
-);
-
 function generateKey() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let key = '';
@@ -16,40 +9,49 @@ function generateKey() {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).end();
+  const email = req.query.email || (req.body && req.body.email);
 
-  const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'email required' });
 
-  // تحقق إذا سبق وجرّب
-  const { data: existing } = await supabase
-    .from('subscribers')
-    .select('id, plan')
-    .eq('email', email)
-    .single();
+  const SUPABASE_URL = 'https://ypxrrghhkjbeojzphdln.supabase.co';
+  const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
+  const headers = {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${SUPABASE_KEY}`,
+    'Content-Type': 'application/json',
+  };
 
-  if (existing) {
-    return res.status(200).json({ 
-      error: 'used', 
-      message: 'هذا الإيميل استخدم التجربة المجانية مسبقاً' 
+  // تحقق إذا سبق وجرّب
+  const check = await fetch(
+    `${SUPABASE_URL}/rest/v1/subscribers?email=eq.${encodeURIComponent(email)}&select=id,plan`,
+    { headers }
+  );
+  const existing = await check.json();
+
+  if (Array.isArray(existing) && existing.length > 0) {
+    return res.status(200).json({
+      error: 'used',
+      message: 'هذا الإيميل استخدم التجربة المجانية مسبقاً'
     });
   }
 
   const access_key = generateKey();
-  const expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 ساعة
+  const expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
-  const { error } = await supabase.from('subscribers').insert({
-    email,
-    access_key,
-    plan: 'trial',
-    expires_at: expires_at.toISOString(),
+  const insert = await fetch(`${SUPABASE_URL}/rest/v1/subscribers`, {
+    method: 'POST',
+    headers: { ...headers, Prefer: 'return=minimal' },
+    body: JSON.stringify({ email, access_key, plan: 'trial', expires_at }),
   });
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (!insert.ok) {
+    const err = await insert.text();
+    return res.status(500).json({ error: err });
+  }
 
-  return res.status(200).json({ 
-    success: true, 
+  return res.status(200).json({
+    success: true,
     access_key,
-    expires_at: expires_at.toISOString()
+    expires_at
   });
 }
