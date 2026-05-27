@@ -1,5 +1,10 @@
-import Radar from '../components/Radar';
+export default function Home() {}
 
-export default function Home() {
-  return <Radar />;
+export async function getServerSideProps() {
+  return {
+    redirect: {
+      destination: '/landing.html',
+      permanent: false,
+    },
+  };
 }
