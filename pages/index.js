@@ -1,9 +1,9 @@
-export default function Home() {
-  return null;
-}
+import Head from 'next/head';
+import { useEffect } from 'react';
 
-export async function getServerSideProps(context) {
-  context.res.writeHead(302, { Location: '/landing.html' });
-  context.res.end();
-  return { props: {} };
+export default function Home() {
+  useEffect(() => {
+    window.location.replace('/landing.html');
+  }, []);
+  return null;
 }
