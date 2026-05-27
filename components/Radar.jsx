@@ -1,4 +1,3 @@
-cat << 'ENDOFFILE' > /mnt/user-data/outputs/Radar.jsx
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 
 const S = {
@@ -468,5 +467,3 @@ export default function Radar() {
     </div>
   );
 }
-ENDOFFILE
-echo "Done"
