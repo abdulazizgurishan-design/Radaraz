@@ -191,7 +191,6 @@ function StatusBanner({ status, lastUpdate, scanError }) {
   );
 }
 
-// ── شاشة تسجيل الدخول ──
 function LoginScreen({ onLogin }) {
   const [key, setKey] = useState("");
   const [loading, setLoading] = useState(false);
@@ -239,7 +238,7 @@ function LoginScreen({ onLogin }) {
           <div style={S.loginExpired}>
             ⏰ انتهى اشتراكك — جدد للوصول الكامل
             <div style={{ marginTop: 8 }}>
-              <a href="https://radaraz.vercel.app" style={{ color: "#ffd700", fontSize: 12 }}>جدد الاشتراك ←</a>
+              <a href="https://radaraz.com" style={{ color: "#ffd700", fontSize: 12 }}>جدد الاشتراك ←</a>
             </div>
           </div>
         )}
@@ -266,7 +265,6 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-// ── Main ──
 export default function Radar() {
   const [auth, setAuth] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -284,7 +282,6 @@ export default function Radar() {
   const autoTimerRef = useRef(null);
   const COOLDOWN_MS = 10_000;
 
-  // تحقق من المفتاح المحفوظ
   useEffect(() => {
     const savedKey = localStorage.getItem("radar_key");
     const savedExpires = localStorage.getItem("radar_expires");
