@@ -187,7 +187,7 @@ export default async function handler(req, res) {
       const reward   = target1 - price;
       const rr       = risk > 0 ? (reward / risk).toFixed(1) : "0";
 
-      if (!isPreMarket && parseFloat(rr) < 1.0) continue;
+      if (!isPreMarket && parseFloat(rr) < 0.5) continue;
 
       let score = 30;
 
@@ -214,7 +214,7 @@ export default async function handler(req, res) {
       else if (rrNum >= 1.5)      score += 3;
 
       score = Math.max(30, Math.min(score, 99));
-      if (score < 55) continue;
+      if (score < 45) continue;
 
       const confidence =
         score >= 85 ? "💥 قوة قصوى" :
