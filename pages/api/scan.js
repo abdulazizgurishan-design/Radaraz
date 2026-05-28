@@ -124,6 +124,7 @@ const WATCHLIST = [
   "HUDI","HUMA","HURC","HVBC","HWBK","HWKN","HYAC","HYLN","HYMC","HYPR"
 ];
 
+// ── المؤشرات الفنية ──
 async function getEMA(ticker, window) {
   try {
     const url = `${BASE}/v1/indicators/ema/${ticker}?timespan=day&adjusted=true&window=${window}&series_type=close&order=desc&limit=1&apiKey=${POLYGON_KEY}`;
@@ -168,6 +169,28 @@ async function getFibLevels(ticker) {
   } catch { return null; }
 }
 
+// ── السكور الأولي (بدون API إضافية) ──
+function calcBaseScore(changePct, volume, aboveVWAP, preGap, rrNum) {
+  let score = 30;
+  if (volume > 2_000_000)     score += 25;
+  else if (volume > 500_000)  score += 18;
+  else if (volume > 100_000)  score += 12;
+  else if (volume > 50_000)   score += 6;
+  if (changePct > 15)         score += 20;
+  else if (changePct > 10)    score += 15;
+  else if (changePct > 5)     score += 10;
+  else if (changePct > 2)     score += 5;
+  else if (changePct < 0)     score -= 5;
+  if (aboveVWAP)              score += 15;
+  if (preGap > 10)            score += 10;
+  else if (preGap > 5)        score += 7;
+  else if (preGap > 2)        score += 4;
+  if (rrNum >= 3)             score += 10;
+  else if (rrNum >= 2)        score += 6;
+  else if (rrNum >= 1.5)      score += 3;
+  return Math.max(30, Math.min(score, 99));
+}
+
 export default async function handler(req, res) {
   try {
     const now = new Date();
@@ -178,6 +201,7 @@ export default async function handler(req, res) {
     const isPreMarket = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
     const MIN_VOLUME  = isPreMarket ? 5000 : 20000;
 
+    // ── المرحلة 1: جلب snapshot لكل القائمة ──
     const uniqueList = [...new Set(WATCHLIST)];
     const CHUNK_SIZE = 100;
     const chunks = [];
@@ -196,7 +220,7 @@ export default async function handler(req, res) {
       } catch { }
     }));
 
-    // فلتر أولي
+    // ── المرحلة 2: فلتر أولي + سكور سريع ──
     const candidates = [];
     for (const data of allTickers) {
       let price  = data.min?.c ?? data.lastTrade?.p ?? data.day?.c ?? 0;
@@ -207,26 +231,10 @@ export default async function handler(req, res) {
       }
       if (price < 0.5 || price > 50) continue;
       if (volume < MIN_VOLUME) continue;
+
       const prevClose = data.prevDay?.c || price;
       const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
       if (changePct > 20) continue;
-      candidates.push({ data, price, volume, prevClose, changePct });
-    }
-
-    // أفضل 50 بالحجم للحصول على المؤشرات
-    const top50 = candidates.sort((a, b) => b.volume - a.volume).slice(0, 100);
-
-    const finalResults = [];
-
-    await Promise.all(top50.map(async ({ data, price, volume, prevClose, changePct }) => {
-      const ticker = data.ticker;
-
-      const [ema9, ema20, rsi, fibLevels] = await Promise.all([
-        getEMA(ticker, 9),
-        getEMA(ticker, 20),
-        getRSI(ticker),
-        getFibLevels(ticker),
-      ]);
 
       const vwap      = data.day?.vw || price;
       const aboveVWAP = price > vwap;
@@ -239,56 +247,51 @@ export default async function handler(req, res) {
       const atr  = Math.max(tr, price * 0.02);
 
       const target1  = parseFloat((price + atr * 1.5).toFixed(2));
-      const target2  = parseFloat((price + atr * 3.0).toFixed(2));
-      const target3  = parseFloat((price + atr * 4.5).toFixed(2));
       const stopLoss = parseFloat(Math.max(price - atr * 0.8, price * 0.90).toFixed(2));
-      const slPct    = parseFloat((((stopLoss - price) / price) * 100).toFixed(2));
       const risk     = parseFloat((price - stopLoss).toFixed(2));
       const reward   = target1 - price;
-      const rr       = risk > 0 ? (reward / risk).toFixed(1) : "0";
+      const rrNum    = risk > 0 ? reward / risk : 0;
 
-      if (!isPreMarket && parseFloat(rr) < 1.0) return;
+      if (!isPreMarket && rrNum < 1.0) continue;
 
-      let score = 30;
+      const baseScore = calcBaseScore(changePct, volume, aboveVWAP, preGap, rrNum);
+      if (baseScore < 40) continue;
 
-      // حجم التداول
-      if (volume > 2_000_000)     score += 25;
-      else if (volume > 500_000)  score += 18;
-      else if (volume > 100_000)  score += 12;
-      else if (volume > 50_000)   score += 6;
+      candidates.push({ data, price, volume, prevClose, changePct, vwap, aboveVWAP, preGap, atr, rrNum, baseScore });
+    }
 
-      // نسبة التغيير
-      if (changePct > 15)         score += 20;
-      else if (changePct > 10)    score += 15;
-      else if (changePct > 5)     score += 10;
-      else if (changePct > 2)     score += 5;
-      else if (changePct < 0)     score -= 5;
+    // ── المرحلة 3: أفضل 20 بالسكور الأولي → جلب المؤشرات ──
+    const top20 = candidates
+      .sort((a, b) => b.baseScore - a.baseScore)
+      .slice(0, 20);
 
-      // VWAP
-      if (aboveVWAP)              score += 15;
+    const finalResults = [];
 
-      // Gap الصباحي
-      if (preGap > 10)            score += 10;
-      else if (preGap > 5)        score += 7;
-      else if (preGap > 2)        score += 4;
+    await Promise.all(top20.map(async ({ data, price, volume, prevClose, changePct, vwap, aboveVWAP, preGap, atr, rrNum, baseScore }) => {
+      const ticker = data.ticker;
 
-      // R/R
-      const rrNum = parseFloat(rr);
-      if (rrNum >= 3)             score += 10;
-      else if (rrNum >= 2)        score += 6;
-      else if (rrNum >= 1.5)      score += 3;
+      // جلب المؤشرات بالتوازي لـ 20 سهم فقط
+      const [ema9, ema20, rsi, fibLevels] = await Promise.all([
+        getEMA(ticker, 9),
+        getEMA(ticker, 20),
+        getRSI(ticker),
+        getFibLevels(ticker),
+      ]);
 
-      // ✅ EMA Cross
+      // ── السكور النهائي = السكور الأولي + المؤشرات ──
+      let score = baseScore;
+
+      // ✅ EMA Cross — زخم صاعد
       if (ema9 && ema20 && ema9 > ema20) score += 10;
 
-      // ✅ RSI
+      // ✅ RSI — قوة بدون overbought
       if (rsi !== null) {
         if (rsi >= 50 && rsi <= 70)  score += 10;
         else if (rsi > 70)           score -= 5;
         else if (rsi < 40)           score -= 8;
       }
 
-      // ✅ فيبوناتشي
+      // ✅ فيبوناتشي — كسر مستوى قوي
       if (fibLevels) {
         if (price > fibLevels.fib618)      score += 8;
         else if (price > fibLevels.fib500) score += 5;
@@ -296,27 +299,34 @@ export default async function handler(req, res) {
       }
 
       score = Math.max(30, Math.min(score, 99));
-      if (score < 45) return;
+
+      const target1  = parseFloat((price + atr * 1.5).toFixed(2));
+      const target2  = parseFloat((price + atr * 3.0).toFixed(2));
+      const target3  = parseFloat((price + atr * 4.5).toFixed(2));
+      const stopLoss = parseFloat(Math.max(price - atr * 0.8, price * 0.90).toFixed(2));
+      const slPct    = parseFloat((((stopLoss - price) / price) * 100).toFixed(2));
+      const risk     = parseFloat((price - stopLoss).toFixed(2));
+      const rr       = rrNum.toFixed(1);
 
       const confidence =
         score >= 85 ? "💥 قوة قصوى" :
         score >= 70 ? "🔥 إشارة ممتازة" : "👀 مراقبة";
 
       finalResults.push({
-        symbol:    ticker,
-        price:     parseFloat(price.toFixed(2)),
+        symbol:     ticker,
+        price:      parseFloat(price.toFixed(2)),
         change_pct: parseFloat(changePct.toFixed(2)),
         volume,
         rr,
-        signal:    confidence,
+        signal:     confidence,
         score,
-        marketCap: data.marketCap ? data.marketCap / 1_000_000 : null,
-        ema9:      ema9  ? parseFloat(ema9.toFixed(2))  : null,
-        ema20:     ema20 ? parseFloat(ema20.toFixed(2)) : null,
-        rsi:       rsi   ? parseFloat(rsi.toFixed(1))   : null,
-        vwap:      parseFloat(vwap.toFixed(2)),
-        rvol:      parseFloat((volume / 500000).toFixed(1)),
-        fib:       fibLevels || null,
+        marketCap:  data.marketCap ? data.marketCap / 1_000_000 : null,
+        ema9:       ema9  ? parseFloat(ema9.toFixed(2))  : null,
+        ema20:      ema20 ? parseFloat(ema20.toFixed(2)) : null,
+        rsi:        rsi   ? parseFloat(rsi.toFixed(1))   : null,
+        vwap:       parseFloat(vwap.toFixed(2)),
+        rvol:       parseFloat((volume / 500000).toFixed(1)),
+        fib:        fibLevels || null,
         levels: { sl: stopLoss, t1: target1, t2: target2, t3: target3, slPct, risk }
       });
     }));
