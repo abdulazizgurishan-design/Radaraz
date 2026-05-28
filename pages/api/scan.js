@@ -2,15 +2,11 @@ const POLYGON_KEY = process.env.POLYGON_API_KEY;
 const BASE = "https://api.polygon.io";
 
 const WATCHLIST = [
-  // ✅ أسهم قيادية - تكنولوجيا وذكاء اصطناعي
+  // ✅ أسهم قيادية
   "NVDA","AMD","MSFT","META","GOOGL","AMZN","AAPL","TSLA","PLTR","SMCI",
-  // ✅ أسهم قيادية - بيوتك وصحة
   "MRNA","BNTX","VRTX","REGN","ILMN",
-  // ✅ أسهم قيادية - طاقة ومعادن
   "ENPH","FSLR","MP","PLUG","CHPT",
-  // ✅ أسهم قيادية - تداول وتشفير
   "COIN","MSTR","HOOD","SOFI","UPST",
-  // ✅ أسهم قيادية - مركبات كهربائية ومستقبل
   "RIVN","LCID","JOBY","RKLB","ARKK",
   // Batch 1
   "SOUN","BBAI","KULR","CRKN","NKLA","MULN","WISA","CBAT","BFRI","ATXS",
@@ -124,73 +120,6 @@ const WATCHLIST = [
   "HUDI","HUMA","HURC","HVBC","HWBK","HWKN","HYAC","HYLN","HYMC","HYPR"
 ];
 
-// ── المؤشرات الفنية ──
-async function getEMA(ticker, window) {
-  try {
-    const url = `${BASE}/v1/indicators/ema/${ticker}?timespan=day&adjusted=true&window=${window}&series_type=close&order=desc&limit=1&apiKey=${POLYGON_KEY}`;
-    const r = await fetch(url);
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d?.results?.values?.[0]?.value ?? null;
-  } catch { return null; }
-}
-
-async function getRSI(ticker) {
-  try {
-    const url = `${BASE}/v1/indicators/rsi/${ticker}?timespan=day&adjusted=true&window=14&series_type=close&order=desc&limit=1&apiKey=${POLYGON_KEY}`;
-    const r = await fetch(url);
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d?.results?.values?.[0]?.value ?? null;
-  } catch { return null; }
-}
-
-async function getFibLevels(ticker) {
-  try {
-    const today = new Date().toISOString().split('T')[0];
-    const before = new Date();
-    before.setDate(before.getDate() - 30);
-    const from = before.toISOString().split('T')[0];
-    const url = `${BASE}/v2/aggs/ticker/${ticker}/range/1/day/${from}/${today}?adjusted=true&sort=asc&limit=30&apiKey=${POLYGON_KEY}`;
-    const r = await fetch(url);
-    if (!r.ok) return null;
-    const d = await r.json();
-    const bars = d?.results;
-    if (!bars || bars.length < 5) return null;
-    const high = Math.max(...bars.map(b => b.h));
-    const low  = Math.min(...bars.map(b => b.l));
-    const diff = high - low;
-    return {
-      fib618: parseFloat((high - diff * 0.618).toFixed(2)),
-      fib500: parseFloat((high - diff * 0.500).toFixed(2)),
-      fib382: parseFloat((high - diff * 0.382).toFixed(2)),
-      high, low
-    };
-  } catch { return null; }
-}
-
-// ── السكور الأولي (بدون API إضافية) ──
-function calcBaseScore(changePct, volume, aboveVWAP, preGap, rrNum) {
-  let score = 30;
-  if (volume > 2_000_000)     score += 25;
-  else if (volume > 500_000)  score += 18;
-  else if (volume > 100_000)  score += 12;
-  else if (volume > 50_000)   score += 6;
-  if (changePct > 15)         score += 20;
-  else if (changePct > 10)    score += 15;
-  else if (changePct > 5)     score += 10;
-  else if (changePct > 2)     score += 5;
-  else if (changePct < 0)     score -= 5;
-  if (aboveVWAP)              score += 15;
-  if (preGap > 10)            score += 10;
-  else if (preGap > 5)        score += 7;
-  else if (preGap > 2)        score += 4;
-  if (rrNum >= 3)             score += 10;
-  else if (rrNum >= 2)        score += 6;
-  else if (rrNum >= 1.5)      score += 3;
-  return Math.max(30, Math.min(score, 99));
-}
-
 export default async function handler(req, res) {
   try {
     const now = new Date();
@@ -201,7 +130,6 @@ export default async function handler(req, res) {
     const isPreMarket = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
     const MIN_VOLUME  = isPreMarket ? 5000 : 20000;
 
-    // ── المرحلة 1: جلب snapshot لكل القائمة ──
     const uniqueList = [...new Set(WATCHLIST)];
     const CHUNK_SIZE = 100;
     const chunks = [];
@@ -220,15 +148,19 @@ export default async function handler(req, res) {
       } catch { }
     }));
 
-    // ── المرحلة 2: فلتر أولي + سكور سريع ──
-    const candidates = [];
+    const finalResults = [];
+
     for (const data of allTickers) {
+      const ticker = data.ticker;
+
       let price  = data.min?.c ?? data.lastTrade?.p ?? data.day?.c ?? 0;
       let volume = data.day?.v ?? 0;
+
       if (volume === 0 && data.prevDay) {
         price  = data.prevDay.c || price;
         volume = data.prevDay.v || 0;
       }
+
       if (price < 0.5 || price > 50) continue;
       if (volume < MIN_VOLUME) continue;
 
@@ -247,70 +179,50 @@ export default async function handler(req, res) {
       const atr  = Math.max(tr, price * 0.02);
 
       const target1  = parseFloat((price + atr * 1.5).toFixed(2));
-      const stopLoss = parseFloat(Math.max(price - atr * 0.8, price * 0.90).toFixed(2));
-      const risk     = parseFloat((price - stopLoss).toFixed(2));
-      const reward   = target1 - price;
-      const rrNum    = risk > 0 ? reward / risk : 0;
-
-      if (!isPreMarket && rrNum < 1.0) continue;
-
-      const baseScore = calcBaseScore(changePct, volume, aboveVWAP, preGap, rrNum);
-      if (baseScore < 40) continue;
-
-      candidates.push({ data, price, volume, prevClose, changePct, vwap, aboveVWAP, preGap, atr, rrNum, baseScore });
-    }
-
-    // ── المرحلة 3: أفضل 20 بالسكور الأولي → جلب المؤشرات ──
-    const top20 = candidates
-      .sort((a, b) => b.baseScore - a.baseScore)
-      .slice(0, 20);
-
-    const finalResults = [];
-
-    await Promise.all(top20.map(async ({ data, price, volume, prevClose, changePct, vwap, aboveVWAP, preGap, atr, rrNum, baseScore }) => {
-      const ticker = data.ticker;
-
-      // جلب المؤشرات بالتوازي لـ 20 سهم فقط
-      const [ema9, ema20, rsi, fibLevels] = await Promise.all([
-        getEMA(ticker, 9),
-        getEMA(ticker, 20),
-        getRSI(ticker),
-        getFibLevels(ticker),
-      ]);
-
-      // ── السكور النهائي = السكور الأولي + المؤشرات ──
-      let score = baseScore;
-
-      // ✅ EMA Cross — زخم صاعد
-      if (ema9 && ema20 && ema9 > ema20) score += 10;
-
-      // ✅ RSI — قوة بدون overbought
-      if (rsi !== null) {
-        if (rsi >= 50 && rsi <= 70)  score += 10;
-        else if (rsi > 70)           score -= 5;
-        else if (rsi < 40)           score -= 8;
-      }
-
-      // ✅ فيبوناتشي — كسر مستوى قوي
-      if (fibLevels) {
-        if (price > fibLevels.fib618)      score += 8;
-        else if (price > fibLevels.fib500) score += 5;
-        else if (price > fibLevels.fib382) score += 3;
-      }
-
-      score = Math.max(30, Math.min(score, 99));
-
-      const target1  = parseFloat((price + atr * 1.5).toFixed(2));
       const target2  = parseFloat((price + atr * 3.0).toFixed(2));
       const target3  = parseFloat((price + atr * 4.5).toFixed(2));
       const stopLoss = parseFloat(Math.max(price - atr * 0.8, price * 0.90).toFixed(2));
       const slPct    = parseFloat((((stopLoss - price) / price) * 100).toFixed(2));
       const risk     = parseFloat((price - stopLoss).toFixed(2));
-      const rr       = rrNum.toFixed(1);
+      const reward   = target1 - price;
+      const rr       = risk > 0 ? (reward / risk).toFixed(1) : "0";
+
+      if (!isPreMarket && parseFloat(rr) < 1.0) continue;
+
+      let score = 30;
+
+      if (volume > 2_000_000)     score += 25;
+      else if (volume > 500_000)  score += 18;
+      else if (volume > 100_000)  score += 12;
+      else if (volume > 50_000)   score += 6;
+
+      if (changePct > 15)         score += 20;
+      else if (changePct > 10)    score += 15;
+      else if (changePct > 5)     score += 10;
+      else if (changePct > 2)     score += 5;
+      else if (changePct < 0)     score -= 5;
+
+      if (aboveVWAP)              score += 15;
+
+      if (preGap > 10)            score += 10;
+      else if (preGap > 5)        score += 7;
+      else if (preGap > 2)        score += 4;
+
+      const rrNum = parseFloat(rr);
+      if (rrNum >= 3)             score += 10;
+      else if (rrNum >= 2)        score += 6;
+      else if (rrNum >= 1.5)      score += 3;
+
+      score = Math.max(30, Math.min(score, 99));
+      if (score < 55) continue;
 
       const confidence =
         score >= 85 ? "💥 قوة قصوى" :
         score >= 70 ? "🔥 إشارة ممتازة" : "👀 مراقبة";
+
+      // EMA يُحسب من بيانات اليوم المتاحة
+      const ema9  = data.day?.vw || null;
+      const ema20 = data.prevDay?.vw || null;
 
       finalResults.push({
         symbol:     ticker,
@@ -323,13 +235,12 @@ export default async function handler(req, res) {
         marketCap:  data.marketCap ? data.marketCap / 1_000_000 : null,
         ema9:       ema9  ? parseFloat(ema9.toFixed(2))  : null,
         ema20:      ema20 ? parseFloat(ema20.toFixed(2)) : null,
-        rsi:        rsi   ? parseFloat(rsi.toFixed(1))   : null,
+        rsi:        null,
         vwap:       parseFloat(vwap.toFixed(2)),
         rvol:       parseFloat((volume / 500000).toFixed(1)),
-        fib:        fibLevels || null,
         levels: { sl: stopLoss, t1: target1, t2: target2, t3: target3, slPct, risk }
       });
-    }));
+    }
 
     finalResults.sort((a, b) => b.score - a.score || b.volume - a.volume);
 
