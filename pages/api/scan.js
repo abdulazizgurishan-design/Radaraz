@@ -161,8 +161,8 @@ export default async function handler(req, res) {
         volume = data.prevDay.v || 0;
       }
 
-      if (price < 0.5 || price > 50) continue;
-      if (volume < MIN_VOLUME) continue;
+      if (price < 0.5 || price > 500) continue;
+      if (volume < 10000) continue;
 
       const prevClose = data.prevDay?.c || price;
       const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
