@@ -20,13 +20,15 @@ const S = {
 };
 
 export default function Trial() {
+  const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
 
-  const handleSubmit = async () => {
+  const handleSendCode = async () => {
     if (!email.trim() || !email.includes('@')) {
       setError('أدخل إيميل صحيح');
       return;
@@ -34,17 +36,52 @@ export default function Trial() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/create-trial?email=${encodeURIComponent(email.trim())}`);
+      const res = await fetch('/api/send-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
+      });
       const data = await res.json();
       if (data.error === 'used') {
         setError('هذا الإيميل استخدم التجربة المجانية مسبقاً');
+      } else if (data.success) {
+        setStep(2);
+      } else {
+        setError('حدث خطأ — حاول مجدداً');
+      }
+    } catch {
+      setError('خطأ في الاتصال — حاول مجدداً');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    if (!code.trim() || code.length < 4) {
+      setError('أدخل الكود الصحيح');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), code: code.trim() }),
+      });
+      const data = await res.json();
+      if (data.error === 'invalid_code') {
+        setError('الكود غير صحيح — تحقق وأعد المحاولة');
+      } else if (data.error === 'expired') {
+        setError('انتهت صلاحية الكود — اطلب كوداً جديداً');
+        setStep(1);
       } else if (data.success) {
         setResult(data);
       } else {
         setError('حدث خطأ — حاول مجدداً');
       }
     } catch {
-      setError('خطأ في الاتصال — حاول مجدداً');
+      setError('خطأ في الاتصال — حاول مجددا');
     } finally {
       setLoading(false);
     }
@@ -63,34 +100,63 @@ export default function Trial() {
       <div style={S.box}>
         {!result ? (
           <>
-            <div style={S.icon}>🎁</div>
+            <div style={S.icon}>{step === 1 ? '🎁' : '📧'}</div>
             <div style={S.title}>
-              جرّب <span style={S.accent}>مجاناً</span>
-            </div>
-            <div style={S.title} dir="ltr" style={{ fontSize: 14, fontWeight: 400, color: 'rgba(255,255,255,0.5)', letterSpacing: 1, marginBottom: 8 }}>
-              24-Hour Free Trial
+              {step === 1 ? <>جرّب <span style={S.accent}>مجاناً</span></> : <>تحقق من <span style={S.accent}>إيميلك</span></>}
             </div>
             <p style={S.subtitle}>
-              أدخل إيميلك واحصل على مفتاح وصول مجاني لمدة 24 ساعة كاملة
-              <br />
-              <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>بدون بطاقة ائتمان · No Credit Card</span>
+              {step === 1 ? (
+                <>
+                  أدخل إيميلك واحصل على كود تحقق
+                  <br />
+                  <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>بدون بطاقة ائتمان · No Credit Card</span>
+                </>
+              ) : (
+                <>
+                  أرسلنا كود مكون من 6 أرقام إلى
+                  <br />
+                  <span style={{ color: '#a5b4fc', fontSize: 13 }}>{email}</span>
+                </>
+              )}
             </p>
 
             {error && <div style={S.error}>{error}</div>}
 
-            <input
-              style={S.input}
-              type="email"
-              placeholder="your@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-              dir="ltr"
-            />
-
-            <button style={S.btn(loading)} onClick={handleSubmit} disabled={loading}>
-              {loading ? '⟳ جاري الإنشاء...' : '🚀 احصل على مفتاحك المجاني'}
-            </button>
+            {step === 1 ? (
+              <>
+                <input
+                  style={S.input}
+                  type="email"
+                  placeholder="your@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendCode()}
+                  dir="ltr"
+                />
+                <button style={S.btn(loading)} onClick={handleSendCode} disabled={loading}>
+                  {loading ? '⟳ جاري الإرسال...' : '📨 أرسل كود التحقق'}
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  style={S.input}
+                  type="text"
+                  placeholder="123456"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleVerifyCode()}
+                  maxLength={6}
+                  dir="ltr"
+                />
+                <button style={S.btn(loading)} onClick={handleVerifyCode} disabled={loading}>
+                  {loading ? '⟳ جاري التحقق...' : '🔓 تحقق واحصل على مفتاحك'}
+                </button>
+                <div style={{ marginTop: 12, fontSize: 12, color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }} onClick={() => { setStep(1); setError(null); }}>
+                  ← تغيير الإيميل
+                </div>
+              </>
+            )}
 
             <div style={S.backLink}>
               <a href="/" style={{ color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>← العودة للرئيسية</a>
