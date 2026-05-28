@@ -92,12 +92,21 @@ const SkeletonCards = () => (
   </>
 );
 
+function getMarketCapInfo(mcap) {
+  if (!mcap) return null;
+  if (mcap >= 10000) return { label: "🐋 Large Cap", color: "#60a5fa", bg: "rgba(96,165,250,0.1)", border: "rgba(96,165,250,0.25)" };
+  if (mcap >= 2000)  return { label: "🦈 Mid Cap",   color: "#34d399", bg: "rgba(52,211,153,0.1)", border: "rgba(52,211,153,0.25)" };
+  if (mcap >= 300)   return { label: "🐟 Small Cap",  color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.25)" };
+  return               { label: "🦐 Micro Cap",  color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.25)" };
+}
+
 function Card({ r, idx }) {
   const [open, setOpen] = useState(false);
   const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
   const formatPct = useCallback((n) => (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%", []);
   const scoreColor = r.score >= 80 ? "#ff6b35" : r.score >= 60 ? "#ffd700" : "#00d4aa";
   const glowColor = r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
+  const mcapInfo = getMarketCapInfo(r.marketCap);
   const metrics = useMemo(() => [
     { label: "EMA 9", value: r.ema9 ? formatPrice(r.ema9) : "—", color: "#a78bfa" },
     { label: "EMA 20", value: r.ema20 ? formatPrice(r.ema20) : "—", color: "#fbbf24" },
@@ -120,6 +129,8 @@ function Card({ r, idx }) {
         </div>
         <div style={S.cardTags}>
           <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.signal}</span>
+          {mcapInfo && <span style={S.tag(mcapInfo.bg, mcapInfo.color, mcapInfo.border)}>{mcapInfo.label}</span>}
+          {r.marketCap && <span style={S.tag("rgba(255,255,255,0.04)", "rgba(255,255,255,0.3)", "rgba(255,255,255,0.08)")}>${r.marketCap >= 1000 ? (r.marketCap/1000).toFixed(1)+"B" : r.marketCap.toFixed(0)+"M"}</span>}
           {r.rvol && r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
         </div>
         <div style={{ textAlign: "right", minWidth: 80 }}>
