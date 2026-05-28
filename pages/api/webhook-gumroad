@@ -54,7 +54,7 @@ export default async function handler(req, res) {
       await fetch(`${SUPABASE_URL}/rest/v1/subscribers`, {
         method: 'POST',
         headers: { ...headers, Prefer: 'return=minimal' },
-        body: JSON.stringify({ email, access_key, plan, expires_at }),
+        body: JSON.stringify({ email, access_key, plan, expires_at, is_active: true }),
       });
     }
 
@@ -66,7 +66,7 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'RADAR AZ PRO <onboarding@resend.dev>',
+        from: 'RADAR AZ PRO <noreply@radaraz.com>',
         to: email,
         subject: '🎉 مفتاح اشتراكك في RADAR AZ PRO',
         html: `
@@ -81,7 +81,7 @@ export default async function handler(req, res) {
             </div>
             <p style="font-size:14px;">خطوات الدخول:</p>
             <ol style="font-size:13px;color:rgba(255,255,255,0.7);line-height:1.8;">
-              <li>افتح <a href="https://radaraz.vercel.app" style="color:#6366f1;">radaraz.vercel.app</a></li>
+              <li>افتح <a href="https://radaraz.com/app" style="color:#6366f1;">radaraz.com/app</a></li>
               <li>أدخل المفتاح أعلاه</li>
               <li>اضغط دخول وابدأ المسح 🚀</li>
             </ol>
