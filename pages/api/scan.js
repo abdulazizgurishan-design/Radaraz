@@ -214,7 +214,7 @@ export default async function handler(req, res) {
     }
 
     // أفضل 50 بالحجم للحصول على المؤشرات
-    const top50 = candidates.sort((a, b) => b.volume - a.volume).slice(0, 50);
+    const top50 = candidates.sort((a, b) => b.volume - a.volume).slice(0, 100);
 
     const finalResults = [];
 
@@ -296,7 +296,7 @@ export default async function handler(req, res) {
       }
 
       score = Math.max(30, Math.min(score, 99));
-      if (score < 55) return;
+      if (score < 45) return;
 
       const confidence =
         score >= 85 ? "💥 قوة قصوى" :
