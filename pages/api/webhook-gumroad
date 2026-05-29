@@ -32,7 +32,7 @@ export default async function handler(req, res) {
     let days = 30;
     let plan = 'monthly';
     let planAr = 'شهري';
-    if (productId === 'ereqyb') {
+    if (productId && productId.includes('ereqyb')) {
       days = 90;
       plan = '3months';
       planAr = '3 أشهر';
