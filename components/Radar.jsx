@@ -1,5 +1,98 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 
+const T = {
+  ar: {
+    title: "رادار",
+    subtitle: "الشرعية مسؤوليتك · الالتزام بوقف الخسارة يخفف المخاطرة",
+    trial: "🕐 تجربة مجانية",
+    subscribed: "✅ مشترك",
+    logout: "خروج",
+    scanRange: "نطاق الفحص",
+    explosive: "💥 انفجاري",
+    high: "🔥 عالي",
+    all: "✅ الكل",
+    scanBtn: "📡  ابدأ مسح السوق الفوري",
+    scanning: "⟳  جاري المسح اللحظي...",
+    autoRefresh: "تحديث تلقائي كل دقيقة",
+    filterAll: "الكل",
+    opportunities: "فرصة",
+    noOpps: "لا توجد فرص حالياً",
+    marketClosed: "السوق يفتح 4:30م بتوقيت الرياض",
+    stopLoss: "🛑 وقف الخسارة",
+    risk: "مخاطرة",
+    volume: "حجم",
+    footer1: "RADAR AZ PRO",
+    footer2: "أسهم شرعية · ليست نصيحة استثمارية",
+    loginTitle: "أدخل مفتاح الاشتراك للوصول للرادار",
+    loginBtn: "🔓 دخول",
+    loginLoading: "⟳ جاري التحقق...",
+    loginError: "المفتاح غير صحيح — تحقق من المفتاح وحاول مجدداً",
+    loginConnError: "خطأ في الاتصال — حاول مجدداً",
+    expired: "⏰ انتهى اشتراكك — جدد للوصول الكامل",
+    renewLink: "جدد الاشتراك ←",
+    noKey: "ليس لديك مفتاح؟",
+    freeTrial: "جرّب مجاناً 24 ساعة ←",
+    bannerError: "خطأ في الاتصال",
+    bannerErrorSub: "تعذر الاتصال بـ Polygon API",
+    bannerClosed: "السوق مغلق",
+    bannerClosedSub: "يفتح 4:30م بتوقيت الرياض",
+    bannerPre: "Pre-Market نشط",
+    bannerPreSub: "أفضل النتائج بعد 4:30م",
+    bannerOk: "متصل — أسعار حية",
+    bannerOkSub: "Polygon API يعمل بشكل طبيعي",
+    lastUpdate: "آخر تحديث",
+    largeCap: "🐋 Large Cap",
+    midCap: "🦈 Mid Cap",
+    smallCap: "🐟 Small Cap",
+    microCap: "🦐 Micro Cap",
+  },
+  en: {
+    title: "Radar",
+    subtitle: "Shariah compliance is your responsibility · Stop loss reduces risk",
+    trial: "🕐 Free Trial",
+    subscribed: "✅ Subscribed",
+    logout: "Logout",
+    scanRange: "Scan Range",
+    explosive: "💥 Explosive",
+    high: "🔥 High",
+    all: "✅ All",
+    scanBtn: "📡  Start Live Market Scan",
+    scanning: "⟳  Scanning in progress...",
+    autoRefresh: "Auto refresh every minute",
+    filterAll: "All",
+    opportunities: "opportunities",
+    noOpps: "No opportunities found",
+    marketClosed: "Market opens at 9:30 AM ET",
+    stopLoss: "🛑 Stop Loss",
+    risk: "Risk",
+    volume: "Volume",
+    footer1: "RADAR AZ PRO",
+    footer2: "Halal Stocks · Not investment advice",
+    loginTitle: "Enter your subscription key to access the radar",
+    loginBtn: "🔓 Login",
+    loginLoading: "⟳ Verifying...",
+    loginError: "Invalid key — please check your key and try again",
+    loginConnError: "Connection error — please try again",
+    expired: "⏰ Your subscription has expired — renew for full access",
+    renewLink: "Renew subscription →",
+    noKey: "Don't have a key?",
+    freeTrial: "Try free for 24 hours →",
+    bannerError: "Connection Error",
+    bannerErrorSub: "Failed to connect to Polygon API",
+    bannerClosed: "Market Closed",
+    bannerClosedSub: "Opens at 9:30 AM ET",
+    bannerPre: "Pre-Market Active",
+    bannerPreSub: "Best results after 9:30 AM ET",
+    bannerOk: "Connected — Live Prices",
+    bannerOkSub: "Polygon API working normally",
+    lastUpdate: "Last update",
+    largeCap: "🐋 Large Cap",
+    midCap: "🦈 Mid Cap",
+    smallCap: "🐟 Small Cap",
+    microCap: "🦐 Micro Cap",
+  }
+};
+
 const S = {
   root: { minHeight: "100vh", background: "#080c18", fontFamily: "system-ui", color: "#fff", position: "relative", overflow: "hidden" },
   bgWrap: { position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none" },
@@ -13,6 +106,7 @@ const S = {
   titleAccent: { background: "linear-gradient(135deg,#6366f1,#8b5cf6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
   badge: { fontSize: 10, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", borderRadius: 4, padding: "3px 8px", color: "#fff", fontWeight: 700, letterSpacing: 1 },
   subtitle: { margin: 0, fontSize: 12, color: "rgba(255,255,255,0.35)", letterSpacing: 1 },
+  langBtn: { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "5px 12px", color: "rgba(255,255,255,0.6)", fontSize: 12, cursor: "pointer", fontFamily: "system-ui", marginTop: 8 },
   statsRow: { display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" },
   statBox: (bg, border) => ({ flex: 1, minWidth: 80, background: bg, border: `1px solid ${border}`, borderRadius: 14, padding: "14px 16px", textAlign: "center" }),
   statNum: (color) => ({ fontSize: 26, fontWeight: 900, color, fontFamily: "monospace", lineHeight: 1 }),
@@ -92,28 +186,28 @@ const SkeletonCards = () => (
   </>
 );
 
-function getMarketCapInfo(mcap) {
+function getMarketCapInfo(mcap, t) {
   if (!mcap) return null;
-  if (mcap >= 10000) return { label: "🐋 Large Cap", color: "#60a5fa", bg: "rgba(96,165,250,0.1)", border: "rgba(96,165,250,0.25)" };
-  if (mcap >= 2000)  return { label: "🦈 Mid Cap",   color: "#34d399", bg: "rgba(52,211,153,0.1)", border: "rgba(52,211,153,0.25)" };
-  if (mcap >= 300)   return { label: "🐟 Small Cap",  color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.25)" };
-  return               { label: "🦐 Micro Cap",  color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.25)" };
+  if (mcap >= 10000) return { label: t.largeCap, color: "#60a5fa", bg: "rgba(96,165,250,0.1)", border: "rgba(96,165,250,0.25)" };
+  if (mcap >= 2000)  return { label: t.midCap,   color: "#34d399", bg: "rgba(52,211,153,0.1)", border: "rgba(52,211,153,0.25)" };
+  if (mcap >= 300)   return { label: t.smallCap,  color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.25)" };
+  return               { label: t.microCap,  color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.25)" };
 }
 
-function Card({ r, idx }) {
+function Card({ r, idx, t }) {
   const [open, setOpen] = useState(false);
   const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
   const formatPct = useCallback((n) => (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%", []);
   const scoreColor = r.score >= 80 ? "#ff6b35" : r.score >= 60 ? "#ffd700" : "#00d4aa";
   const glowColor = r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
-  const mcapInfo = getMarketCapInfo(r.marketCap);
+  const mcapInfo = getMarketCapInfo(r.marketCap, t);
   const metrics = useMemo(() => [
     { label: "EMA 9", value: r.ema9 ? formatPrice(r.ema9) : "—", color: "#a78bfa" },
     { label: "EMA 20", value: r.ema20 ? formatPrice(r.ema20) : "—", color: "#fbbf24" },
     { label: "VWAP", value: r.vwap ? formatPrice(r.vwap) : "—", color: "#60a5fa" },
     { label: "RVOL", value: r.rvol ? r.rvol.toFixed(1) + "x" : "—", color: "#fb923c" },
-    { label: "حجم", value: ((r.volume || 0) / 1e6).toFixed(1) + "M", color: "#34d399" },
-  ], [r, formatPrice]);
+    { label: t.volume, value: ((r.volume || 0) / 1e6).toFixed(1) + "M", color: "#34d399" },
+  ], [r, formatPrice, t]);
   const tpLevels = useMemo(() => [
     { n: 1, value: r.levels.t1, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)", border: "rgba(96,165,250,0.2)" },
     { n: 2, value: r.levels.t2, label: "TP2", color: "#34d399", bg: "rgba(52,211,153,0.08)", border: "rgba(52,211,153,0.2)" },
@@ -154,20 +248,20 @@ function Card({ r, idx }) {
             ))}
           </div>
           <div style={S.slBox}>
-            <div style={{ fontSize: 10, color: "#ff6b81", fontWeight: 600, marginBottom: 8 }}>🛑 وقف الخسارة</div>
+            <div style={{ fontSize: 10, color: "#ff6b81", fontWeight: 600, marginBottom: 8 }}>{t.stopLoss}</div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 22, fontWeight: 700, color: "#ff4757", fontFamily: "monospace" }}>{formatPrice(r.levels.sl)}</span>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 14, color: "#ff6b81", fontWeight: 600 }}>{r.levels.slPct.toFixed(2)}%</div>
-                <div style={{ fontSize: 9, color: "rgba(255,107,129,0.5)" }}>مخاطرة: {formatPrice(r.levels.risk)}</div>
+                <div style={{ fontSize: 9, color: "rgba(255,107,129,0.5)" }}>{t.risk}: {formatPrice(r.levels.risk)}</div>
               </div>
             </div>
           </div>
           <div style={S.tpGrid}>
-            {tpLevels.map((t) => (
-              <div key={t.n} style={S.tpBox(t.bg, t.border)}>
-                <div style={S.tpLabel(t.color)}>{t.label}</div>
-                <div style={S.tpValue(t.color)}>{formatPrice(t.value)}</div>
+            {tpLevels.map((tp) => (
+              <div key={tp.n} style={S.tpBox(tp.bg, tp.border)}>
+                <div style={S.tpLabel(tp.color)}>{tp.label}</div>
+                <div style={S.tpValue(tp.color)}>{formatPrice(tp.value)}</div>
               </div>
             ))}
           </div>
@@ -177,16 +271,15 @@ function Card({ r, idx }) {
   );
 }
 
-const BANNER_CONFIG = {
-  error:     { bg: "rgba(255,71,87,0.1)",    border: "rgba(255,71,87,0.3)",   icon: "🔴", titleColor: "#ff4757", subColor: "rgba(255,71,87,0.7)",   title: "خطأ في الاتصال",    sub: "تعذر الاتصال بـ Polygon API" },
-  closed:    { bg: "rgba(255,215,0,0.08)",   border: "rgba(255,215,0,0.2)",   icon: "🟡", titleColor: "#ffd700", subColor: "rgba(255,215,0,0.7)",   title: "السوق مغلق",        sub: "يفتح 4:30م بتوقيت الرياض" },
-  premarket: { bg: "rgba(100,200,255,0.08)", border: "rgba(100,200,255,0.2)", icon: "🔵", titleColor: "#64c8ff", subColor: "rgba(100,200,255,0.7)", title: "Pre-Market نشط",    sub: "أفضل النتائج بعد 4:30م" },
-  ok:        { bg: "rgba(0,212,170,0.08)",   border: "rgba(0,212,170,0.2)",   icon: "🟢", titleColor: "#00d4aa", subColor: "rgba(0,212,170,0.7)",  title: "متصل — أسعار حية", sub: "Polygon API يعمل بشكل طبيعي" },
-};
-
-function StatusBanner({ status, lastUpdate, scanError }) {
+function StatusBanner({ status, lastUpdate, scanError, t }) {
   if (!status) return null;
-  const cfg = BANNER_CONFIG[status];
+  const configs = {
+    error:     { bg: "rgba(255,71,87,0.1)",    border: "rgba(255,71,87,0.3)",   icon: "🔴", titleColor: "#ff4757", subColor: "rgba(255,71,87,0.7)",   title: t.bannerError,  sub: t.bannerErrorSub },
+    closed:    { bg: "rgba(255,215,0,0.08)",   border: "rgba(255,215,0,0.2)",   icon: "🟡", titleColor: "#ffd700", subColor: "rgba(255,215,0,0.7)",   title: t.bannerClosed, sub: t.bannerClosedSub },
+    premarket: { bg: "rgba(100,200,255,0.08)", border: "rgba(100,200,255,0.2)", icon: "🔵", titleColor: "#64c8ff", subColor: "rgba(100,200,255,0.7)", title: t.bannerPre,    sub: t.bannerPreSub },
+    ok:        { bg: "rgba(0,212,170,0.08)",   border: "rgba(0,212,170,0.2)",   icon: "🟢", titleColor: "#00d4aa", subColor: "rgba(0,212,170,0.7)",  title: t.bannerOk,     sub: t.bannerOkSub },
+  };
+  const cfg = configs[status];
   if (!cfg) return null;
   return (
     <div style={S.banner(cfg.bg, cfg.border)}>
@@ -196,13 +289,13 @@ function StatusBanner({ status, lastUpdate, scanError }) {
         <div style={S.bannerSub(cfg.subColor)}>{status === "error" && scanError ? scanError : cfg.sub}</div>
       </div>
       {status === "ok" && lastUpdate && (
-        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>آخر تحديث: {lastUpdate.toLocaleTimeString("ar")}</div>
+        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{t.lastUpdate}: {lastUpdate.toLocaleTimeString()}</div>
       )}
     </div>
   );
 }
 
-function LoginScreen({ onLogin }) {
+function LoginScreen({ onLogin, t, lang, setLang }) {
   const [key, setKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -224,10 +317,10 @@ function LoginScreen({ onLogin }) {
       } else if (data.reason === "expired") {
         setExpired(true);
       } else {
-        setError("المفتاح غير صحيح — تحقق من المفتاح وحاول مجدداً");
+        setError(t.loginError);
       }
     } catch {
-      setError("خطأ في الاتصال — حاول مجدداً");
+      setError(t.loginConnError);
     } finally {
       setLoading(false);
     }
@@ -236,20 +329,25 @@ function LoginScreen({ onLogin }) {
   return (
     <div style={S.loginWrap}>
       <div style={S.loginBox}>
+        <div style={{ textAlign: "right", marginBottom: 8 }}>
+          <button style={S.langBtn} onClick={() => setLang(lang === "ar" ? "en" : "ar")}>
+            {lang === "ar" ? "🇺🇸 English" : "🇸🇦 عربي"}
+          </button>
+        </div>
         <div style={{ fontSize: 48, marginBottom: 16 }}>📡</div>
         <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: 3, marginBottom: 8 }}>
           RADAR <span style={S.titleAccent}>AZ</span>
         </div>
         <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", marginBottom: 32, lineHeight: 1.6 }}>
-          أدخل مفتاح الاشتراك للوصول للرادار
+          {t.loginTitle}
         </div>
 
         {error && <div style={S.loginError}>{error}</div>}
         {expired && (
           <div style={S.loginExpired}>
-            ⏰ انتهى اشتراكك — جدد للوصول الكامل
+            {t.expired}
             <div style={{ marginTop: 8 }}>
-              <a href="https://radaraz.com" style={{ color: "#ffd700", fontSize: 12 }}>جدد الاشتراك ←</a>
+              <a href="https://radaraz.com" style={{ color: "#ffd700", fontSize: 12 }}>{t.renewLink}</a>
             </div>
           </div>
         )}
@@ -261,15 +359,16 @@ function LoginScreen({ onLogin }) {
           onChange={(e) => setKey(e.target.value.toUpperCase())}
           onKeyDown={(e) => e.key === "Enter" && handleLogin()}
           maxLength={19}
+          dir="ltr"
         />
 
         <button style={S.loginBtn(loading)} onClick={handleLogin} disabled={loading}>
-          {loading ? "⟳ جاري التحقق..." : "🔓 دخول"}
+          {loading ? t.loginLoading : t.loginBtn}
         </button>
 
         <div style={{ marginTop: 24, padding: "16px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)" }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>ليس لديك مفتاح؟</div>
-          <a href="/trial" style={{ fontSize: 12, color: "#6366f1" }}>جرّب مجاناً 24 ساعة ←</a>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>{t.noKey}</div>
+          <a href="/trial" style={{ fontSize: 12, color: "#6366f1" }}>{t.freeTrial}</a>
         </div>
       </div>
     </div>
@@ -277,6 +376,10 @@ function LoginScreen({ onLogin }) {
 }
 
 export default function Radar() {
+  const [lang, setLang] = useState("ar");
+  const t = T[lang];
+  const isRtl = lang === "ar";
+
   const [auth, setAuth] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [results, setResults] = useState([]);
@@ -376,37 +479,42 @@ export default function Radar() {
 
   if (!authChecked) return null;
   if (!auth) return (
-    <div style={S.root}>
+    <div style={S.root} dir={isRtl ? "rtl" : "ltr"}>
       <div style={S.bgWrap}><div style={S.bgCircle} /><div style={S.bgGrid} /></div>
-      <LoginScreen onLogin={setAuth} />
+      <LoginScreen onLogin={setAuth} t={t} lang={lang} setLang={setLang} />
     </div>
   );
 
   return (
-    <div style={S.root}>
+    <div style={S.root} dir={isRtl ? "rtl" : "ltr"}>
       <div style={S.bgWrap}><div style={S.bgCircle} /><div style={S.bgGrid} /></div>
       <div style={S.container}>
         <div style={S.header}>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <button style={S.langBtn} onClick={() => setLang(lang === "ar" ? "en" : "ar")}>
+              {lang === "ar" ? "🇺🇸 English" : "🇸🇦 عربي"}
+            </button>
+          </div>
           <div style={S.headerRow}>
             <div style={S.dot(dotColor)} />
             <h1 style={S.title}>RADAR <span style={S.titleAccent}>AZ</span></h1>
             <span style={S.badge}>PRO</span>
           </div>
-          <p style={S.subtitle}>الشرعية مسؤوليتك · الالتزام بوقف الخسارة يخفف المخاطرة</p>
+          <p style={S.subtitle}>{t.subtitle}</p>
           <div style={{ marginTop: 8, display: "flex", justifyContent: "center", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>
-              {auth.plan === "trial" ? "🕐 تجربة مجانية" : "✅ مشترك"} · {auth.key}
+              {auth.plan === "trial" ? t.trial : t.subscribed} · {auth.key}
             </span>
-            <button style={S.logoutBtn} onClick={handleLogout}>خروج</button>
+            <button style={S.logoutBtn} onClick={handleLogout}>{t.logout}</button>
           </div>
         </div>
 
         <div style={S.statsRow}>
           {[
-            { label: "نطاق الفحص", value: total || 50, color: "#6366f1", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.2)" },
-            { label: "💥 انفجاري", value: explosive, color: "#ff6b35", bg: "rgba(255,107,53,0.1)", border: "rgba(255,107,53,0.2)" },
-            { label: "🔥 عالي", value: high, color: "#ffd700", bg: "rgba(255,215,0,0.1)", border: "rgba(255,215,0,0.2)" },
-            { label: "✅ الكل", value: results.length, color: "#00d4aa", bg: "rgba(0,212,170,0.1)", border: "rgba(0,212,170,0.2)" },
+            { label: t.scanRange, value: total || 50, color: "#6366f1", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.2)" },
+            { label: t.explosive, value: explosive, color: "#ff6b35", bg: "rgba(255,107,53,0.1)", border: "rgba(255,107,53,0.2)" },
+            { label: t.high, value: high, color: "#ffd700", bg: "rgba(255,215,0,0.1)", border: "rgba(255,215,0,0.2)" },
+            { label: t.all, value: results.length, color: "#00d4aa", bg: "rgba(0,212,170,0.1)", border: "rgba(0,212,170,0.2)" },
           ].map((s) => (
             <div key={s.label} style={S.statBox(s.bg, s.border)}>
               <div style={S.statNum(s.color)}>{s.value}</div>
@@ -417,11 +525,16 @@ export default function Radar() {
 
         <div style={S.actionRow}>
           <button onClick={scan} disabled={loading} style={S.scanBtn(loading)}>
-            {loading ? "⟳  جاري المسح اللحظي..." : "📡  ابدأ مسح السوق الفوري"}
+            {loading ? t.scanning : t.scanBtn}
           </button>
           {results.length > 0 && (
             <div style={{ display: "flex", gap: 6 }}>
-              {[{ id: "all", label: "الكل" }, { id: "explosive", label: "💥" }, { id: "high", label: "🔥" }, { id: "watch", label: "👀" }].map((f) => (
+              {[
+                { id: "all", label: t.filterAll },
+                { id: "explosive", label: "💥" },
+                { id: "high", label: "🔥" },
+                { id: "watch", label: "👀" }
+              ].map((f) => (
                 <button key={f.id} onClick={() => setFilter(f.id)} style={S.filterBtn(filter === f.id)}>{f.label}</button>
               ))}
             </div>
@@ -429,7 +542,7 @@ export default function Radar() {
         </div>
 
         <div style={S.autoRow}>
-          <span style={S.autoLabel}>تحديث تلقائي كل دقيقة</span>
+          <span style={S.autoLabel}>{t.autoRefresh}</span>
           <button style={S.toggleBtn(autoRefresh)} onClick={() => setAutoRefresh((v) => !v)}>
             <div style={S.toggleThumb(autoRefresh)} />
           </button>
@@ -437,30 +550,30 @@ export default function Radar() {
 
         {loading && <div style={S.progressBar}><div style={S.progressFill} /></div>}
         {loading && <SkeletonCards />}
-        {(done || loading) && <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} />}
+        {(done || loading) && <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} t={t} />}
 
         {!loading && filtered.length > 0 && (
           <>
             <div style={S.dividerRow}>
               <div style={S.dividerLine(false)} />
-              <span style={S.dividerText}>{filtered.length} فرصة</span>
+              <span style={S.dividerText}>{filtered.length} {t.opportunities}</span>
               <div style={S.dividerLine(true)} />
             </div>
-            {filtered.map((r, i) => <Card key={r.symbol} r={r} idx={i} />)}
+            {filtered.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} />)}
           </>
         )}
 
         {done && !loading && results.length === 0 && (
           <div style={S.emptyBox}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>📡</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>لا توجد فرص حالياً</div>
-            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>السوق يفتح 4:30م بتوقيت الرياض</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>{t.noOpps}</div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>{t.marketClosed}</div>
           </div>
         )}
 
         <div style={S.footer}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.2)", letterSpacing: 2, fontFamily: "monospace" }}>RADAR AZ PRO</span>
-          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.15)", fontStyle: "italic" }}>أسهم شرعية · ليست نصيحة استثمارية</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.2)", letterSpacing: 2, fontFamily: "monospace" }}>{t.footer1}</span>
+          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.15)", fontStyle: "italic" }}>{t.footer2}</span>
         </div>
       </div>
 
