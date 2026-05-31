@@ -15,6 +15,14 @@
 <meta name="twitter:title" content="رادار الأسهم الأمريكية | RADARAZ">
 <meta name="twitter:description" content="بوت تداول يمسح فوق 1000 سهم أمريكي في ثواني">
 <link rel="canonical" href="https://radaraz.com/landing.html">
+<!-- X conversion tracking base code -->
+<script>
+!function(e,t,n,s,u,a){e.twq||(s=e.twq=function(){s.exe?s.exe.apply(s,arguments):s.queue.push(arguments);
+},s.version='1.1',s.queue=[],u=t.createElement(n),u.async=!0,u.src='https://static.ads-twitter.com/uwt.js',
+a=t.getElementsByTagName(n)[0],a.parentNode.insertBefore(u,a))}(window,document,'script');
+twq('config','rcp8t');
+</script>
+<!-- End X conversion tracking base code -->
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Tajawal:wght@300;400;500;700&family=Cormorant+Garamond:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet">
 <style>
  :root {
@@ -120,121 +128,21 @@
  .trial-btn:hover { background: var(--gold-light); }
  .trial-note { font-size: 0.78rem; color: var(--white-dim); margin-top: 1rem; font-weight: 300; }
 
- /* KEY ACCESS SECTION */
- .key-section {
-   padding: 5rem 3rem;
-   background: var(--black-3);
-   border-top: 1px solid rgba(201,168,76,0.15);
-   border-bottom: 1px solid rgba(201,168,76,0.15);
-   text-align: center;
-   position: relative;
-   overflow: hidden;
- }
-
- .key-section::before {
-   content: '';
-   position: absolute;
-   inset: 0;
-   background: radial-gradient(ellipse 50% 60% at 50% 50%, rgba(201,168,76,0.04) 0%, transparent 70%);
- }
-
- .key-inner {
-   max-width: 560px;
-   margin: 0 auto;
-   position: relative;
- }
-
- .key-icon {
-   font-size: 2.5rem;
-   margin-bottom: 1rem;
-   display: block;
- }
-
- .key-title-ar {
-   font-family: 'Playfair Display', serif;
-   font-size: clamp(1.5rem, 3vw, 2.2rem);
-   color: var(--gold);
-   margin-bottom: 0.3rem;
- }
-
- .key-title-en {
-   font-family: 'Cormorant Garamond', serif;
-   font-style: italic;
-   font-size: 1rem;
-   color: var(--gold-dim);
-   letter-spacing: 2px;
-   margin-bottom: 0.8rem;
- }
-
- .key-subtitle {
-   font-size: 0.9rem;
-   color: var(--white-dim);
-   margin-bottom: 2rem;
-   font-weight: 300;
-   line-height: 1.7;
- }
-
- .key-form {
-   display: flex;
-   gap: 0;
-   max-width: 480px;
-   margin: 0 auto 1rem;
-   flex-wrap: wrap;
-   justify-content: center;
- }
-
- .key-input {
-   flex: 1;
-   min-width: 220px;
-   background: var(--black-2);
-   border: 1px solid rgba(201,168,76,0.4);
-   border-left: none;
-   color: var(--white);
-   padding: 0.9rem 1.2rem;
-   font-family: 'Tajawal', sans-serif;
-   font-size: 0.95rem;
-   outline: none;
-   direction: ltr;
-   letter-spacing: 2px;
-   text-align: center;
- }
-
+ .key-section { padding: 5rem 3rem; background: var(--black-3); border-top: 1px solid rgba(201,168,76,0.15); border-bottom: 1px solid rgba(201,168,76,0.15); text-align: center; position: relative; overflow: hidden; }
+ .key-section::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse 50% 60% at 50% 50%, rgba(201,168,76,0.04) 0%, transparent 70%); }
+ .key-inner { max-width: 560px; margin: 0 auto; position: relative; }
+ .key-icon { font-size: 2.5rem; margin-bottom: 1rem; display: block; }
+ .key-title-ar { font-family: 'Playfair Display', serif; font-size: clamp(1.5rem, 3vw, 2.2rem); color: var(--gold); margin-bottom: 0.3rem; }
+ .key-title-en { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 1rem; color: var(--gold-dim); letter-spacing: 2px; margin-bottom: 0.8rem; }
+ .key-subtitle { font-size: 0.9rem; color: var(--white-dim); margin-bottom: 2rem; font-weight: 300; line-height: 1.7; }
+ .key-form { display: flex; gap: 0; max-width: 480px; margin: 0 auto 1rem; flex-wrap: wrap; justify-content: center; }
+ .key-input { flex: 1; min-width: 220px; background: var(--black-2); border: 1px solid rgba(201,168,76,0.4); border-left: none; color: var(--white); padding: 0.9rem 1.2rem; font-family: 'Tajawal', sans-serif; font-size: 0.95rem; outline: none; direction: ltr; letter-spacing: 2px; text-align: center; }
  .key-input:focus { border-color: var(--gold); }
  .key-input::placeholder { color: rgba(245,240,232,0.25); letter-spacing: 1px; font-size: 0.85rem; }
-
- .key-btn {
-   background: transparent;
-   border: 1px solid var(--gold);
-   color: var(--gold);
-   padding: 0.9rem 1.8rem;
-   font-family: 'Tajawal', sans-serif;
-   font-size: 0.9rem;
-   font-weight: 700;
-   cursor: pointer;
-   white-space: nowrap;
-   transition: all 0.3s;
-   letter-spacing: 1px;
- }
-
+ .key-btn { background: transparent; border: 1px solid var(--gold); color: var(--gold); padding: 0.9rem 1.8rem; font-family: 'Tajawal', sans-serif; font-size: 0.9rem; font-weight: 700; cursor: pointer; white-space: nowrap; transition: all 0.3s; letter-spacing: 1px; }
  .key-btn:hover { background: var(--gold); color: var(--black); }
-
- .key-note {
-   font-size: 0.75rem;
-   color: var(--white-dim);
-   font-weight: 300;
-   font-family: 'Cormorant Garamond', serif;
-   font-style: italic;
-   letter-spacing: 1px;
- }
-
- .key-divider {
-   display: flex;
-   align-items: center;
-   gap: 1rem;
-   margin: 2.5rem auto;
-   max-width: 400px;
- }
-
+ .key-note { font-size: 0.75rem; color: var(--white-dim); font-weight: 300; font-family: 'Cormorant Garamond', serif; font-style: italic; letter-spacing: 1px; }
+ .key-divider { display: flex; align-items: center; gap: 1rem; margin: 2.5rem auto; max-width: 400px; }
  .key-divider-line { flex: 1; height: 1px; background: rgba(201,168,76,0.2); }
  .key-divider-text { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 0.8rem; color: var(--gold-dim); letter-spacing: 2px; white-space: nowrap; }
 
@@ -451,7 +359,6 @@
  </div>
 </div>
 
-<!-- TRIAL CTA -->
 <section class="trial-section">
  <div class="trial-bg"></div>
  <h2 class="trial-title reveal">جرّب <span style="color:var(--gold)">مجاناً</span> الآن</h2>
@@ -463,7 +370,6 @@
  <p class="trial-note reveal">بالضغط على الزر ستُحال لصفحة التسجيل · By clicking you'll be redirected to sign up</p>
 </section>
 
-<!-- KEY ACCESS SECTION -->
 <div class="divider"></div>
 <section class="key-section">
  <div class="key-inner reveal">
@@ -480,13 +386,11 @@
      <button class="key-btn" onclick="enterKey()">دخول ← Enter</button>
    </div>
    <p class="key-note">المفتاح يُرسل إلى إيميلك بعد الاشتراك · Your key is sent to your email after subscription</p>
-
    <div class="key-divider">
      <span class="key-divider-line"></span>
      <span class="key-divider-text">أو · OR</span>
      <span class="key-divider-line"></span>
    </div>
-
    <a href="https://radaraz.com/trial" class="btn-primary" style="display:inline-block;">جرّب مجاناً 24 ساعة</a>
  </div>
 </section>
