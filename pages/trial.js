@@ -12,14 +12,15 @@ const S = {
   subtitle: { fontSize: 13, color: 'rgba(255,255,255,0.4)', marginBottom: 32, lineHeight: 1.7 },
   input: { width: '100%', padding: '14px 16px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: '#fff', fontSize: 15, textAlign: 'center', marginBottom: 12, outline: 'none', boxSizing: 'border-box', fontFamily: 'system-ui' },
   btn: (loading) => ({ width: '100%', padding: 14, background: loading ? 'rgba(99,102,241,0.3)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 800, fontSize: 15, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: 1, transition: 'all 0.2s', boxShadow: loading ? 'none' : '0 8px 24px rgba(99,102,241,0.4)', fontFamily: 'system-ui' }),
+  keyBtn: { width: '100%', padding: 14, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', letterSpacing: 1, transition: 'all 0.2s', boxShadow: '0 8px 24px rgba(99,102,241,0.4)', fontFamily: 'system-ui', marginTop: 10 },
+  divider: { display: 'flex', alignItems: 'center', gap: 8, margin: '14px 0', color: 'rgba(255,255,255,0.15)', fontSize: 11 },
+  dividerLine: { flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' },
   error: { background: 'rgba(255,71,87,0.1)', border: '1px solid rgba(255,71,87,0.3)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#ff4757', marginBottom: 12 },
   success: { background: 'rgba(0,212,170,0.08)', border: '1px solid rgba(0,212,170,0.2)', borderRadius: 14, padding: '24px 20px', marginTop: 8 },
   keyBox: { background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 10, padding: '14px', margin: '16px 0', fontFamily: 'monospace', fontSize: 18, fontWeight: 700, letterSpacing: 3, color: '#a5b4fc', wordBreak: 'break-all' },
   copyBtn: { background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 8, padding: '8px 16px', color: '#a5b4fc', fontSize: 12, cursor: 'pointer', fontFamily: 'system-ui', marginBottom: 16 },
   goBtn: { width: '100%', padding: 14, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', letterSpacing: 1, fontFamily: 'system-ui', boxShadow: '0 8px 24px rgba(99,102,241,0.4)' },
   backLink: { marginTop: 20, fontSize: 12, color: 'rgba(255,255,255,0.3)' },
-  divider: { display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0', color: 'rgba(255,255,255,0.15)', fontSize: 11 },
-  dividerLine: { flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' },
 };
 
 export default function Trial() {
@@ -145,6 +146,16 @@ export default function Trial() {
                 />
                 <button style={S.btn(loading)} onClick={handleSendCode} disabled={loading}>
                   {loading ? '⟳ جاري الإرسال... · Sending...' : '📨 أرسل كود التحقق · Send Code'}
+                </button>
+
+                {/* زر المشتركين */}
+                <div style={S.divider}>
+                  <span style={S.dividerLine} />
+                  <span>مشترك؟ · Subscriber?</span>
+                  <span style={S.dividerLine} />
+                </div>
+                <button style={S.keyBtn} onClick={() => window.location.href = 'https://radaraz.com/app'}>
+                  🔑 عندك مفتاح؟ ادخل الرادار · Have a Key? Enter Radar
                 </button>
               </>
             ) : (
