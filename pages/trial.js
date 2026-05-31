@@ -6,7 +6,8 @@ const S = {
   bgGrid: { position: 'fixed', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.015) 1px,transparent 1px)', backgroundSize: '50px 50px', pointerEvents: 'none' },
   box: { background: 'linear-gradient(135deg,rgba(15,20,35,0.98),rgba(20,28,48,0.98))', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 24, padding: '40px 32px', maxWidth: 440, width: '100%', boxShadow: '0 24px 80px rgba(0,0,0,0.6)', textAlign: 'center', position: 'relative', zIndex: 1 },
   icon: { fontSize: 48, marginBottom: 16 },
-  title: { fontSize: 26, fontWeight: 900, letterSpacing: 2, marginBottom: 8 },
+  title: { fontSize: 26, fontWeight: 900, letterSpacing: 2, marginBottom: 4 },
+  titleEn: { fontSize: 13, color: 'rgba(255,255,255,0.3)', letterSpacing: 3, marginBottom: 8, fontStyle: 'italic' },
   accent: { background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' },
   subtitle: { fontSize: 13, color: 'rgba(255,255,255,0.4)', marginBottom: 32, lineHeight: 1.7 },
   input: { width: '100%', padding: '14px 16px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: '#fff', fontSize: 15, textAlign: 'center', marginBottom: 12, outline: 'none', boxSizing: 'border-box', fontFamily: 'system-ui' },
@@ -17,6 +18,8 @@ const S = {
   copyBtn: { background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 8, padding: '8px 16px', color: '#a5b4fc', fontSize: 12, cursor: 'pointer', fontFamily: 'system-ui', marginBottom: 16 },
   goBtn: { width: '100%', padding: 14, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', letterSpacing: 1, fontFamily: 'system-ui', boxShadow: '0 8px 24px rgba(99,102,241,0.4)' },
   backLink: { marginTop: 20, fontSize: 12, color: 'rgba(255,255,255,0.3)' },
+  divider: { display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0', color: 'rgba(255,255,255,0.15)', fontSize: 11 },
+  dividerLine: { flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' },
 };
 
 export default function Trial() {
@@ -30,7 +33,7 @@ export default function Trial() {
 
   const handleSendCode = async () => {
     if (!email.trim() || !email.includes('@')) {
-      setError('أدخل إيميل صحيح');
+      setError('أدخل إيميل صحيح · Enter a valid email');
       return;
     }
     setLoading(true);
@@ -43,14 +46,14 @@ export default function Trial() {
       });
       const data = await res.json();
       if (data.error === 'used') {
-        setError('هذا الإيميل استخدم التجربة المجانية مسبقاً');
+        setError('هذا الإيميل استخدم التجربة مسبقاً · Email already used');
       } else if (data.success) {
         setStep(2);
       } else {
-        setError('حدث خطأ — حاول مجدداً');
+        setError('حدث خطأ — حاول مجدداً · Error, please retry');
       }
     } catch {
-      setError('خطأ في الاتصال — حاول مجدداً');
+      setError('خطأ في الاتصال · Connection error');
     } finally {
       setLoading(false);
     }
@@ -58,7 +61,7 @@ export default function Trial() {
 
   const handleVerifyCode = async () => {
     if (!code.trim() || code.length < 4) {
-      setError('أدخل الكود الصحيح');
+      setError('أدخل الكود الصحيح · Enter the correct code');
       return;
     }
     setLoading(true);
@@ -71,17 +74,17 @@ export default function Trial() {
       });
       const data = await res.json();
       if (data.error === 'invalid_code') {
-        setError('الكود غير صحيح — تحقق وأعد المحاولة');
+        setError('الكود غير صحيح · Invalid code');
       } else if (data.error === 'expired') {
-        setError('انتهت صلاحية الكود — اطلب كوداً جديداً');
+        setError('انتهت صلاحية الكود · Code expired');
         setStep(1);
       } else if (data.success) {
         setResult(data);
       } else {
-        setError('حدث خطأ — حاول مجدداً');
+        setError('حدث خطأ — حاول مجدداً · Error, please retry');
       }
     } catch {
-      setError('خطأ في الاتصال — حاول مجددا');
+      setError('خطأ في الاتصال · Connection error');
     } finally {
       setLoading(false);
     }
@@ -104,16 +107,23 @@ export default function Trial() {
             <div style={S.title}>
               {step === 1 ? <>جرّب <span style={S.accent}>مجاناً</span></> : <>تحقق من <span style={S.accent}>إيميلك</span></>}
             </div>
+            <div style={S.titleEn}>
+              {step === 1 ? 'Try for Free · 24 Hours' : 'Verify Your Email'}
+            </div>
             <p style={S.subtitle}>
               {step === 1 ? (
                 <>
                   أدخل إيميلك واحصل على كود تحقق
                   <br />
-                  <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>بدون بطاقة ائتمان · No Credit Card</span>
+                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>Enter your email to get a verification code</span>
+                  <br />
+                  <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11 }}>بدون بطاقة ائتمان · No Credit Card Required</span>
                 </>
               ) : (
                 <>
                   أرسلنا كود مكون من 6 أرقام إلى
+                  <br />
+                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>We sent a 6-digit code to</span>
                   <br />
                   <span style={{ color: '#a5b4fc', fontSize: 13 }}>{email}</span>
                 </>
@@ -134,7 +144,7 @@ export default function Trial() {
                   dir="ltr"
                 />
                 <button style={S.btn(loading)} onClick={handleSendCode} disabled={loading}>
-                  {loading ? '⟳ جاري الإرسال...' : '📨 أرسل كود التحقق'}
+                  {loading ? '⟳ جاري الإرسال... · Sending...' : '📨 أرسل كود التحقق · Send Code'}
                 </button>
               </>
             ) : (
@@ -150,34 +160,35 @@ export default function Trial() {
                   dir="ltr"
                 />
                 <button style={S.btn(loading)} onClick={handleVerifyCode} disabled={loading}>
-                  {loading ? '⟳ جاري التحقق...' : '🔓 تحقق واحصل على مفتاحك'}
+                  {loading ? '⟳ جاري التحقق... · Verifying...' : '🔓 تحقق واحصل على مفتاحك · Verify & Get Key'}
                 </button>
                 <div style={{ marginTop: 12, fontSize: 12, color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }} onClick={() => { setStep(1); setError(null); }}>
-                  ← تغيير الإيميل
+                  ← تغيير الإيميل · Change Email
                 </div>
               </>
             )}
 
             <div style={S.backLink}>
-              <a href="/" style={{ color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>← العودة للرئيسية</a>
+              <a href="/" style={{ color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>← العودة للرئيسية · Back to Home</a>
             </div>
           </>
         ) : (
           <div style={S.success}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🎉</div>
-            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: '#00d4aa' }}>مفتاحك جاهز!</div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4, color: '#00d4aa' }}>مفتاحك جاهز!</div>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>Your key is ready!</div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>
               صالح لمدة 24 ساعة · Valid for 24 hours
             </div>
             <div style={S.keyBox}>{result.access_key}</div>
             <button style={S.copyBtn} onClick={copyKey}>
-              {copied ? '✓ تم النسخ!' : '📋 انسخ المفتاح'}
+              {copied ? '✓ تم النسخ! · Copied!' : '📋 انسخ المفتاح · Copy Key'}
             </button>
             <button style={S.goBtn} onClick={() => window.location.href = '/app'}>
-              🔓 ادخل الرادار الآن
+              🔓 ادخل الرادار الآن · Enter Radar Now
             </button>
             <div style={{ marginTop: 16, fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>
-              احفظ المفتاح — لن يُرسل مجدداً
+              احفظ المفتاح — لن يُرسل مجدداً · Save your key — it won't be sent again
             </div>
           </div>
         )}
