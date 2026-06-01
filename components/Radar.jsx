@@ -15,6 +15,8 @@ const T = {
     scanning: "⟳  جاري المسح اللحظي...",
     autoRefresh: "تحديث تلقائي كل دقيقة",
     filterAll: "الكل",
+    filterLeaders: "🏆 قيادي",
+    filterSpec: "💥 مضاربة",
     opportunities: "فرصة",
     noOpps: "لا توجد فرص حالياً",
     marketClosed: "السوق يفتح 4:30م بتوقيت الرياض",
@@ -45,6 +47,8 @@ const T = {
     midCap: "🦈 Mid Cap",
     smallCap: "🐟 Small Cap",
     microCap: "🦐 Micro Cap",
+    sectionLeaders: "🏆 أسهم قيادية",
+    sectionSpec: "💥 مضاربة لحظية",
   },
   en: {
     title: "Radar",
@@ -60,6 +64,8 @@ const T = {
     scanning: "⟳  Scanning in progress...",
     autoRefresh: "Auto refresh every minute",
     filterAll: "All",
+    filterLeaders: "🏆 Leaders",
+    filterSpec: "💥 Speculation",
     opportunities: "opportunities",
     noOpps: "No opportunities found",
     marketClosed: "Market opens at 9:30 AM ET",
@@ -90,6 +96,8 @@ const T = {
     midCap: "🦈 Mid Cap",
     smallCap: "🐟 Small Cap",
     microCap: "🦐 Micro Cap",
+    sectionLeaders: "🏆 Leadership Stocks",
+    sectionSpec: "💥 Speculation",
   }
 };
 
@@ -126,6 +134,10 @@ const S = {
   dividerRow: { display: "flex", alignItems: "center", gap: 10, marginBottom: 16 },
   dividerLine: (flip) => ({ height: 1, flex: 1, background: flip ? "linear-gradient(90deg,rgba(255,255,255,0.08),transparent)" : "linear-gradient(90deg,transparent,rgba(255,255,255,0.08))" }),
   dividerText: { fontSize: 11, color: "rgba(255,255,255,0.25)", letterSpacing: 1 },
+  // ✅ Section header for قيادي / مضاربة
+  sectionHeader: (bg, border, color) => ({ background: bg, border: `1px solid ${border}`, borderRadius: 14, padding: "12px 18px", marginBottom: 12, marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }),
+  sectionTitle: (color) => ({ fontSize: 14, fontWeight: 800, color, letterSpacing: 1 }),
+  sectionCount: (color, bg) => ({ fontSize: 13, fontWeight: 800, color, background: bg, borderRadius: 20, padding: "2px 10px", fontFamily: "monospace" }),
   emptyBox: { textAlign: "center", padding: "64px 20px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 20 },
   footer: { marginTop: 32, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.04)", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
   cardWrap: (open, glowColor) => ({ background: "linear-gradient(135deg,rgba(15,20,35,0.95),rgba(20,28,48,0.95))", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, marginBottom: 10, overflow: "hidden", transition: "box-shadow 0.3s", boxShadow: open ? `0 8px 32px ${glowColor}` : "0 2px 8px rgba(0,0,0,0.3)" }),
@@ -148,7 +160,9 @@ const S = {
   tpGrid: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 },
   tpBox: (bg, border) => ({ background: bg, border: `1px solid ${border}`, borderRadius: 12, padding: 12 }),
   tpLabel: (color) => ({ fontSize: 9, color, fontWeight: 600, marginBottom: 4 }),
-  tpValue: (color) => ({ fontSize: 16, fontWeight: 700, color, fontFamily: "monospace" }),
+  tpValue: (color) => ({ fontSize: 15, fontWeight: 700, color, fontFamily: "monospace" }),
+  // ✅ نسبة الهدف
+  tpPct: (color) => ({ fontSize: 11, color, fontWeight: 600, marginTop: 3, opacity: 0.85 }),
   skeletonCard: { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, marginBottom: 10, padding: 18, display: "flex", gap: 12, alignItems: "center" },
   skeletonBlock: (w, h) => ({ background: "rgba(255,255,255,0.08)", borderRadius: 6, width: w, height: h, flexShrink: 0, animation: "pulse 1.5s ease-in-out infinite" }),
   loginWrap: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, position: "relative", zIndex: 1 },
@@ -194,6 +208,12 @@ function getMarketCapInfo(mcap, t) {
   return               { label: t.microCap,  color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.25)" };
 }
 
+// ✅ helper لتنسيق النسبة
+function fmtPct(n) {
+  if (n == null) return "";
+  return (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%";
+}
+
 function Card({ r, idx, t }) {
   const [open, setOpen] = useState(false);
   const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
@@ -201,6 +221,12 @@ function Card({ r, idx, t }) {
   const scoreColor = r.score >= 80 ? "#ff6b35" : r.score >= 60 ? "#ffd700" : "#00d4aa";
   const glowColor = r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
   const mcapInfo = getMarketCapInfo(r.marketCap, t);
+
+  // ✅ badge نوع السهم
+  const typeTag = r.type === "قيادي"
+    ? { label: "🏆 قيادي", color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
+    : { label: "💥 مضاربة", color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.25)" };
+
   const metrics = useMemo(() => [
     { label: "EMA 9", value: r.ema9 ? formatPrice(r.ema9) : "—", color: "#a78bfa" },
     { label: "EMA 20", value: r.ema20 ? formatPrice(r.ema20) : "—", color: "#fbbf24" },
@@ -208,11 +234,14 @@ function Card({ r, idx, t }) {
     { label: "RVOL", value: r.rvol ? r.rvol.toFixed(1) + "x" : "—", color: "#fb923c" },
     { label: t.volume, value: ((r.volume || 0) / 1e6).toFixed(1) + "M", color: "#34d399" },
   ], [r, formatPrice, t]);
+
+  // ✅ الأهداف مع النسبة
   const tpLevels = useMemo(() => [
-    { n: 1, value: r.levels.t1, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)", border: "rgba(96,165,250,0.2)" },
-    { n: 2, value: r.levels.t2, label: "TP2", color: "#34d399", bg: "rgba(52,211,153,0.08)", border: "rgba(52,211,153,0.2)" },
-    { n: 3, value: r.levels.t3, label: "TP3", color: "#fbbf24", bg: "rgba(251,191,36,0.08)", border: "rgba(251,191,36,0.2)" },
+    { n: 1, value: r.levels.t1, pct: r.levels.t1Pct, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)", border: "rgba(96,165,250,0.2)" },
+    { n: 2, value: r.levels.t2, pct: r.levels.t2Pct, label: "TP2", color: "#34d399", bg: "rgba(52,211,153,0.08)", border: "rgba(52,211,153,0.2)" },
+    { n: 3, value: r.levels.t3, pct: r.levels.t3Pct, label: "TP3", color: "#fbbf24", bg: "rgba(251,191,36,0.08)", border: "rgba(251,191,36,0.2)" },
   ], [r]);
+
   return (
     <div style={S.cardWrap(open, glowColor)}>
       <div style={S.cardHeader} onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && setOpen((o) => !o)}>
@@ -223,8 +252,9 @@ function Card({ r, idx, t }) {
         </div>
         <div style={S.cardTags}>
           <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.signal}</span>
+          {/* ✅ badge نوع السهم */}
+          <span style={S.tag(typeTag.bg, typeTag.color, typeTag.border)}>{typeTag.label}</span>
           {mcapInfo && <span style={S.tag(mcapInfo.bg, mcapInfo.color, mcapInfo.border)}>{mcapInfo.label}</span>}
-          {r.marketCap && <span style={S.tag("rgba(255,255,255,0.04)", "rgba(255,255,255,0.3)", "rgba(255,255,255,0.08)")}>${r.marketCap >= 1000 ? (r.marketCap/1000).toFixed(1)+"B" : r.marketCap.toFixed(0)+"M"}</span>}
           {r.rvol && r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
         </div>
         <div style={{ textAlign: "right", minWidth: 80 }}>
@@ -252,21 +282,33 @@ function Card({ r, idx, t }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 22, fontWeight: 700, color: "#ff4757", fontFamily: "monospace" }}>{formatPrice(r.levels.sl)}</span>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 14, color: "#ff6b81", fontWeight: 600 }}>{r.levels.slPct.toFixed(2)}%</div>
+                <div style={{ fontSize: 14, color: "#ff6b81", fontWeight: 600 }}>{fmtPct(r.levels.slPct)}</div>
                 <div style={{ fontSize: 9, color: "rgba(255,107,129,0.5)" }}>{t.risk}: {formatPrice(r.levels.risk)}</div>
               </div>
             </div>
           </div>
+          {/* ✅ الأهداف مع السعر والنسبة */}
           <div style={S.tpGrid}>
             {tpLevels.map((tp) => (
               <div key={tp.n} style={S.tpBox(tp.bg, tp.border)}>
                 <div style={S.tpLabel(tp.color)}>{tp.label}</div>
                 <div style={S.tpValue(tp.color)}>{formatPrice(tp.value)}</div>
+                <div style={S.tpPct(tp.color)}>{fmtPct(tp.pct)}</div>
               </div>
             ))}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ✅ Section header component
+function SectionHeader({ title, count, color, bg, border }) {
+  return (
+    <div style={S.sectionHeader(bg, border, color)}>
+      <span style={S.sectionTitle(color)}>{title}</span>
+      <span style={S.sectionCount(color, bg + "aa")}>{count}</span>
     </div>
   );
 }
@@ -383,6 +425,8 @@ export default function Radar() {
   const [auth, setAuth] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [results, setResults] = useState([]);
+  const [leaders, setLeaders] = useState([]);
+  const [speculation, setSpeculation] = useState([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [done, setDone] = useState(false);
@@ -426,6 +470,8 @@ export default function Radar() {
     lastScanRef.current = now;
     setLoading(true);
     setResults([]);
+    setLeaders([]);
+    setSpeculation([]);
     setDone(false);
     setStatus(null);
     setScanError(null);
@@ -439,7 +485,10 @@ export default function Radar() {
       }
       const data = await res.json();
       if (data.error) { setScanError(data.error); setStatus("error"); return; }
+      // ✅ استخدام الأقسام من الـ backend
       setResults(data.results ?? []);
+      setLeaders(data.leaders ?? []);
+      setSpeculation(data.speculation ?? []);
       setTotal(data.total ?? 0);
       setLastUpdate(new Date());
       const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -466,16 +515,22 @@ export default function Radar() {
     return () => clearInterval(autoTimerRef.current);
   }, [autoRefresh, scan]);
 
+  // ✅ فلترة حسب القسم أو الـ score
   const filtered = useMemo(() => {
+    if (filter === "leaders") return leaders;
+    if (filter === "speculation") return speculation;
     if (filter === "explosive") return results.filter((r) => r.score >= 80);
     if (filter === "high") return results.filter((r) => r.score >= 60 && r.score < 80);
     if (filter === "watch") return results.filter((r) => r.score < 60);
     return results;
-  }, [results, filter]);
+  }, [results, leaders, speculation, filter]);
 
   const explosive = useMemo(() => results.filter((r) => r.score >= 80).length, [results]);
   const high = useMemo(() => results.filter((r) => r.score >= 60 && r.score < 80).length, [results]);
   const dotColor = loading ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
+
+  // ✅ عرض مقسم فقط في وضع "الكل"
+  const showSections = filter === "all" && leaders.length > 0 && speculation.length > 0;
 
   if (!authChecked) return null;
   if (!auth) return (
@@ -528,12 +583,14 @@ export default function Radar() {
             {loading ? t.scanning : t.scanBtn}
           </button>
           {results.length > 0 && (
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {[
-                { id: "all", label: t.filterAll },
-                { id: "explosive", label: "💥" },
-                { id: "high", label: "🔥" },
-                { id: "watch", label: "👀" }
+                { id: "all",         label: t.filterAll },
+                { id: "leaders",     label: t.filterLeaders },
+                { id: "speculation", label: t.filterSpec },
+                { id: "explosive",   label: "💥" },
+                { id: "high",        label: "🔥" },
+                { id: "watch",       label: "👀" },
               ].map((f) => (
                 <button key={f.id} onClick={() => setFilter(f.id)} style={S.filterBtn(filter === f.id)}>{f.label}</button>
               ))}
@@ -552,7 +609,33 @@ export default function Radar() {
         {loading && <SkeletonCards />}
         {(done || loading) && <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} t={t} />}
 
-        {!loading && filtered.length > 0 && (
+        {/* ✅ عرض مقسم قيادي / مضاربة */}
+        {!loading && done && showSections && (
+          <>
+            <SectionHeader
+              title={t.sectionLeaders}
+              count={leaders.length}
+              color="#818cf8"
+              bg="rgba(129,140,248,0.08)"
+              border="rgba(129,140,248,0.2)"
+            />
+            {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} />)}
+
+            <div style={{ marginTop: 20 }}>
+              <SectionHeader
+                title={t.sectionSpec}
+                count={speculation.length}
+                color="#f87171"
+                bg="rgba(248,113,113,0.08)"
+                border="rgba(248,113,113,0.2)"
+              />
+              {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} />)}
+            </div>
+          </>
+        )}
+
+        {/* عرض عادي (فلتر محدد) */}
+        {!loading && filtered.length > 0 && !showSections && (
           <>
             <div style={S.dividerRow}>
               <div style={S.dividerLine(false)} />
