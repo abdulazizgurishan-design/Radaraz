@@ -1,10 +1,11 @@
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
 const BASE = "https://api.polygon.io";
 
-// ✅ التصنيف تلقائي بناءً على القيمة السوقية
-// قيادي = 500 مليون دولار وأكثر
-// مضاربة = أقل من 500 مليون دولار
-const LEADERSHIP_MCAP_THRESHOLD = 500; // بالمليون
+// ✅ التصنيف بناءً على القيمة السوقية
+// إذا marketCap متوفر: قيادي >= 500M
+// إذا marketCap غير متوفر: نستخدم السعر كمؤشر — قيادي إذا السعر >= $10
+const LEADERSHIP_MCAP_THRESHOLD = 500;  // مليون دولار
+const LEADERSHIP_PRICE_FALLBACK  = 10;  // دولار
 
 const WATCHLIST = [
   // ✅ أسهم قيادية
@@ -241,9 +242,11 @@ export default async function handler(req, res) {
         ? parseFloat((volume / prevVolume).toFixed(1))
         : null;
 
-      // ✅ تصنيف تلقائي: قيادي إذا القيمة السوقية >= 500M، وإلا مضاربة
+      // تصنيف: قيادي إذا marketCap >= 500M، وإلا السعر >= $10
       const mcapM = data.marketCap ? data.marketCap / 1_000_000 : null;
-      const type = mcapM && mcapM >= LEADERSHIP_MCAP_THRESHOLD ? "قيادي" : "مضاربة";
+      const type = mcapM != null
+        ? (mcapM >= LEADERSHIP_MCAP_THRESHOLD ? "قيادي" : "مضاربة")
+        : (price >= LEADERSHIP_PRICE_FALLBACK ? "قيادي" : "مضاربة");
 
       finalResults.push({
         symbol:     ticker,
