@@ -1,6 +1,15 @@
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
 const BASE = "https://api.polygon.io";
 
+// ✅ أسهم قيادية — قيمة سوقية عالية وزخم مؤسسي
+const LEADERSHIP = new Set([
+  "NVDA","AMD","MSFT","META","GOOGL","AMZN","AAPL","TSLA","PLTR","SMCI",
+  "MRNA","BNTX","VRTX","REGN","ILMN",
+  "ENPH","FSLR","MP","PLUG","CHPT",
+  "COIN","MSTR","HOOD","SOFI","UPST",
+  "RIVN","LCID","JOBY","RKLB","ARKK",
+]);
+
 const WATCHLIST = [
   // ✅ أسهم قيادية
   "NVDA","AMD","MSFT","META","GOOGL","AMZN","AAPL","TSLA","PLTR","SMCI",
@@ -64,7 +73,7 @@ const WATCHLIST = [
   "CDXS","CDZI","CEAD","CECO","CELC","CELH","CELU","CELZ","CEMI","CENT",
   "CERO","CERS","CERT","CEVA","CFBK","CFFI","CFFE","CFLT","CFNB","CFRX",
   "CGEM","CGNT","CGNX","CGON","CGRN","CGRO","CGTX","CHCI","CHCT","CHDN",
-  "CHEK","CHMG","CHRD","CHRS","CHRW","CIFR","CIGI","CIMN","CINC","CING",
+  "CHEK","CHMG","CHRD","CHRA","CHRW","CIFR","CIGI","CIMN","CINC","CING",
   "CINT","CIVB","CIZN","CJET","CKPT","CKVN","CLBK","CLBS","CLDT","CLFD",
   "CLGN","CLIR","CLMB","CLMT","CLNE","CLNN","CLNV","CLOV","CLPR","CLPS",
   "CLRB","CLRO","CLSD","CLSK","CLST","CLVR","CLVT","CLWT","CMBT","CMCO",
@@ -128,7 +137,9 @@ export default async function handler(req, res) {
 
     const isWeekend   = day === 0 || day === 6;
     const isPreMarket = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
-    const MIN_VOLUME  = isPreMarket ? 5000 : 20000;
+
+    // ✅ FIX 4: استخدام MIN_VOLUME الصحيح بدل الرقم الثابت
+    const MIN_VOLUME = isPreMarket ? 5000 : 20000;
 
     const uniqueList = [...new Set(WATCHLIST)];
     const CHUNK_SIZE = 100;
@@ -162,11 +173,15 @@ export default async function handler(req, res) {
       }
 
       if (price < 0.5 || price > 500) continue;
-      if (volume < 10000) continue;
+
+      // ✅ FIX 4: استخدام المتغير الصحيح
+      if (volume < MIN_VOLUME) continue;
 
       const prevClose = data.prevDay?.c || price;
       const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
-      if (changePct > 20) continue;
+
+      // ✅ FIX 1: رفع الحد من 20% إلى 15% — فوق 15% فات القطار
+      if (changePct > 15) continue;
 
       const vwap      = data.day?.vw || price;
       const aboveVWAP = price > vwap;
@@ -186,8 +201,6 @@ export default async function handler(req, res) {
       const risk     = parseFloat((price - stopLoss).toFixed(2));
       const reward   = target1 - price;
       const rr       = risk > 0 ? (reward / risk).toFixed(1) : "0";
-
-      // if (!isPreMarket && parseFloat(rr) < 0.5) continue;
 
       let score = 30;
 
@@ -220,9 +233,17 @@ export default async function handler(req, res) {
         score >= 85 ? "💥 قوة قصوى" :
         score >= 70 ? "🔥 إشارة ممتازة" : "👀 مراقبة";
 
-      // EMA يُحسب من بيانات اليوم المتاحة
       const ema9  = data.day?.vw || null;
       const ema20 = data.prevDay?.vw || null;
+
+      // ✅ FIX 3: rvol يُحسب من حجم اليوم السابق بدل رقم ثابت
+      const prevVolume = data.prevDay?.v || null;
+      const rvol = prevVolume && prevVolume > 0
+        ? parseFloat((volume / prevVolume).toFixed(1))
+        : null;
+
+      // ✅ FIX 2: تصنيف السهم قيادي أو مضاربة
+      const type = LEADERSHIP.has(ticker) ? "قيادي" : "مضاربة";
 
       finalResults.push({
         symbol:     ticker,
@@ -232,22 +253,30 @@ export default async function handler(req, res) {
         rr,
         signal:     confidence,
         score,
+        type,                        // ✅ جديد
         marketCap:  data.marketCap ? data.marketCap / 1_000_000 : null,
         ema9:       ema9  ? parseFloat(ema9.toFixed(2))  : null,
         ema20:      ema20 ? parseFloat(ema20.toFixed(2)) : null,
         rsi:        null,
         vwap:       parseFloat(vwap.toFixed(2)),
-        rvol:       parseFloat((volume / 500000).toFixed(1)),
+        rvol,                        // ✅ مصلح
         levels: { sl: stopLoss, t1: target1, t2: target2, t3: target3, slPct, risk }
       });
     }
 
     finalResults.sort((a, b) => b.score - a.score || b.volume - a.volume);
 
+    // ✅ إرجاع 50 نتيجة — الـ frontend يفلتر حسب القسم
+    const all     = finalResults.slice(0, 50);
+    const leaders = all.filter(s => s.type === "قيادي");
+    const spec    = all.filter(s => s.type === "مضاربة");
+
     return res.status(200).json({
-      success: true,
-      results: finalResults.slice(0, 25),
-      total:   uniqueList.length
+      success:    true,
+      results:    all,
+      leaders,
+      speculation: spec,
+      total:      uniqueList.length
     });
 
   } catch (error) {
