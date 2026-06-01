@@ -1,14 +1,10 @@
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
 const BASE = "https://api.polygon.io";
 
-// ✅ أسهم قيادية — قيمة سوقية عالية وزخم مؤسسي
-const LEADERSHIP = new Set([
-  "NVDA","AMD","MSFT","META","GOOGL","AMZN","AAPL","TSLA","PLTR","SMCI",
-  "MRNA","BNTX","VRTX","REGN","ILMN",
-  "ENPH","FSLR","MP","PLUG","CHPT",
-  "COIN","MSTR","HOOD","SOFI","UPST",
-  "RIVN","LCID","JOBY","RKLB","ARKK",
-]);
+// ✅ التصنيف تلقائي بناءً على القيمة السوقية
+// قيادي = 500 مليون دولار وأكثر
+// مضاربة = أقل من 500 مليون دولار
+const LEADERSHIP_MCAP_THRESHOLD = 500; // بالمليون
 
 const WATCHLIST = [
   // ✅ أسهم قيادية
@@ -245,8 +241,9 @@ export default async function handler(req, res) {
         ? parseFloat((volume / prevVolume).toFixed(1))
         : null;
 
-      // ✅ FIX 2: تصنيف السهم قيادي أو مضاربة
-      const type = LEADERSHIP.has(ticker) ? "قيادي" : "مضاربة";
+      // ✅ تصنيف تلقائي: قيادي إذا القيمة السوقية >= 500M، وإلا مضاربة
+      const mcapM = data.marketCap ? data.marketCap / 1_000_000 : null;
+      const type = mcapM && mcapM >= LEADERSHIP_MCAP_THRESHOLD ? "قيادي" : "مضاربة";
 
       finalResults.push({
         symbol:     ticker,
@@ -263,7 +260,13 @@ export default async function handler(req, res) {
         rsi:        null,
         vwap:       parseFloat(vwap.toFixed(2)),
         rvol,                        // ✅ مصلح
-        levels: { sl: stopLoss, t1: target1, t2: target2, t3: target3, slPct, risk }
+        levels: {
+          sl:    stopLoss, slPct,
+          t1:    target1,  t1Pct,
+          t2:    target2,  t2Pct,
+          t3:    target3,  t3Pct,
+          risk
+        }
       });
     }
 
