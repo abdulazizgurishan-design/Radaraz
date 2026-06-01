@@ -198,6 +198,9 @@ export default async function handler(req, res) {
       const target3  = parseFloat((price + atr * 4.5).toFixed(2));
       const stopLoss = parseFloat(Math.max(price - atr * 0.8, price * 0.90).toFixed(2));
       const slPct    = parseFloat((((stopLoss - price) / price) * 100).toFixed(2));
+      const t1Pct    = parseFloat((((target1 - price) / price) * 100).toFixed(2));
+      const t2Pct    = parseFloat((((target2 - price) / price) * 100).toFixed(2));
+      const t3Pct    = parseFloat((((target3 - price) / price) * 100).toFixed(2));
       const risk     = parseFloat((price - stopLoss).toFixed(2));
       const reward   = target1 - price;
       const rr       = risk > 0 ? (reward / risk).toFixed(1) : "0";
