@@ -1,26 +1,20 @@
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
 const BASE = "https://api.polygon.io";
 
-// ✅ التصنيف بناءً على القيمة السوقية
-// إذا marketCap متوفر: قيادي >= 500M
-// إذا marketCap غير متوفر: نستخدم السعر كمؤشر — قيادي إذا السعر >= $10
-const LEADERSHIP_MCAP_THRESHOLD = 500;  // مليون دولار
-const LEADERSHIP_PRICE_FALLBACK  = 10;  // دولار
+const LEADERSHIP_MCAP_THRESHOLD = 500;
+const LEADERSHIP_PRICE_FALLBACK  = 10;
 
 const WATCHLIST = [
-  // ✅ أسهم قيادية
   "NVDA","AMD","MSFT","META","GOOGL","AMZN","AAPL","TSLA","PLTR","SMCI",
   "MRNA","BNTX","VRTX","REGN","ILMN",
   "ENPH","FSLR","MP","PLUG","CHPT",
   "COIN","MSTR","HOOD","SOFI","UPST",
   "RIVN","LCID","JOBY","RKLB","ARKK",
-  // Batch 1
   "SOUN","BBAI","KULR","CRKN","NKLA","MULN","WISA","CBAT","BFRI","ATXS",
   "HOLO","BHAT","CLSK","MARA","RIOT","CIFR","BTBT","IREN","ARBK","MIGI",
   "ATER","CLOV","NAKD","IDEX","SENS","ZKIN","ENSC","BKKT","NRDY","SMFL",
   "ALLR","GFAI","TYGO","AGRI","NVFY","SIGA","GOVX","XELA","IMPP","AEYE",
   "PRPB","PBAX","SBET","INPX","CLRB","ATNF","AULT","TAOP","KPLT","SHOT",
-  // Batch 2
   "ABOS","ACBA","ACER","ACHL","ACMR","ACRX","ACST","ACTG","ACTU",
   "ADAP","ADCT","ADIL","ADMA","ADMP","ADMT","ADSE","ADTX","ADUS",
   "ADVM","ADXN","AEHR","AEIS","AENT","AERI","AFAR",
@@ -50,7 +44,6 @@ const WATCHLIST = [
   "AVAH","AVAV","AVDL","AVGR","AVID","AVIR","AVNW","AVPT","AVRO","AVTE",
   "AVTX","AVXL","AWRE","AXDX","AXGN","AXGT","AXLA","AXNX","AXSM","AXTI",
   "AYRO","AYTU","AZEK","AZPN","AZRE","AZTA","AZUL",
-  // Batch 3
   "BACK","BAND","BANF","BANR","BAOS","BARK","BBCP","BBIO","BBLG","BBSI",
   "BCAB","BCAL","BCAN","BCDA","BCEL","BCLI","BCML","BCOV","BCPC","BCTX",
   "BCYC","BDSX","BDTX","BEAM","BEAT","BECN","BEEM","BFLY","BGFV","BGRY",
@@ -63,7 +56,6 @@ const WATCHLIST = [
   "BROG","BRTX","BRWC","BRWS","BSFC","BSGM","BSRR","BSVN","BTAI","BTBT",
   "BTCS","BTCM","BTDR","BTEL","BTMD","BTTX","BTOG","BUJA","BURU","BVNK",
   "BWMN","BWSN","BXRX","BYFC","BYNO","BYRN","BYSI","BZFD",
-  // Batch 4
   "CAAS","CABA","CAPR","CARV","CASM","CATO","CBAT","CBFV","CBIO","CBNK",
   "CBRL","CBRN","CBSH","CBTX","CCAP","CCCC","CCEP","CCIX","CCLP","CCNC",
   "CCOJ","CCSI","CCTS","CDAK","CDMO","CDNA","CDNS","CDRE","CDRO","CDTX",
@@ -75,7 +67,6 @@ const WATCHLIST = [
   "CLGN","CLIR","CLMB","CLMT","CLNE","CLNN","CLNV","CLOV","CLPR","CLPS",
   "CLRB","CLRO","CLSD","CLSK","CLST","CLVR","CLVT","CLWT","CMBT","CMCO",
   "CMCT","CMDV","CMLS","CMMB","CMND","CMPO","CMPS","CMRX","CMTG","CMTS",
-  // Batch 5
   "CNDB","CNET","CNEY","CNFR","CNGL","CNGX","CNOB","CNSL","CNSP","CNTB",
   "CNTG","CNVS","CNXT","COCH","COCP","CODX","COEP","COFS","COHU","COIN",
   "COKE","COLI","COLM","COMS","CONN","COOL","COOP","COPS","COPT","CORR",
@@ -86,7 +77,6 @@ const WATCHLIST = [
   "CRWS","CSCW","CSGP","CSGS","CSIA","CSII","CSIQ","CSPI","CSSE","CSTA",
   "CSTE","CSTL","CSTR","CSWC","CSWI","CTGO","CTIB","CTIC","CTLT","CTMX",
   "CTON","CTOS","CTRA","CTRE","CTRL","CTSO","CTXR","CTXS","CUBS","CUEN",
-  // Batch 6
   "DARE","DBGI","DBVT","DCBO","DCFC","DCGO","DCOM","DCTH","DDOG","DELT",
   "DEMO","DENN","DERA","DGHI","DGII","DGLY","DGNX","DGNU","DGTI","DHIL",
   "DHTX","DIBS","DIGS","DIOD","DIST","DJCO","DKNG","DLHC","DLPN","DLTH",
@@ -94,7 +84,6 @@ const WATCHLIST = [
   "DOMO","DOOO","DORM","DOUG","DOVA","DPCS","DPSI","DRAY","DRCT","DRNA",
   "DRRX","DRVN","DSAQ","DSGN","DSGX","DSKE","DSON","DSPC","DSSI","DSWL",
   "DTEA","DTIL","DTSS","DUET","DUOL","DURO","DXPE","DXYN","DYAI","DYNS",
-  // Batch 7
   "EACO","EARN","EAST","EBIX","EBMT","EBTC","ECBK","ECOR","ECPG","EDBL",
   "EDIT","EDRY","EDSA","EFOI","EFSH","EGAN","EGBN","EGHT","EGIO","EGLT",
   "EGRX","EKSO","ELEV","ELSE","ELVA","EMBC","EMKR","EMMS","EMTX","ENER",
@@ -102,14 +91,12 @@ const WATCHLIST = [
   "ENVX","EOLS","EOSE","EPAZ","EPIX","EPOW","EPZM","EQBK","ERAS","ERES",
   "ERIC","ERII","ESEA","ESMT","ESNT","ESPR","ESSA","ESTC","ETNB","ETSY",
   "EVAX","EVBG","EVGO","EVIO","EVLV","EVMO","EVOK","EVTL","EVTV","EXFY",
-  // Batch 8
   "FBIO","FBLG","FBMS","FBNC","FBRT","FCAP","FCEL","FCPT","FDBC","FDEF",
   "FDMT","FEIM","FELE","FGEN","FHTX","FIBK","FINV","FIXX","FKWL","FLGC",
   "FLIC","FLLD","FLME","FLNC","FLNT","FLWS","FLXS","FMNB","FNKO","FNLC",
   "FNMA","FNTX","FOLD","FONR","FORE","FORM","FORR","FOSL","FRBA","FRBK",
   "FRGE","FRGT","FRLN","FROG","FRPH","FRPT","FRST","FRSX","FRTA","FSFG",
   "FSLR","FSTR","FTCI","FTFT","FTHM","FTLF","FTRE","FTSI","FUBO","FULT",
-  // Batch 9
   "GALT","GATO","GBOX","GCBC","GDEN","GDOT","GDYN","GENC","GENI","GEOS",
   "GERN","GFAI","GGAL","GHRS","GHSI","GIFI","GILT","GIMI","GLAD","GLBE",
   "GLBS","GLDD","GLMD","GLNG","GLPG","GLRE","GLSI","GLTO","GLTX","GLUE",
@@ -117,7 +104,6 @@ const WATCHLIST = [
   "GOEV","GOED","GOGL","GOGO","GOOD","GOPI","GORV","GOSS","GOVX","GPCR",
   "GPMT","GPOR","GPRE","GPRO","GRAM","GREE","GRIL","GRIN","GRMN","GRPN",
   "GRTS","GRTX","GRVY","GRWG","GSAT","GSBC","GSIT","GSMG","GTLB","GTLS",
-  // Batch 10
   "HAIN","HALL","HALO","HARP","HAYN","HBCP","HBIO","HCAT","HCCI","HCDI",
   "HCSG","HCWB","HDSN","HEAR","HEES","HEPA","HEPS","HERO","HEXO","HFWA",
   "HGEN","HIBB","HIFS","HIIQ","HIMS","HIPO","HITI","HIVE","HKIT","HLLY",
@@ -135,7 +121,6 @@ export default async function handler(req, res) {
     const isWeekend   = day === 0 || day === 6;
     const isPreMarket = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
 
-    // ✅ FIX 4: استخدام MIN_VOLUME الصحيح بدل الرقم الثابت
     const MIN_VOLUME = isPreMarket ? 5000 : 20000;
 
     const uniqueList = [...new Set(WATCHLIST)];
@@ -170,14 +155,11 @@ export default async function handler(req, res) {
       }
 
       if (price < 0.5 || price > 500) continue;
-
-      // ✅ FIX 4: استخدام المتغير الصحيح
       if (volume < MIN_VOLUME) continue;
 
       const prevClose = data.prevDay?.c || price;
       const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
 
-      // ✅ FIX 1: رفع الحد من 20% إلى 15% — فوق 15% فات القطار
       if (changePct > 15) continue;
 
       const vwap      = data.day?.vw || price;
@@ -190,9 +172,10 @@ export default async function handler(req, res) {
       const tr   = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
       const atr  = Math.max(tr, price * 0.02);
 
-      const target1  = parseFloat((price + atr * 1.5).toFixed(2));
-      const target2  = parseFloat((price + atr * 3.0).toFixed(2));
-      const target3  = parseFloat((price + atr * 4.5).toFixed(2));
+      // ✅ أهداف مضبوطة — ATR مخفف
+      const target1  = parseFloat((price + atr * 0.5).toFixed(2));
+      const target2  = parseFloat((price + atr * 1.0).toFixed(2));
+      const target3  = parseFloat((price + atr * 1.8).toFixed(2));
       const stopLoss = parseFloat(Math.max(price - atr * 0.8, price * 0.90).toFixed(2));
       const slPct    = parseFloat((((stopLoss - price) / price) * 100).toFixed(2));
       const t1Pct    = parseFloat((((target1 - price) / price) * 100).toFixed(2));
@@ -236,13 +219,11 @@ export default async function handler(req, res) {
       const ema9  = data.day?.vw || null;
       const ema20 = data.prevDay?.vw || null;
 
-      // ✅ FIX 3: rvol يُحسب من حجم اليوم السابق بدل رقم ثابت
       const prevVolume = data.prevDay?.v || null;
       const rvol = prevVolume && prevVolume > 0
         ? parseFloat((volume / prevVolume).toFixed(1))
         : null;
 
-      // تصنيف: قيادي إذا marketCap >= 500M، وإلا السعر >= $10
       const mcapM = data.marketCap ? data.marketCap / 1_000_000 : null;
       const type = mcapM != null
         ? (mcapM >= LEADERSHIP_MCAP_THRESHOLD ? "قيادي" : "مضاربة")
@@ -256,13 +237,13 @@ export default async function handler(req, res) {
         rr,
         signal:     confidence,
         score,
-        type,                        // ✅ جديد
+        type,
         marketCap:  data.marketCap ? data.marketCap / 1_000_000 : null,
         ema9:       ema9  ? parseFloat(ema9.toFixed(2))  : null,
         ema20:      ema20 ? parseFloat(ema20.toFixed(2)) : null,
         rsi:        null,
         vwap:       parseFloat(vwap.toFixed(2)),
-        rvol,                        // ✅ مصلح
+        rvol,
         levels: {
           sl:    stopLoss, slPct,
           t1:    target1,  t1Pct,
@@ -275,7 +256,6 @@ export default async function handler(req, res) {
 
     finalResults.sort((a, b) => b.score - a.score || b.volume - a.volume);
 
-    // ✅ إرجاع 50 نتيجة — الـ frontend يفلتر حسب القسم
     const all     = finalResults.slice(0, 50);
     const leaders = all.filter(s => s.type === "قيادي");
     const spec    = all.filter(s => s.type === "مضاربة");
