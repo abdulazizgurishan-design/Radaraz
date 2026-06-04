@@ -1,4 +1,6 @@
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
 const BASE = "https://api.polygon.io";
 
 const LEADERSHIP_MCAP_THRESHOLD = 500;
@@ -112,6 +114,22 @@ const WATCHLIST = [
   "HUDI","HUMA","HURC","HVBC","HWBK","HWKN","HYAC","HYLN","HYMC","HYPR"
 ];
 
+async function saveSignals(signals) {
+  if (!SUPABASE_URL || !SUPABASE_KEY || signals.length === 0) return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/signals`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Prefer": "resolution=ignore-duplicates",
+      },
+      body: JSON.stringify(signals),
+    });
+  } catch { }
+}
+
 export default async function handler(req, res) {
   try {
     const now = new Date();
@@ -172,7 +190,6 @@ export default async function handler(req, res) {
       const tr   = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
       const atr  = Math.max(tr, price * 0.02);
 
-      // ✅ أهداف مضبوطة — ATR مخفف
       const target1  = parseFloat((price + atr * 0.5).toFixed(2));
       const target2  = parseFloat((price + atr * 1.0).toFixed(2));
       const target3  = parseFloat((price + atr * 1.8).toFixed(2));
@@ -259,6 +276,21 @@ export default async function handler(req, res) {
     const all     = finalResults.slice(0, 50);
     const leaders = all.filter(s => s.type === "قيادي");
     const spec    = all.filter(s => s.type === "مضاربة");
+
+    // ✅ حفظ الإشارات فوق 80 نقطة فقط
+    await saveSignals(all.filter(s => s.score > 80).map(s => ({
+      symbol:      s.symbol,
+      entry_price: s.price,
+      target1:     s.levels.t1,
+      target2:     s.levels.t2,
+      target3:     s.levels.t3,
+      stop_loss:   s.levels.sl,
+      score:       s.score,
+      volume:      s.volume,
+      change_pct:  s.change_pct,
+      type:        s.type,
+      status:      "OPEN",
+    })));
 
     return res.status(200).json({
       success:    true,
