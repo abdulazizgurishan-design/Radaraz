@@ -1,0 +1,90 @@
+const POLYGON_KEY = process.env.POLYGON_API_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
+const CRON_SECRET = process.env.CRON_SECRET;
+const BASE = "https://api.polygon.io";
+
+export default async function handler(req, res) {
+  // حماية — فقط الطلبات المصرح بها
+  if (req.headers["x-cron-secret"] !== CRON_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    // 1. جيب كل الإشارات المفتوحة
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/signals?status=eq.OPEN&select=*`,
+      {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
+      }
+    );
+    const signals = await r.json();
+    if (!signals?.length) return res.status(200).json({ message: "لا توجد إشارات مفتوحة" });
+
+    // 2. احسب تاريخ أمس
+    const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    et.setDate(et.getDate() - 1);
+    const date = et.toISOString().split("T")[0];
+
+    // 3. قيّم كل إشارة
+    const updates = await Promise.all(signals.map(async (sig) => {
+      try {
+        const url = `${BASE}/v2/aggs/ticker/${sig.symbol}/range/1/day/${date}/${date}?apiKey=${POLYGON_KEY}`;
+        const r2 = await fetch(url);
+        const d = await r2.json();
+        const bar = d?.results?.[0];
+        if (!bar) return null;
+
+        const high  = bar.h;
+        const low   = bar.l;
+        const close = bar.c;
+
+        const t1_hit   = high >= sig.target1;
+        const t2_hit   = high >= sig.target2;
+        const t3_hit   = high >= sig.target3;
+        const stop_hit = low  <= sig.stop_loss;
+
+        const max_gain_pct   = parseFloat(((high  - sig.entry_price) / sig.entry_price * 100).toFixed(2));
+        const close_gain_pct = parseFloat(((close - sig.entry_price) / sig.entry_price * 100).toFixed(2));
+
+        return {
+          id: sig.id,
+          high_price:     high,
+          low_price:      low,
+          close_price:    close,
+          target1_hit:    t1_hit,
+          target2_hit:    t2_hit,
+          target3_hit:    t3_hit,
+          stop_hit:       stop_hit,
+          max_gain_pct,
+          close_gain_pct,
+          evaluated_at:   new Date().toISOString(),
+          status:         "CLOSED",
+        };
+      } catch { return null; }
+    }));
+
+    // 4. حدّث كل سجل في Supabase
+    const valid = updates.filter(Boolean);
+    await Promise.all(valid.map(async (u) => {
+      const { id, ...fields } = u;
+      await fetch(`${SUPABASE_URL}/rest/v1/signals?id=eq.${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
+        body: JSON.stringify(fields),
+      });
+    }));
+
+    return res.status(200).json({ evaluated: valid.length, date });
+
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+}
