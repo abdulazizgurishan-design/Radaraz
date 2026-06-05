@@ -164,7 +164,8 @@ export default async function handler(req, res) {
     for (const data of allTickers) {
       const ticker = data.ticker;
 
-      let price  = data.lastTrade?.p ?? data.min?.c ?? data.day?.c ?? 0;
+      // ✅ السعر الأصلي اللي كان شغال
+      let price  = data.min?.c ?? data.lastTrade?.p ?? data.day?.c ?? 0;
       let volume = data.day?.v ?? 0;
 
       if (volume === 0 && data.prevDay) {
@@ -217,8 +218,9 @@ export default async function handler(req, res) {
       else if (changePct >= 2)               score += 15;
       else if (changePct >= 0)               score += 8;
 
-      // VWAP (20 نقطة)
-      if (aboveVWAP) score += 20;
+      // ✅ VWAP محسّن (25 نقطة)
+      if (aboveVWAP)  score += 25;
+      else            score -= 10;
 
       // Gap الافتتاح (15 نقطة)
       if (preGap > 5)      score += 15;
@@ -237,7 +239,7 @@ export default async function handler(req, res) {
         else if (rvol >= 1.5) score += 3;
       }
 
-      score = Math.min(score, 99);
+      score = Math.max(0, Math.min(score, 99));
       if (score < 30) continue;
 
       const confidence =
