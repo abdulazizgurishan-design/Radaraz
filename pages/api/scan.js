@@ -5,7 +5,7 @@ const BASE = "https://api.polygon.io";
 
 const LEADERSHIP_MCAP_THRESHOLD = 500;
 const LEADERSHIP_PRICE_FALLBACK  = 10;
- 
+
 const WATCHLIST = [
  "NVDA","AMD","MSFT","META","GOOGL","AMZN","AAPL","TSLA","PLTR","SMCI",
  "MRNA","BNTX","VRTX","REGN","ILMN",
@@ -176,12 +176,10 @@ export default async function handler(req, res) {
      if (price < 0.5 || price > 500) continue;
      if (volume < MIN_VOLUME) continue;
 
-     // ✅ prevClose لازم يكون من أمس وإلا نتخطى السهم
      const prevClose = data.prevDay?.c ?? 0;
      if (!prevClose) continue;
 
      const changePct = ((price - prevClose) / prevClose) * 100;
-
      if (changePct > 15) continue;
 
      const vwap      = data.day?.vw || price;
@@ -206,44 +204,49 @@ export default async function handler(req, res) {
      const reward   = target1 - price;
      const rr       = risk > 0 ? (reward / risk).toFixed(1) : "0";
 
-     let score = 30;
+     // ✅ توزيع نقاط محسّن
+     let score = 0;
 
-     if (volume > 2_000_000)     score += 25;
-     else if (volume > 500_000)  score += 18;
-     else if (volume > 100_000)  score += 12;
-     else if (volume > 50_000)   score += 6;
+     // الحجم (30 نقطة)
+     if (volume > 5_000_000)     score += 30;
+     else if (volume > 2_000_000) score += 22;
+     else if (volume > 500_000)  score += 15;
+     else if (volume > 100_000)  score += 8;
 
-     if (changePct > 15)         score += 20;
-     else if (changePct > 10)    score += 15;
-     else if (changePct > 5)     score += 10;
-     else if (changePct > 2)     score += 5;
-     else if (changePct < 0)     score -= 5;
+     // نسبة التغيير (25 نقطة)
+     if (changePct >= 5 && changePct <= 15) score += 25;
+     else if (changePct >= 2)               score += 15;
+     else if (changePct >= 0)               score += 8;
 
-     if (aboveVWAP)              score += 15;
+     // VWAP (20 نقطة)
+     if (aboveVWAP) score += 20;
 
-     if (preGap > 10)            score += 10;
-     else if (preGap > 5)        score += 7;
-     else if (preGap > 2)        score += 4;
+     // Gap الافتتاح (15 نقطة)
+     if (preGap > 5)      score += 15;
+     else if (preGap > 2) score += 10;
+     else if (preGap > 0) score += 5;
 
-     const rrNum = parseFloat(rr);
-     if (rrNum >= 3)             score += 10;
-     else if (rrNum >= 2)        score += 6;
-     else if (rrNum >= 1.5)      score += 3;
-
-     score = Math.max(30, Math.min(score, 99));
-     if (score < 30) continue;
-
-     const confidence =
-       score >= 85 ? "💥 قوة قصوى" :
-       score >= 70 ? "🔥 إشارة ممتازة" : "👀 مراقبة";
-
-     const ema9  = data.day?.vw || null;
-     const ema20 = data.prevDay?.vw || null;
-
+     // RVOL (10 نقطة)
      const prevVolume = data.prevDay?.v || null;
      const rvol = prevVolume && prevVolume > 0
        ? parseFloat((volume / prevVolume).toFixed(1))
        : null;
+
+     if (rvol) {
+       if (rvol >= 3)      score += 10;
+       else if (rvol >= 2) score += 6;
+       else if (rvol >= 1.5) score += 3;
+     }
+
+     score = Math.min(score, 99);
+     if (score < 50) continue;
+
+     const confidence =
+       score >= 80 ? "💥 قوة قصوى" :
+       score >= 65 ? "🔥 إشارة ممتازة" : "👀 مراقبة";
+
+     const ema9  = data.day?.vw || null;
+     const ema20 = data.prevDay?.vw || null;
 
      const mcapM = data.marketCap ? data.marketCap / 1_000_000 : null;
      const type = mcapM != null
@@ -277,11 +280,13 @@ export default async function handler(req, res) {
 
    finalResults.sort((a, b) => b.score - a.score || b.volume - a.volume);
 
-   const all     = finalResults.slice(0, 50);
-   const leaders = all.filter(s => s.type === "قيادي");
-   const spec    = all.filter(s => s.type === "مضاربة");
+   // ✅ 20 قيادي + 30 مضاربة
+   const leaders = finalResults.filter(s => s.type === "قيادي").slice(0, 20);
+   const spec    = finalResults.filter(s => s.type === "مضاربة").slice(0, 30);
+   const all     = [...leaders, ...spec].sort((a, b) => b.score - a.score || b.volume - a.volume);
 
-   await saveSignals(all.filter(s => s.score > 80).map(s => ({
+   // ✅ حفظ الإشارات فوق 70 نقطة
+   await saveSignals(all.filter(s => s.score >= 70).map(s => ({
      symbol:      s.symbol,
      entry_price: s.price,
      target1:     s.levels.t1,
