@@ -5,7 +5,7 @@ const BASE = "https://api.polygon.io";
 
 const LEADERSHIP_MCAP_THRESHOLD = 500;
 const LEADERSHIP_PRICE_FALLBACK  = 10;
-
+ 
 const WATCHLIST = [
  "NVDA","AMD","MSFT","META","GOOGL","AMZN","AAPL","TSLA","PLTR","SMCI",
  "MRNA","BNTX","VRTX","REGN","ILMN",
