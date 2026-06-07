@@ -49,6 +49,8 @@ const T = {
     microCap: "🦐 Micro Cap",
     sectionLeaders: "🏆 أسهم قيادية",
     sectionSpec: "💥 مضاربة لحظية",
+    tapToExpand: "اضغط للعرض",
+    tapToCollapse: "اضغط للإخفاء",
   },
   en: {
     title: "Radar",
@@ -98,6 +100,8 @@ const T = {
     microCap: "🦐 Micro Cap",
     sectionLeaders: "🏆 Leadership Stocks",
     sectionSpec: "💥 Speculation",
+    tapToExpand: "Tap to expand",
+    tapToCollapse: "Tap to collapse",
   }
 };
 
@@ -134,10 +138,34 @@ const S = {
   dividerRow: { display: "flex", alignItems: "center", gap: 10, marginBottom: 16 },
   dividerLine: (flip) => ({ height: 1, flex: 1, background: flip ? "linear-gradient(90deg,rgba(255,255,255,0.08),transparent)" : "linear-gradient(90deg,transparent,rgba(255,255,255,0.08))" }),
   dividerText: { fontSize: 11, color: "rgba(255,255,255,0.25)", letterSpacing: 1 },
-  // ✅ Section header for قيادي / مضاربة
-  sectionHeader: (bg, border, color) => ({ background: bg, border: `1px solid ${border}`, borderRadius: 14, padding: "12px 18px", marginBottom: 12, marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }),
+  // ✅ Section header — قابل للطي
+  sectionHeader: (bg, border, color, open) => ({
+    background: bg,
+    border: `1px solid ${border}`,
+    borderRadius: open ? "14px 14px 0 0" : 14,
+    padding: "14px 18px",
+    marginBottom: 0,
+    marginTop: 8,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    cursor: "pointer",
+    userSelect: "none",
+    transition: "border-radius 0.2s",
+  }),
   sectionTitle: (color) => ({ fontSize: 14, fontWeight: 800, color, letterSpacing: 1 }),
   sectionCount: (color, bg) => ({ fontSize: 13, fontWeight: 800, color, background: bg, borderRadius: 20, padding: "2px 10px", fontFamily: "monospace" }),
+  sectionChevron: (open) => ({ fontSize: 10, color: "rgba(255,255,255,0.4)", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s", display: "inline-block", marginRight: 8 }),
+  sectionBody: (open) => ({
+    overflow: "hidden",
+    maxHeight: open ? "9999px" : 0,
+    transition: "max-height 0.3s ease",
+    border: open ? "1px solid rgba(255,255,255,0.07)" : "none",
+    borderTop: "none",
+    borderRadius: "0 0 14px 14px",
+    padding: open ? "10px 0 0 0" : 0,
+    marginBottom: open ? 12 : 0,
+  }),
   emptyBox: { textAlign: "center", padding: "64px 20px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 20 },
   footer: { marginTop: 32, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.04)", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
   cardWrap: (open, glowColor) => ({ background: "linear-gradient(135deg,rgba(15,20,35,0.95),rgba(20,28,48,0.95))", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, marginBottom: 10, overflow: "hidden", transition: "box-shadow 0.3s", boxShadow: open ? `0 8px 32px ${glowColor}` : "0 2px 8px rgba(0,0,0,0.3)" }),
@@ -161,7 +189,6 @@ const S = {
   tpBox: (bg, border) => ({ background: bg, border: `1px solid ${border}`, borderRadius: 12, padding: 12 }),
   tpLabel: (color) => ({ fontSize: 9, color, fontWeight: 600, marginBottom: 4 }),
   tpValue: (color) => ({ fontSize: 15, fontWeight: 700, color, fontFamily: "monospace" }),
-  // ✅ نسبة الهدف
   tpPct: (color) => ({ fontSize: 11, color, fontWeight: 600, marginTop: 3, opacity: 0.85 }),
   skeletonCard: { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, marginBottom: 10, padding: 18, display: "flex", gap: 12, alignItems: "center" },
   skeletonBlock: (w, h) => ({ background: "rgba(255,255,255,0.08)", borderRadius: 6, width: w, height: h, flexShrink: 0, animation: "pulse 1.5s ease-in-out infinite" }),
@@ -208,7 +235,6 @@ function getMarketCapInfo(mcap, t) {
   return               { label: t.microCap,  color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.25)" };
 }
 
-// ✅ helper لتنسيق النسبة
 function fmtPct(n) {
   if (n == null) return "";
   return (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%";
@@ -222,7 +248,6 @@ function Card({ r, idx, t }) {
   const glowColor = r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
   const mcapInfo = getMarketCapInfo(r.marketCap, t);
 
-  // ✅ badge نوع السهم
   const typeTag = r.type === "قيادي"
     ? { label: "🏆 قيادي", color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
     : { label: "💥 مضاربة", color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.25)" };
@@ -235,7 +260,6 @@ function Card({ r, idx, t }) {
     { label: t.volume, value: ((r.volume || 0) / 1e6).toFixed(1) + "M", color: "#34d399" },
   ], [r, formatPrice, t]);
 
-  // ✅ الأهداف مع النسبة
   const tpLevels = useMemo(() => [
     { n: 1, value: r.levels.t1, pct: r.levels.t1Pct, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)", border: "rgba(96,165,250,0.2)" },
     { n: 2, value: r.levels.t2, pct: r.levels.t2Pct, label: "TP2", color: "#34d399", bg: "rgba(52,211,153,0.08)", border: "rgba(52,211,153,0.2)" },
@@ -252,7 +276,6 @@ function Card({ r, idx, t }) {
         </div>
         <div style={S.cardTags}>
           <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.signal}</span>
-          {/* ✅ badge نوع السهم */}
           <span style={S.tag(typeTag.bg, typeTag.color, typeTag.border)}>{typeTag.label}</span>
           {mcapInfo && <span style={S.tag(mcapInfo.bg, mcapInfo.color, mcapInfo.border)}>{mcapInfo.label}</span>}
           {r.rvol && r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
@@ -287,7 +310,6 @@ function Card({ r, idx, t }) {
               </div>
             </div>
           </div>
-          {/* ✅ الأهداف مع السعر والنسبة */}
           <div style={S.tpGrid}>
             {tpLevels.map((tp) => (
               <div key={tp.n} style={S.tpBox(tp.bg, tp.border)}>
@@ -303,12 +325,33 @@ function Card({ r, idx, t }) {
   );
 }
 
-// ✅ Section header component
-function SectionHeader({ title, count, color, bg, border }) {
+// ✅ Section header قابل للطي مع عداد
+function CollapsibleSection({ title, count, color, bg, border, children, t }) {
+  const [open, setOpen] = useState(true);
+
   return (
-    <div style={S.sectionHeader(bg, border, color)}>
-      <span style={S.sectionTitle(color)}>{title}</span>
-      <span style={S.sectionCount(color, bg + "aa")}>{count}</span>
+    <div style={{ marginTop: 8, marginBottom: 4 }}>
+      <div
+        style={S.sectionHeader(bg, border, color, open)}
+        onClick={() => setOpen(o => !o)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => e.key === "Enter" && setOpen(o => !o)}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={S.sectionChevron(open)}>▼</span>
+          <span style={S.sectionTitle(color)}>{title}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
+            {open ? t.tapToCollapse : t.tapToExpand}
+          </span>
+          <span style={S.sectionCount(color, bg + "aa")}>{count}</span>
+        </div>
+      </div>
+      <div style={S.sectionBody(open)}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -485,7 +528,6 @@ export default function Radar() {
       }
       const data = await res.json();
       if (data.error) { setScanError(data.error); setStatus("error"); return; }
-      // ✅ استخدام الأقسام من الـ backend
       setResults(data.results ?? []);
       setLeaders(data.leaders ?? []);
       setSpeculation(data.speculation ?? []);
@@ -515,7 +557,6 @@ export default function Radar() {
     return () => clearInterval(autoTimerRef.current);
   }, [autoRefresh, scan]);
 
-  // ✅ فلترة حسب القسم أو الـ score
   const filtered = useMemo(() => {
     if (filter === "leaders") return leaders;
     if (filter === "speculation") return speculation;
@@ -529,7 +570,6 @@ export default function Radar() {
   const high = useMemo(() => results.filter((r) => r.score >= 60 && r.score < 80).length, [results]);
   const dotColor = loading ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
 
-  // ✅ عرض مقسم فقط في وضع "الكل"
   const showSections = filter === "all" && leaders.length > 0 && speculation.length > 0;
 
   if (!authChecked) return null;
@@ -609,28 +649,30 @@ export default function Radar() {
         {loading && <SkeletonCards />}
         {(done || loading) && <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} t={t} />}
 
-        {/* ✅ عرض مقسم قيادي / مضاربة */}
+        {/* ✅ عرض مقسم قيادي / مضاربة مع Accordion */}
         {!loading && done && showSections && (
           <>
-            <SectionHeader
+            <CollapsibleSection
               title={t.sectionLeaders}
               count={leaders.length}
               color="#818cf8"
               bg="rgba(129,140,248,0.08)"
               border="rgba(129,140,248,0.2)"
-            />
-            {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} />)}
+              t={t}
+            >
+              {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} />)}
+            </CollapsibleSection>
 
-            <div style={{ marginTop: 20 }}>
-              <SectionHeader
-                title={t.sectionSpec}
-                count={speculation.length}
-                color="#f87171"
-                bg="rgba(248,113,113,0.08)"
-                border="rgba(248,113,113,0.2)"
-              />
+            <CollapsibleSection
+              title={t.sectionSpec}
+              count={speculation.length}
+              color="#f87171"
+              bg="rgba(248,113,113,0.08)"
+              border="rgba(248,113,113,0.2)"
+              t={t}
+            >
               {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} />)}
-            </div>
+            </CollapsibleSection>
           </>
         )}
 
