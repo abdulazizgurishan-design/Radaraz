@@ -115,9 +115,11 @@ const WATCHLIST = [
 ];
 
 async function saveSignals(signals) {
-  if (!SUPABASE_URL || !SUPABASE_KEY || signals.length === 0) return;
+  if (!SUPABASE_URL || !SUPABASE_KEY || signals.length === 0) {
+    return { error: "missing config", url: !!SUPABASE_URL, key: !!SUPABASE_KEY, count: signals.length };
+  }
   try {
-    await fetch(`${SUPABASE_URL}/rest/v1/signals`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/signals`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -127,7 +129,11 @@ async function saveSignals(signals) {
       },
       body: JSON.stringify(signals),
     });
-  } catch { }
+    const text = await r.text();
+    return { status: r.status, body: text.slice(0, 200) };
+  } catch(e) {
+    return { error: e.message };
+  }
 }
 
 export default async function handler(req, res) {
@@ -277,7 +283,7 @@ export default async function handler(req, res) {
     const spec    = finalResults.filter(s => s.type === "مضاربة").slice(0, 30);
     const all     = [...leaders, ...spec].sort((a, b) => b.score - a.score || b.volume - a.volume);
 
-    await saveSignals(all.filter(s => s.score >= 60).map(s => ({
+    const saveDebug = await saveSignals(all.filter(s => s.score >= 60).map(s => ({
       symbol:      s.symbol,
       entry_price: s.price,
       target1:     s.levels.t1,
@@ -296,7 +302,8 @@ export default async function handler(req, res) {
       results:    all,
       leaders,
       speculation: spec,
-      total:      uniqueList.length
+      total:      uniqueList.length,
+      saveDebug,
     });
 
   } catch (error) {
