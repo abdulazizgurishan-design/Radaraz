@@ -24,10 +24,12 @@ export default async function handler(req, res) {
     const signals = await r.json();
     if (!signals?.length) return res.status(200).json({ message: "لا توجد إشارات مفتوحة" });
 
-    // 2. احسب تاريخ أمس
+    // 2. احسب تاريخ اليوم (ET timezone)
     const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    et.setDate(et.getDate() - 1);
+    // ✅ اليوم — مو أمس
     const date = et.toISOString().split("T")[0];
+
+    console.log(`📊 Evaluating ${signals.length} signals for ${date}`);
 
     // 3. قيّم كل إشارة
     const updates = await Promise.all(signals.map(async (sig) => {
@@ -36,7 +38,10 @@ export default async function handler(req, res) {
         const r2 = await fetch(url);
         const d = await r2.json();
         const bar = d?.results?.[0];
-        if (!bar) return null;
+        if (!bar) {
+          console.log(`⚠️ ${sig.symbol}: No data for ${date}`);
+          return null;
+        }
 
         const high  = bar.h;
         const low   = bar.l;
@@ -49,6 +54,8 @@ export default async function handler(req, res) {
 
         const max_gain_pct   = parseFloat(((high  - sig.entry_price) / sig.entry_price * 100).toFixed(2));
         const close_gain_pct = parseFloat(((close - sig.entry_price) / sig.entry_price * 100).toFixed(2));
+
+        console.log(`✓ ${sig.symbol}: H=$${high}, L=$${low}, C=$${close} → T1:${t1_hit?'✅':'❌'} T2:${t2_hit?'✅':'❌'} T3:${t3_hit?'✅':'❌'} SL:${stop_hit?'🛑':'❌'}`);
 
         return {
           id: sig.id,
@@ -64,14 +71,19 @@ export default async function handler(req, res) {
           evaluated_at:   new Date().toISOString(),
           status:         "CLOSED",
         };
-      } catch { return null; }
+      } catch (err) {
+        console.error(`💥 ${sig.symbol}: ${err.message}`);
+        return null;
+      }
     }));
 
     // 4. حدّث كل سجل في Supabase
     const valid = updates.filter(Boolean);
-    await Promise.all(valid.map(async (u) => {
+    let updated = 0;
+
+    for (const u of valid) {
       const { id, ...fields } = u;
-      await fetch(`${SUPABASE_URL}/rest/v1/signals?id=eq.${id}`, {
+      const resp = await fetch(`${SUPABASE_URL}/rest/v1/signals?id=eq.${id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -80,11 +92,20 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify(fields),
       });
-    }));
+      if (resp.ok) updated++;
+    }
 
-    return res.status(200).json({ evaluated: valid.length, date });
+    console.log(`✅ Updated ${updated} signals`);
+
+    return res.status(200).json({ 
+      success: true,
+      evaluated: updated, 
+      date,
+      total_signals: signals.length,
+    });
 
   } catch (error) {
+    console.error("💥 Error:", error.message);
     return res.status(500).json({ error: error.message });
   }
 }
