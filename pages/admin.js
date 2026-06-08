@@ -173,13 +173,16 @@ export default function Admin() {
            ) : (
              signals.map((s, idx) => (
                <div key={s?.symbol || idx} style={S.card("rgba(255,255,255,0.08)")}>
-                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                      <span style={{ fontSize: 18 }}>📡</span>
                      <span style={{ fontWeight: 700, fontFamily: "monospace", fontSize: 16 }}>{s?.symbol}</span>
                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>({s?.score})</span>
                    </div>
-                   <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>دخل <span style={{ color: "#fff", fontFamily: "monospace" }}>${s?.entry_price}</span></span>
+                   <div style={{ textAlign: "right" }}>
+                     <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 2 }}>دخل</div>
+                     <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "monospace", color: "#60a5fa" }}>${(s?.entry_price || 0).toFixed(2)}</div>
+                   </div>
                  </div>
 
                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
