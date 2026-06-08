@@ -184,7 +184,12 @@ export default async function handler(req, res) {
       if (volume < minVol) continue;
 
       const prevClose = data.prevDay?.c ?? 0;
-      if (!prevClose) continue;
+      // ✅ إذا ما في prevClose نحاول نأخذ سعر من مصدر آخر
+      let price2 = price;
+      if (!prevClose) {
+        price2 = data.lastTrade?.p ?? data.day?.o ?? 0;
+        if (!price2) continue;
+      }
 
       // ✅ في وضع أمس نحسب التغيير من اليوم قبله
       const changeBase = isLiveMode ? prevClose : (data.prevDay?.c || prevClose);
