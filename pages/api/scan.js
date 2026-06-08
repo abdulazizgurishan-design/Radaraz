@@ -213,18 +213,18 @@ export default async function handler(req, res) {
       if (volume > 5_000_000)      score += 30;
       else if (volume > 2_000_000) score += 22;
       else if (volume > 500_000)   score += 15;
-      else if (volume > 100_000)   score += 8;
+      // ✅ حد أدنى 500K — ما نقبل أقل
 
       if (changePct >= 5 && changePct <= 15) score += 25;
-      else if (changePct >= 2)               score += 15;
-      else if (changePct >= 0)               score += 8;
+      else if (changePct >= 3)               score += 15;
+      // ✅ حد أدنى +3% — Momentum حقيقي
 
       if (aboveVWAP)  score += 25;
-      else            score -= 5;
+      else            score -= 15;  // ✅ عقوبة قوية لمن تحت VWAP
 
       if (preGap > 5)      score += 15;
       else if (preGap > 2) score += 10;
-      else if (preGap > 0) score += 5;
+      // ✅ حد أدنى +2% gap — ما نقبل أقل
 
       const prevVolume = data.prevDay?.v || null;
       const rvol = prevVolume && prevVolume > 0
@@ -232,13 +232,13 @@ export default async function handler(req, res) {
         : null;
 
       if (rvol) {
-        if (rvol >= 3)        score += 10;
-        else if (rvol >= 2)   score += 6;
-        else if (rvol >= 1.5) score += 3;
+        if (rvol >= 3)      score += 10;
+        else if (rvol >= 2) score += 6;
+        // ✅ حد أدنى 2x RVOL — Volume حقيقي
       }
 
       score = Math.max(0, Math.min(score, 99));
-      if (score < 30) continue;
+      if (score < 60) continue;  // ✅ بس فوق 60 يظهر — أسهم قوية فقط
 
       const confidence =
         score >= 80 ? "💥 قوة قصوى" :
