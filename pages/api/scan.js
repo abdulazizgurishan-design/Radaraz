@@ -202,7 +202,7 @@ export default async function handler(req, res) {
       const reward   = target1 - price;
       const rr       = risk > 0 ? (reward / risk).toFixed(1) : "0";
 
-      let score = 0;
+      let score = 15;
 
       if (volume > 5_000_000)      score += 30;
       else if (volume > 2_000_000) score += 22;
@@ -214,8 +214,7 @@ export default async function handler(req, res) {
       else if (changePct >= 0)               score += 8;
 
       if (aboveVWAP)  score += 25;
-      // ✅ تحت VWAP لا نعاقب — فقط لا نكافئ
-      // else            score -= 10;
+      else            score -= 5;
 
       if (preGap > 5)      score += 15;
       else if (preGap > 2) score += 10;
