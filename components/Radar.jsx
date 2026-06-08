@@ -606,13 +606,13 @@ export default function Radar() {
 
         <div style={S.statsRow}>
           {[
-            { label: t.scanRange, value: total || 50, color: "#6366f1", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.2)" },
+            { label: t.scanRange, value: "+10,000", color: "#6366f1", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.2)" },
             { label: t.explosive, value: explosive, color: "#ff6b35", bg: "rgba(255,107,53,0.1)", border: "rgba(255,107,53,0.2)" },
             { label: t.high, value: high, color: "#ffd700", bg: "rgba(255,215,0,0.1)", border: "rgba(255,215,0,0.2)" },
             { label: t.all, value: results.length, color: "#00d4aa", bg: "rgba(0,212,170,0.1)", border: "rgba(0,212,170,0.2)" },
           ].map((s) => (
             <div key={s.label} style={S.statBox(s.bg, s.border)}>
-              <div style={S.statNum(s.color)}>{s.value}</div>
+              <div style={{ ...S.statNum(s.color), fontSize: typeof s.value === 'string' ? 18 : 26 }}>{s.value}</div>
               <div style={S.statLabel(s.color)}>{s.label}</div>
             </div>
           ))}
