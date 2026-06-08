@@ -138,11 +138,7 @@ export default async function handler(req, res) {
 
     const isWeekend   = day === 0 || day === 6;
     const isPreMarket = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
-    const isMarketOpen = !isWeekend && (h > 9 || (h === 9 && m >= 30)) && h < 16;
-    const isAfterHours = !isWeekend && h >= 16 && h < 20;
 
-    // ✅ وضع العرض — حي أو أمس
-    const isLiveMode = isPreMarket || isMarketOpen || isAfterHours;
     const MIN_VOLUME = isPreMarket ? 5000 : 20000;
 
     const uniqueList = [...new Set(WATCHLIST)];
@@ -171,29 +167,16 @@ export default async function handler(req, res) {
       let price  = data.min?.c ?? data.lastTrade?.p ?? data.day?.c ?? 0;
       let volume = data.day?.v ?? 0;
 
-      // ✅ في الويكند أو السوق المغلق — استخدم بيانات أمس
-      if (!isLiveMode || (volume === 0 && data.prevDay)) {
-        price  = data.prevDay?.c || price;
-        volume = data.prevDay?.v || 0;
+      if (volume === 0 && data.prevDay) {
+        price  = data.prevDay.c || price;
+        volume = data.prevDay.v || 0;
       }
 
       if (price < 0.5 || price > 500) continue;
+      if (volume < MIN_VOLUME) continue;
 
-      // ✅ في وضع أمس نخفف شرط الحجم
-      const minVol = isLiveMode ? MIN_VOLUME : 50000;
-      if (volume < minVol) continue;
-
-      const prevClose = data.prevDay?.c ?? 0;
-      // ✅ إذا ما في prevClose نحاول نأخذ سعر من مصدر آخر
-      let price2 = price;
-      if (!prevClose) {
-        price2 = data.lastTrade?.p ?? data.day?.o ?? 0;
-        if (!price2) continue;
-      }
-
-      // ✅ في وضع أمس نحسب التغيير من اليوم قبله
-      const changeBase = isLiveMode ? prevClose : (data.prevDay?.c || prevClose);
-      const changePct = ((price - changeBase) / changeBase) * 100;
+      const prevClose = data.prevDay?.c || price;
+      const changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
 
       if (changePct > 15) continue;
 
@@ -278,7 +261,6 @@ export default async function handler(req, res) {
         rsi:        null,
         vwap:       parseFloat(vwap.toFixed(2)),
         rvol,
-        isYesterday: !isLiveMode,
         levels: {
           sl:    stopLoss, slPct,
           t1:    target1,  t1Pct,
@@ -295,30 +277,26 @@ export default async function handler(req, res) {
     const spec    = finalResults.filter(s => s.type === "مضاربة").slice(0, 30);
     const all     = [...leaders, ...spec].sort((a, b) => b.score - a.score || b.volume - a.volume);
 
-    // ✅ حفظ فقط في وضع حي
-    if (isLiveMode) {
-      await saveSignals(all.filter(s => s.score >= 60).map(s => ({
-        symbol:      s.symbol,
-        entry_price: s.price,
-        target1:     s.levels.t1,
-        target2:     s.levels.t2,
-        target3:     s.levels.t3,
-        stop_loss:   s.levels.sl,
-        score:       s.score,
-        volume:      s.volume,
-        change_pct:  s.change_pct,
-        type:        s.type,
-        status:      "OPEN",
-      })));
-    }
+    await saveSignals(all.filter(s => s.score >= 60).map(s => ({
+      symbol:      s.symbol,
+      entry_price: s.price,
+      target1:     s.levels.t1,
+      target2:     s.levels.t2,
+      target3:     s.levels.t3,
+      stop_loss:   s.levels.sl,
+      score:       s.score,
+      volume:      s.volume,
+      change_pct:  s.change_pct,
+      type:        s.type,
+      status:      "OPEN",
+    })));
 
     return res.status(200).json({
       success:    true,
       results:    all,
       leaders,
       speculation: spec,
-      total:      uniqueList.length,
-      isYesterday: !isLiveMode,
+      total:      uniqueList.length
     });
 
   } catch (error) {
