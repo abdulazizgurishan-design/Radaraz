@@ -47,7 +47,7 @@ export default function Admin() {
       const result = r
         ? `${r.label} ${r.pct != null ? (r.pct >= 0 ? `+${r.pct}%` : `${r.pct}%`) : ""}`
         : `دخل $${s.entry_price}`;
-      lines.push(`${icon} ${s.symbol} — دخل $${s.entry_price} | ${result}`);
+      lines.push(`${icon} ${s.symbol} (${s.score}) — دخل $${s.entry_price} | ${result}`);
     });
     lines.push(`\n🔗 radaraz.com`);
     return lines.join("\n");
@@ -79,7 +79,7 @@ export default function Admin() {
     const r = getResult(s);
     const targets = `T1: $${s.target1} | T2: $${s.target2} | T3: $${s.target3} | وقف: $${s.stop_loss}`;
     const result = r ? `${r.icon} ${r.label} ${r.pct != null ? (r.pct >= 0 ? `+${r.pct}%` : `${r.pct}%`) : ""}` : "⏳ مفتوحة";
-    return `📡 ${s.symbol}\nدخل: $${s.entry_price}\n${targets}\nالنتيجة: ${result}\n\nradaraz.com`;
+    return `📡 ${s.symbol} (${s.score})\nدخل: $${s.entry_price}\n${targets}\nالنتيجة: ${result}\n\nradaraz.com`;
   };
 
   const S = {
@@ -149,11 +149,12 @@ export default function Admin() {
 
               return (
                 <div key={s.id} style={S.card(borderColor)}>
-                  {/* السطر الأول: الرمز والسعر */}
+                  {/* السطر الأول: الرمز والسكور والسعر */}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: 18 }}>{r ? r.icon : "📡"}</span>
                       <span style={{ fontWeight: 700, fontFamily: "monospace", fontSize: 16 }}>{s.symbol}</span>
+                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>({s.score})</span>
                     </div>
                     <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>دخل <span style={{ color: "#fff", fontFamily: "monospace" }}>${s.entry_price}</span></span>
                   </div>
