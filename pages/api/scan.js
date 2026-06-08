@@ -283,19 +283,24 @@ export default async function handler(req, res) {
     const spec    = finalResults.filter(s => s.type === "مضاربة").slice(0, 30);
     const all     = [...leaders, ...spec].sort((a, b) => b.score - a.score || b.volume - a.volume);
 
-    const saveDebug = await saveSignals(all.filter(s => s.score >= 60).map(s => ({
-      symbol:      s.symbol,
-      entry_price: s.price,
-      target1:     s.levels.t1,
-      target2:     s.levels.t2,
-      target3:     s.levels.t3,
-      stop_loss:   s.levels.sl,
-      score:       s.score,
-      volume:      s.volume,
-      change_pct:  s.change_pct,
-      type:        s.type,
-      status:      "OPEN",
-    })));
+    // ✅ فقط الـ cron يحفظ — ما نحفظ من المسح اليدوي
+    const isFromCron = req.headers['x-vercel-cron'] === 'true';
+    let saveDebug = { status: "skipped", reason: "manual scan" };
+    if (isFromCron) {
+      saveDebug = await saveSignals(all.filter(s => s.score >= 60).map(s => ({
+        symbol:      s.symbol,
+        entry_price: s.price,
+        target1:     s.levels.t1,
+        target2:     s.levels.t2,
+        target3:     s.levels.t3,
+        stop_loss:   s.levels.sl,
+        score:       s.score,
+        volume:      s.volume,
+        change_pct:  s.change_pct,
+        type:        s.type,
+        status:      "OPEN",
+      })));
+    }
 
     return res.status(200).json({
       success:    true,
