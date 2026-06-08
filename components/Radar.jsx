@@ -690,9 +690,18 @@ export default function Radar() {
 
         {done && !loading && results.length === 0 && (
           <div style={S.emptyBox}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>📡</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>{t.noOpps}</div>
-            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>{t.marketClosed}</div>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🔴</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>
+              {status === "closed" ? "السوق مغلق حالياً" : t.noOpps}
+            </div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", marginBottom: 4 }}>
+              {status === "closed" ? "⏰ يفتح الاثنين الساعة 4:30 مساء بتوقيت الرياض" : t.marketClosed}
+            </div>
+            {status === "closed" && (
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", marginTop: 8 }}>
+                السبت والأحد إجازة — السوق الأمريكي
+              </div>
+            )}
           </div>
         )}
 
