@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const ADMIN_KEY = "radaraz_admin_2025";
+const ADMIN_KEY = "123451";
 
 export default function Admin() {
   const [auth, setAuth] = useState(false);
