@@ -214,7 +214,8 @@ export default async function handler(req, res) {
       else if (changePct >= 0)               score += 8;
 
       if (aboveVWAP)  score += 25;
-      else            score -= 10;
+      // ✅ تحت VWAP لا نعاقب — فقط لا نكافئ
+      // else            score -= 10;
 
       if (preGap > 5)      score += 15;
       else if (preGap > 2) score += 10;
