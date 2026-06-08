@@ -3,10 +3,11 @@ const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
 
 export default async function handler(req, res) {
   try {
-    const today = new Date().toISOString().split("T")[0];
-
+    // جيب كل الإشارات من اليوم
+    const today = new Date().toISOString().split('T')[0];
+    
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/signals?scan_time=gte.${today}T00:00:00&select=*&order=score.desc`,
+      `${SUPABASE_URL}/rest/v1/signals?created_at=gte.${today}T00:00:00Z&select=*`,
       {
         headers: {
           apikey: SUPABASE_KEY,
@@ -14,20 +15,42 @@ export default async function handler(req, res) {
         },
       }
     );
+
     const signals = await r.json();
 
-    const closed = signals.filter(s => s.status === "CLOSED");
+    if (!signals || signals.length === 0) {
+      return res.status(200).json({
+        total: 0,
+        t1: 0,
+        t2: 0,
+        t3: 0,
+        stops: 0,
+        signals: [],
+      });
+    }
+
+    // احسب الإحصائيات
+    let t1 = 0, t2 = 0, t3 = 0, stops = 0;
+
+    signals.forEach(s => {
+      if (s.target3_hit) t3++;
+      else if (s.target2_hit) t2++;
+      else if (s.target1_hit) t1++;
+      
+      if (s.stop_hit) stops++;
+    });
 
     return res.status(200).json({
-      total:   signals.length,
-      t1:      closed.filter(s => s.target1_hit).length,
-      t2:      closed.filter(s => s.target2_hit).length,
-      t3:      closed.filter(s => s.target3_hit).length,
-      stops:   closed.filter(s => s.stop_hit).length,
-      signals,
+      total: signals.length,
+      t1,
+      t2,
+      t3,
+      stops,
+      signals: signals.sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0)),
     });
 
   } catch (error) {
+    console.error("Error:", error);
     return res.status(500).json({ error: error.message });
   }
 }
