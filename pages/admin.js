@@ -44,7 +44,7 @@ export default function Admin() {
  const runScan = async () => {
    setScanning(true);
    try {
-     await fetch("/api/scan", {
+     await fetch("https://radaraz.com/api/scan", {
        method: "GET",
        headers: { "x-admin-scan": "true" },
      });
