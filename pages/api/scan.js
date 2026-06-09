@@ -1,212 +1,211 @@
-// pages/api/scan.js — RadarAZ v2
-// EP Model كامل: float, rvol, news, short, breakout, gap, mcap
-// 7000+ سهم · Concurrency Pool (8 parallel) · HOT Alerts · Supabase
+// pages/api/scan.js — RadarAZ v3
+// 1000 سهم (20 قيادي + 980 مضاربة) · EP Model · أخبار · HOT Alerts · Supabase
 
 const POLYGON_KEY  = process.env.POLYGON_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
 const BASE         = "https://api.polygon.io";
 
+// ─── القائمة ──────────────────────────────────────────────────────
+
+// 20 قيادي فقط
+const LEADERS = [
+  "NVDA","AMD","MSFT","META","GOOGL","AMZN","AAPL","TSLA","PLTR","SMCI",
+  "COIN","HOOD","SOFI","UPST","MSTR","CRWD","DDOG","SNOW","RBLX","UBER"
+];
+
+// 980 مضاربة (أغلبها أقل من 500M)
+const SPECULATION = [
+  // Crypto/Blockchain
+  "MARA","RIOT","CLSK","IREN","BTBT","ARBK","CIFR","CORZ","BTDR","WULF",
+  "HUT","HIVE","BITF","MIGI","BSRT","BKKT","MSTR","SMLR","BTCS","BTCM",
+  // AI/Tech صغير
+  "SOUN","BBAI","KULR","CRKN","AIXI","AEYE","GFAI","AIMD","AINC","AISP",
+  "ARBE","ADCT","ADTX","AIRS","AIRT","ADAP","ADIL","ADMA","ADMP","ADMT",
+  // Biotech/Pharma
+  "MRNA","BNTX","SIGA","GOVX","NKLA","MULN","WISA","CBAT","BFRI","ATXS",
+  "ABOS","ACER","ACHL","ACRX","ACST","ADVM","ADXN","AEHR","AERI","AFMD",
+  "AGEN","AGFY","AGIO","AGNS","AGPX","AHPI","AKBA","AKCA","AKLI","AKRO",
+  "AKTS","AKTX","AKUS","ALBT","ALDX","ALEC","ALGS","ALIM","ALKS","ALLK",
+  "ALNY","ALPN","ALRS","ALSA","ALTO","ALVO","ALXO","ALYA","ALZN","AMBO",
+  "AMCI","AMPE","AMPH","AMRN","AMRS","AMSC","ANAB","ANAC","ANEB","ANIK",
+  "ANIP","ANIX","ANNX","ANPC","ANTX","ANVS","APCA","APDN","APGE","APLM",
+  "APLS","APLT","APOP","APPH","APTO","APTX","APVO","APYX","AQST","ARAV",
+  "ARCE","ARCT","AREC","ARMP","ARNC","ARQT","ARVN","ARWR","ARZN","ASEP",
+  "ASLN","ASND","ASNS","ASPI","ASRT","ASTC","ASTL","ASTR","ASTS","ASUR",
+  "ATAI","ATEC","ATEN","ATEX","ATHA","ATHE","ATHX","ATIP","ATIS","ATLO",
+  "ATNX","ATOM","ATOS","ATRA","ATRC","ATRI","ATRM","ATRS","ATYR","AUDC",
+  "AUGX","AUID","AUPH","AURA","AUTL","AUVI","AVAH","AVDL","AVGR","AVID",
+  "AVIR","AVNW","AVPT","AVRO","AVTE","AVTX","AVXL","AXDX","AXGN","AXGT",
+  "AXLA","AXNX","AXSM","AYRO","AYTU","AZRE","BACK","BAOS","BBCP","BBIO",
+  "BBLG","BCAB","BCAL","BCAN","BCDA","BCEL","BCLI","BCTX","BCYC","BDSX",
+  "BDTX","BEAM","BEEM","BFLY","BGRY","BHIL","BIAF","BILI","BIMI","BIOX",
+  "BIRD","BIVI","BJDX","BLFS","BLPH","BLRX","BLUE","BNGO","BNIX","BNTC",
+  "BOCN","BOLT","BONE","BPMC","BPRN","BPTS","BPTH","BRDS","BREA","BRTX",
+  "BSGM","BTAI","BTTX","BXRX","BYSI","CAPR","CARV","CASM","CBIO","CBRL",
+  "CCCC","CDAK","CDMO","CDNA","CDRE","CDRO","CDTX","CDXS","CEAD","CELC",
+  "CELH","CELU","CELZ","CEMI","CERO","CERS","CERT","CGEM","CGNT","CGTX",
+  "CHEK","CKPT","CLBS","CLGN","CLIR","CLMT","CLNE","CLNN","CLNV","CLPR",
+  "CLPS","CLRB","CLRO","CLSD","CLVR","CMBT","CMPS","CMRX","CNSP","CNTB",
+  "CNTG","COCH","COCP","CODX","COEP","CPIX","CPLP","CPRX","CRBU","CRCT",
+  "CRDF","CRDL","CRDO","CRDX","CREV","CRGX","CRIS","CRMD","CRNC","CRNT",
+  "CRNX","CRSP","CRVS","CSCW","CTGO","CTIC","CTLT","CTMX","CTON","CTXR",
+  "DARE","DBGI","DBVT","DCGO","DCTH","DELT","DERA","DGHI","DGLY","DGNX",
+  "DHIL","DHTX","DIBS","DIST","DLTX","DMAC","DMAR","DMEI","DMRC","DMTK",
+  "DNLI","DNMR","DNUT","DRCT","DRNA","DRRX","DSPC","DTIL","DTSS","DUOL",
+  "DYAI","DYNS","EACO","EARN","EDIT","EDSA","EFOI","EFSH","EGLT","EGRX",
+  "EKSO","ELEV","ELSE","ELVA","EMBC","EMKR","EMTX","ENER","ENFN","ENLT",
+  "ENLV","ENOV","ENSC","ENVB","ENVX","EOLS","EOSE","EPAZ","EPIX","EPOW",
+  "EPZM","ERAS","ERES","ERII","ESEA","ESPR","ESSA","ETNB","EVAX","EVBG",
+  "EVGO","EVIO","EVLV","EVMO","EVOK","EVTL","EVTV","FBIO","FBLG","FCEL",
+  "FDMT","FEIM","FGEN","FHTX","FINV","FIXX","FLGC","FLME","FLNC","FLNT",
+  "FMNB","FNKO","FNTX","FOLD","FORE","FRGE","FRGT","FRLN","FRPT","FRSX",
+  "FTCI","FTFT","FTHM","FTRE","FUBO","GALT","GATO","GBOX","GDEN","GDYN",
+  "GENI","GEOS","GERN","GGAL","GHRS","GHSI","GIFI","GILT","GIMI","GLBE",
+  "GLBS","GLDD","GLMD","GLNG","GLPG","GLRE","GLSI","GLTO","GLTX","GLUE",
+  "GMBL","GMDA","GMRE","GNLN","GNMK","GNPX","GNSS","GNUS","GOEV","GOED",
+  "GOGL","GOGO","GOPI","GORV","GOSS","GPCR","GPMT","GPOR","GPRE","GPRO",
+  "GRAM","GREE","GRIL","GRIN","GRPN","GRTS","GRTX","GRVY","GRWG","GSAT",
+  "GSIT","GSMG","GTLB","HAIN","HALL","HALO","HARP","HAYN","HBIO","HCAT",
+  "HCCI","HCSG","HCWB","HDSN","HEAR","HEPA","HEPS","HERO","HEXO","HGEN",
+  "HIBB","HIFS","HIIQ","HIMS","HIPO","HITI","HIVE","HKIT","HLLY","HLTH",
+  "HLVX","HNRG","HOLO","HOLX","HONE","HOOK","HOTH","HPCO","HPSN","HRMY",
+  "HROW","HSKA","HSON","HTGM","HTLD","HUDI","HUMA","HURC","HWKN","HYLN",
+  "HYMC","HYPR","IDEX","SENS","ZKIN","ENSC","NRDY","SMFL","ALLR","TYGO",
+  "AGRI","NVFY","XELA","IMPP","PRPB","PBAX","SBET","INPX","CLRB","ATNF",
+  "AULT","TAOP","KPLT","SHOT","JOBY","RKLB","ARKK","RIVN","LCID","MARK",
+  "SPCE","NKLA","WKHS","RIDE","GOEV","PTRA","AYRO","SOLO","KNDI","IDEX",
+  "AGRX","AGTC","AHCO","AIFU","AIRI","AIRJ","AKTX","ALCE","ALCO","ALEC",
+  "ALPA","ALPP","ALTO","ALTU","AMBO","AMCI","AMCX","AMID","AMIX","AMKR",
+  "AMMO","AMNB","AMOT","AMPE","AMPL","AMRK","AMST","AMTB","AMTX","AMWL",
+  "APEI","APEN","APLD","APMO","APOG","APPF","APPN","APPS","APRL","APRT",
+  "APTO","ARBE","ARCO","AREC","ARIB","ARIZ","ARKO","ARKR","ARMT","AROC",
+  "AROW","ARQQ","ARTE","ARTL","ARTW","ASAI","ASAL","ASCA","ASET","ASIX",
+  "ASPC","ASPS","ASRV","ASTE","ASYS","ATCX","ATLC","ATPC","ATSG","ATTO",
+  "AUDC","AUGX","AUST","AVAH","AVAV","AWRE","AXGN","AXTI","AZEK","AZPN",
+  "AZTA","AZUL","BAND","BANF","BANR","BARK","BBSI","BCOV","BCPC","BECN",
+  "BGFV","BIGC","BKCC","BKFG","BKSY","BKTI","BLBD","BLBX","BLDP","BLDR",
+  "BLKB","BLMN","BLNK","BLTE","BLZE","BMBL","BMRA","BMRC","BMTX","BNRG",
+  "BNSO","BOOM","BORR","BOTJ","BPOP","BRAC","BRAG","BRDG","BRFS","BRID",
+  "BRKH","BRLT","BRMK","BROG","BRWC","BRWS","BSFC","BSRR","BSVN","BURU",
+  "BVNK","BWMN","BWSN","BYFC","BYNO","BYRN","BZFD","CAAS","CABA","CATO",
+  "CBFV","CBNK","CBRN","CBSH","CBTX","CCAP","CCEP","CCIX","CCLP","CCNC",
+  "CCOJ","CCSI","CCTS","CDBO","DCFC","DCOM","DGII","DGNU","DGTI","DIOD",
+  "DJCO","DKNG","DLHC","DLPN","DLTH","DMRC","DNOW","DOMO","DOOO","DORM",
+  "DOUG","DOVA","DPCS","DPSI","DRAY","DRCT","DRVN","DSAQ","DSGN","DSGX",
+  "DSKE","DSON","DSSI","DSWL","DTEA","DURO","DXPE","DXYN","EBTC","ECBK",
+  "ECOR","ECPG","EDBL","EDRY","EGAN","EGBN","EGHT","EGIO","ENGS","ENVA",
+  "EQBK","ERIC","ESMT","ESNT","ESTC","ETSY","EVBG","EXFY","FBMS","FBNC",
+  "FBRT","FCAP","FCPT","FDBC","FDEF","FELE","FIBK","FKWL","FLIC","FLLD",
+  "FLWS","FLXS","FNLC","FNMA","FONR","FORM","FORR","FOSL","FRBA","FRBK",
+  "FRPH","FRST","FRTA","FSFG","FSLR","FSTR","FTSI","FULT","GCBC","GDOT",
+  "GLAD","GLBS","GLDD","GNTY","GOOD","GPMT","GPOR","GPRE","GRAM","GSBC",
+  "GTLS","HALL","HBCP","HCDI","HEES","HFWA","HIBB","HIFS","HIIQ","HLLY",
+  "HOMB","HTBK","HTLF","HVBC","HWBK","HYAC"
+];
+
+const WATCHLIST = [...new Set([...LEADERS, ...SPECULATION])].slice(0, 1000);
+
 // ─── EP Model ────────────────────────────────────────────────────
-const EP_W = { float:22, rvol:20, news:15, short:12, breakout:13, gap:8, mcap:10 };
+const EP_W   = { float:22, rvol:20, news:15, short:12, breakout:13, gap:8, mcap:10 };
 const EP_MAX = Object.values(EP_W).reduce((a,b)=>a+b, 0);
 
 function calcEP(s) {
   let t = 0;
-  // Float
   const fl = s.float;
-  if (fl) t += fl < 5e6  ? EP_W.float
-             : fl < 10e6 ? EP_W.float * .90
-             : fl < 25e6 ? EP_W.float * .75
-             : fl < 50e6 ? EP_W.float * .40
-             : 0;
-  // RVOL
-  const rv = s.rvol || 0;
-  t += rv >= 15 ? EP_W.rvol * 1.1
-     : rv >= 10 ? EP_W.rvol
-     : rv >= 5  ? EP_W.rvol * .85
-     : rv >= 3  ? EP_W.rvol * .65
-     : rv >= 2  ? EP_W.rvol * .35
-     : 0;
-  // News freshness
+  if (fl) t += fl<5e6?EP_W.float:fl<10e6?EP_W.float*.90:fl<25e6?EP_W.float*.75:fl<50e6?EP_W.float*.40:0;
+  const rv = s.rvol||0;
+  t += rv>=15?EP_W.rvol*1.1:rv>=10?EP_W.rvol:rv>=5?EP_W.rvol*.85:rv>=3?EP_W.rvol*.65:rv>=2?EP_W.rvol*.35:0;
   const nh = s.newsAgeHours;
-  if (nh != null)
-    t += nh <= 6  ? EP_W.news * 1.2
-       : nh <= 24 ? EP_W.news
-       : nh <= 48 ? EP_W.news * .55
-       : 0;
-  // Short interest
-  const sp = s.shortPct || 0;
-  t += sp >= 40 ? EP_W.short * 1.1
-     : sp >= 30 ? EP_W.short
-     : sp >= 20 ? EP_W.short * .70
-     : 0;
-  // Breakout
-  let bk = 0;
-  if (s.high52 && s.price) {
-    const d = (s.price - s.high52) / s.high52 * 100;
-    bk += d >= 0 ? 7 : d >= -2 ? 6 : d >= -5 ? 5 : d >= -15 ? 2 : 0;
-  }
-  if (s.weekHigh && s.price > s.weekHigh) bk += 6;
-  t += Math.min(bk, EP_W.breakout);
-  // Gap
-  const g = s.gapPct || 0;
-  t += g >= 30 ? EP_W.gap * 1.2
-     : g >= 20 ? EP_W.gap
-     : g >= 10 ? EP_W.gap * .75
-     : g >= 5  ? EP_W.gap * .45
-     : 0;
-  // MCap
-  const mc = s.mcap;
-  if (mc)
-    t += mc < 50e6  ? EP_W.mcap
-       : mc < 150e6 ? EP_W.mcap * .85
-       : mc < 300e6 ? EP_W.mcap * .60
-       : mc < 500e6 ? EP_W.mcap * .30
-       : 0;
-  // Velocity bonus: gap + fresh news + high rvol together
-  if ((s.gapPct || 0) >= 10 && (s.newsAgeHours || 999) <= 12 && (s.rvol || 0) >= 5) t += 8;
-
-  return Math.min(Math.round((t / EP_MAX) * 100), 99);
+  if (nh!=null) t += nh<=6?EP_W.news*1.2:nh<=24?EP_W.news:nh<=48?EP_W.news*.55:0;
+  const sp = s.shortPct||0;
+  t += sp>=40?EP_W.short*1.1:sp>=30?EP_W.short:sp>=20?EP_W.short*.70:0;
+  let bk=0;
+  if (s.high52&&s.price){const d=(s.price-s.high52)/s.high52*100; bk+=d>=0?7:d>=-2?6:d>=-5?5:d>=-15?2:0;}
+  if (s.weekHigh&&s.price>s.weekHigh) bk+=6;
+  t+=Math.min(bk,EP_W.breakout);
+  const g=s.gapPct||0;
+  t+=g>=30?EP_W.gap*1.2:g>=20?EP_W.gap:g>=10?EP_W.gap*.75:g>=5?EP_W.gap*.45:0;
+  const mc=s.mcap;
+  if(mc) t+=mc<50e6?EP_W.mcap:mc<150e6?EP_W.mcap*.85:mc<300e6?EP_W.mcap*.60:mc<500e6?EP_W.mcap*.30:0;
+  if((s.gapPct||0)>=10&&(s.newsAgeHours||999)<=12&&(s.rvol||0)>=5) t+=8;
+  return Math.min(Math.round((t/EP_MAX)*100),99);
 }
 
-const isHot = s =>
-  s.ep >= 85 &&
-  (s.rvol || 0) >= 5 &&
-  s.newsAgeHours != null &&
-  s.newsAgeHours <= 24;
+const isHot = s => s.ep>=85 && (s.rvol||0)>=5 && s.newsAgeHours!=null && s.newsAgeHours<=24;
 
 // ─── Helpers ─────────────────────────────────────────────────────
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
 
-async function polyGet(path, params = {}) {
-  const qs = new URLSearchParams({ ...params, apiKey: POLYGON_KEY }).toString();
+async function polyGet(path, params={}) {
+  const qs = new URLSearchParams({...params, apiKey:POLYGON_KEY}).toString();
   const r  = await fetch(`${BASE}${path}?${qs}`);
-  if (!r.ok) throw new Error(`Polygon ${r.status} — ${path}`);
+  if (!r.ok) throw new Error(`Polygon ${r.status}`);
   return r.json();
 }
 
-// Concurrency pool: run tasks with max N in-flight
-async function pool(tasks, limit) {
-  const results = new Array(tasks.length);
-  let next = 0, done = 0;
-  await new Promise(resolve => {
-    function launch() {
-      while (next < tasks.length && (next - done) < limit) {
-        const i = next++;
-        tasks[i]()
-          .then(v  => { results[i] = v; })
-          .catch(() => { results[i] = null; })
-          .finally(() => { done++; launch(); if (done === tasks.length) resolve(); });
-      }
-    }
-    launch();
-  });
-  return results;
-}
-
-// ─── Fetch all active tickers (paginated) ────────────────────────
-async function fetchAllTickers() {
-  let url = `${BASE}/v3/reference/tickers?market=stocks&active=true&type=CS&limit=1000&apiKey=${POLYGON_KEY}`;
-  const tickers = [];
-  while (url && tickers.length < 9000) {
-    const d = await fetch(url).then(r => r.json());
-    (d.results || []).forEach(t => tickers.push(t.ticker));
-    url = d.next_url ? `${d.next_url}&apiKey=${POLYGON_KEY}` : null;
-    await sleep(120);
-  }
-  return [...new Set(tickers)];
-}
-
-// ─── Bulk snapshots (50 per call) ───────────────────────────────
+// ─── Bulk snapshots (50 per chunk, parallel) ─────────────────────
 async function fetchSnapshots(tickers) {
-  const out = {};
-  for (let i = 0; i < tickers.length; i += 50) {
-    const chunk = tickers.slice(i, i + 50).join(",");
+  const chunks = [];
+  for (let i=0;i<tickers.length;i+=50) chunks.push(tickers.slice(i,i+50));
+  const results = await Promise.all(chunks.map(async chunk => {
     try {
-      const d = await polyGet("/v2/snapshot/locale/us/markets/stocks/tickers", { tickers: chunk });
-      (d.tickers || []).forEach(t => {
-        const day = t.day || {}, prev = t.prevDay || {};
-        out[t.ticker] = {
-          ticker:    t.ticker,
-          price:     day.c,
-          open:      day.o,
-          volume:    day.v,
-          vwap:      day.vw,
-          prevClose: prev.c,
-          changePct: t.todaysChangePerc ?? 0,
-        };
-      });
-    } catch (_) {}
-    await sleep(80);
-  }
+      const d = await polyGet("/v2/snapshot/locale/us/markets/stocks/tickers", { tickers: chunk.join(",") });
+      return d.tickers||[];
+    } catch(_){ return []; }
+  }));
+  const out={};
+  results.flat().forEach(t=>{
+    const day=t.day||{}, prev=t.prevDay||{};
+    out[t.ticker]={
+      ticker:    t.ticker,
+      price:     day.c||0,
+      open:      day.o||0,
+      volume:    day.v||0,
+      vwap:      day.vw||0,
+      high:      day.h||0,
+      low:       day.l||0,
+      prevClose: prev.c||0,
+      changePct: t.todaysChangePerc||0,
+      prevVol:   prev.v||0,
+    };
+  });
   return out;
 }
 
-// ─── Reference data (float, mcap, short%) ────────────────────────
-async function fetchRef(ticker) {
-  try {
-    const d = await polyGet(`/v3/reference/tickers/${ticker}`);
-    const r = d.results || {};
-    return {
-      name:      r.name ?? null,
-      float:     r.share_class_shares_outstanding ?? null,
-      mcap:      r.market_cap ?? null,
-      shortPct:  r.short_percent_of_float ? r.short_percent_of_float * 100 : null,
-      sector:    r.sic_description ?? null,
-    };
-  } catch (_) { return {}; }
-}
-
-// ─── Agg history: ATR14, 52W high, week high, avg vol ────────────
-async function fetchAggs(ticker) {
-  const end   = new Date().toISOString().slice(0, 10);
-  const start = new Date(Date.now() - 285 * 86400000).toISOString().slice(0, 10);
-  try {
-    const d = await polyGet(
-      `/v2/aggs/ticker/${ticker}/range/1/day/${start}/${end}`,
-      { adjusted: "true", sort: "desc", limit: 262 }
-    );
-    return d.results || [];
-  } catch (_) { return []; }
-}
-
-// ─── News age ────────────────────────────────────────────────────
+// ─── News (batch, top movers only) ───────────────────────────────
 async function fetchNews(ticker) {
   try {
-    const d = await polyGet("/v2/reference/news", { ticker, limit: 1, order: "desc" });
-    const item = (d.results || [])[0];
+    const d = await polyGet("/v2/reference/news", { ticker, limit:1, order:"desc" });
+    const item = (d.results||[])[0];
     if (!item) return null;
     return {
-      ageHours: (Date.now() - new Date(item.published_utc).getTime()) / 3600000,
+      ageHours: (Date.now()-new Date(item.published_utc).getTime())/3600000,
       headline: item.title,
     };
-  } catch (_) { return null; }
+  } catch(_){ return null; }
 }
 
-// ─── Supabase upsert ─────────────────────────────────────────────
+// ─── Supabase save ────────────────────────────────────────────────
 async function saveSignals(signals) {
-  if (!SUPABASE_URL || !SUPABASE_KEY || !signals.length)
-    return { skipped: true };
+  if (!SUPABASE_URL||!SUPABASE_KEY||!signals.length) return { skipped:true };
   const r = await fetch(`${SUPABASE_URL}/rest/v1/signals`, {
-    method:  "POST",
-    headers: {
-      "Content-Type":  "application/json",
-      "apikey":        SUPABASE_KEY,
-      "Authorization": `Bearer ${SUPABASE_KEY}`,
-      "Prefer":        "resolution=ignore-duplicates",
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "apikey":SUPABASE_KEY,
+      "Authorization":`Bearer ${SUPABASE_KEY}`,
+      "Prefer":"resolution=ignore-duplicates",
     },
     body: JSON.stringify(signals),
   });
-  return { status: r.status, body: (await r.text()).slice(0, 200) };
+  return { status:r.status, body:(await r.text()).slice(0,200) };
 }
 
 // ═══════════════════════════════════════════════════════════════════
 //  HANDLER
 // ═══════════════════════════════════════════════════════════════════
 export default async function handler(req, res) {
-  // الحفظ في Supabase: فقط cron أو admin
-  // المشترك يقدر يستدعي scan عادي — بس بدون حفظ
   const isCron  = req.headers["x-vercel-cron"] === "true";
   const isAdmin = req.headers["x-admin-scan"]  === "true";
   const secret  = req.headers["x-cron-secret"];
@@ -214,106 +213,153 @@ export default async function handler(req, res) {
   const canSave = isCron || isAdmin || validSecret;
 
   try {
-    // ── 1. Full ticker list ──────────────────────────────────────
-    const allTickers = await fetchAllTickers();
+    // ── 1. Snapshots لكل القائمة دفعة واحدة ──────────────────────
+    const snaps = await fetchSnapshots(WATCHLIST);
 
-    // ── 2. Bulk snapshots ────────────────────────────────────────
-    const snaps = await fetchSnapshots(allTickers);
+    // ── 2. فلتر أولي ─────────────────────────────────────────────
+    const now = new Date();
+    const et  = new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
+    const h=et.getHours(), m=et.getMinutes(), day=et.getDay();
+    const isWeekend   = day===0||day===6;
+    const isPreMarket = !isWeekend&&h>=4&&(h<9||(h===9&&m<30));
+    const MIN_VOL     = isPreMarket ? 5000 : 50000;
 
-    // ── 3. Pre-filter: price $1–$50, change +5–100%, vol >300K ──
-    const candidates = Object.values(snaps)
-      .filter(s =>
-        s.price  && s.price  >= 1  && s.price  <= 50 &&
-        s.changePct >= 5 && s.changePct <= 100 &&
-        s.volume > 300_000
-      )
-      .sort((a, b) => b.volume - a.volume)
-      .slice(0, 300);
+    const candidates = Object.values(snaps).filter(s =>
+      s.price>=0.5 && s.price<=500 &&
+      s.volume>=MIN_VOL &&
+      s.changePct>=-30 && s.changePct<=100
+    );
 
-    // ── 4. Enrich via concurrency pool (8 parallel) ──────────────
-    const enrichTasks = candidates.map(s => async () => {
-      const [ref, aggs, news] = await Promise.all([
-        fetchRef(s.ticker),
-        fetchAggs(s.ticker),
-        fetchNews(s.ticker),
-      ]);
+    // ── 3. حساب المقاييس الأساسية بدون API إضافية ────────────────
+    const processed = candidates.map(s => {
+      const prevClose = s.prevClose || s.price;
+      const aboveVWAP = s.vwap && s.price > s.vwap;
+      const gapPct    = prevClose && s.open ? ((s.open-prevClose)/prevClose)*100 : 0;
+      const tr        = Math.max(s.high-s.low, Math.abs(s.high-prevClose), Math.abs(s.low-prevClose));
+      const atr       = Math.max(tr, s.price*0.02);
+      const rvol      = s.prevVol>0 ? parseFloat((s.volume/s.prevVol).toFixed(1)) : null;
 
-      // Derived metrics from aggs
-      const recent   = aggs.slice(0, 20);
-      const avgVol20 = recent.length ? recent.reduce((a, b) => a + b.v, 0) / recent.length : null;
-      const high52   = aggs.length   ? Math.max(...aggs.map(r => r.h)) : null;
-      const weekHigh = aggs.slice(0, 5).length ? Math.max(...aggs.slice(0, 5).map(r => r.h)) : null;
+      // نوع السهم
+      const isLeader = LEADERS.includes(s.ticker);
+      const type = isLeader ? "قيادي" : "مضاربة";
 
-      let atr14 = null;
-      if (aggs.length >= 15) {
-        const trs = aggs.slice(0, 14).map((r, i) => {
-          const pc = aggs[i + 1]?.c ?? r.c;
-          return Math.max(r.h - r.l, Math.abs(r.h - pc), Math.abs(r.l - pc));
-        });
-        atr14 = trs.reduce((a, b) => a + b, 0) / trs.length;
-      }
-
-      const rvol    = avgVol20 && s.volume ? s.volume / avgVol20 : null;
-      const gapPct  = s.prevClose && s.open ? ((s.open - s.prevClose) / s.prevClose) * 100 : null;
-
-      const enriched = {
-        ...s, ...ref,
-        rvol, gapPct, atr14, avgVol20, high52, weekHigh,
-        newsAgeHours: news?.ageHours  ?? null,
-        newsHeadline: news?.headline  ?? null,
+      return {
+        ...s, prevClose, aboveVWAP, gapPct, atr, rvol, type,
+        newsAgeHours: null, newsHeadline: null,
+        float: null, mcap: null, shortPct: null,
+        high52: null, weekHigh: null,
+        ep: 0,
       };
-
-      enriched.ep = calcEP(enriched);
-      return enriched;
     });
 
-    const enriched = (await pool(enrichTasks, 8)).filter(Boolean);
+    // ── 4. حساب EP أولي (بدون أخبار) + فلتر ──────────────────────
+    const withEP = processed
+      .map(s => ({ ...s, ep: calcEP(s) }))
+      .filter(s => s.ep >= 30 || s.rvol >= 3 || s.changePct >= 5)
+      .sort((a,b) => b.ep-a.ep)
+      .slice(0, 150); // أفضل 150 فقط يحصلون على أخبار
 
-    // ── 5. Filter EP ≥ 45 and sort (HOT first, then EP desc) ────
-    const final = enriched
-      .filter(s => s.ep >= 45)
-      .sort((a, b) => {
-        if (isHot(b) !== isHot(a)) return isHot(b) ? 1 : -1;
-        return b.ep - a.ep;
+    // ── 5. جلب أخبار لأفضل 150 بالتوازي ─────────────────────────
+    const newsResults = await Promise.all(
+      withEP.map(s => fetchNews(s.ticker))
+    );
+
+    // ── 6. EP نهائي مع الأخبار ────────────────────────────────────
+    const final = withEP
+      .map((s,i) => {
+        const news = newsResults[i];
+        const enriched = {
+          ...s,
+          newsAgeHours: news?.ageHours ?? null,
+          newsHeadline: news?.headline ?? null,
+        };
+        enriched.ep = calcEP(enriched);
+        return enriched;
+      })
+      .filter(s => s.ep >= 40 || (s.changePct >= 3 && (s.rvol||0) >= 2))
+      .sort((a,b) => {
+        if (isHot(b)!==isHot(a)) return isHot(b)?1:-1;
+        return b.ep-a.ep;
       });
 
-    // ── 6. Build Supabase rows ────────────────────────────────────
-    const rows = final.filter(s => s.ep >= 60).map(s => {
-      const entry = parseFloat((s.price || 0).toFixed(2));
-      const atr   = s.atr14 || s.price * 0.02;
+    // ── 7. بناء نتائج مع أهداف ────────────────────────────────────
+    const results = final.map(s => {
+      const entry = parseFloat(s.price.toFixed(2));
+      const atr   = s.atr;
+      const score = s.ep;
+      const signal = score>=80?"💥 انفجاري":score>=60?"🔥 عالي":"👀 مراقبة";
+      const confidence = score>=80?"💥 قوة قصوى":score>=65?"🔥 إشارة ممتازة":"👀 مراقبة";
+
       return {
-        symbol:          s.ticker,
-        entry_price:     entry,
-        target1:         parseFloat((entry + atr * 0.5).toFixed(2)),
-        target2:         parseFloat((entry + atr * 1.0).toFixed(2)),
-        target3:         parseFloat((entry + atr * 1.8).toFixed(2)),
-        stop_loss:       parseFloat((entry - atr * 0.8).toFixed(2)),
-        score:           s.ep,
-        ep:              s.ep,
-        rvol:            s.rvol   != null ? parseFloat(s.rvol.toFixed(2))            : null,
-        volume:          s.volume || 0,
-        change_pct:      parseFloat((s.changePct || 0).toFixed(2)),
-        news_age_hours:  s.newsAgeHours != null ? Math.round(s.newsAgeHours)         : null,
-        is_hot:          isHot(s),
-        type:            s.mcap
-                           ? (s.mcap >= 500e6 ? "قيادي" : "مضاربة")
-                           : (s.price >= 10   ? "قيادي" : "مضاربة"),
-        status:          "OPEN",
+        symbol:      s.ticker,
+        price:       entry,
+        change_pct:  parseFloat(s.changePct.toFixed(2)),
+        volume:      s.volume,
+        score,
+        ep:          score,
+        signal,
+        confidence,
+        type:        s.type,
+        rvol:        s.rvol,
+        vwap:        parseFloat((s.vwap||0).toFixed(2)),
+        is_hot:      isHot(s),
+        newsAgeHours: s.newsAgeHours!=null ? Math.round(s.newsAgeHours) : null,
+        newsHeadline: s.newsHeadline,
+        marketCap:   null,
+        ema9:        null,
+        ema20:       null,
+        levels: {
+          t1:    parseFloat((entry+atr*0.5).toFixed(2)),
+          t1Pct: parseFloat(((atr*0.5/entry)*100).toFixed(2)),
+          t2:    parseFloat((entry+atr*1.0).toFixed(2)),
+          t2Pct: parseFloat(((atr*1.0/entry)*100).toFixed(2)),
+          t3:    parseFloat((entry+atr*1.8).toFixed(2)),
+          t3Pct: parseFloat(((atr*1.8/entry)*100).toFixed(2)),
+          sl:    parseFloat(Math.max(entry-atr*0.8, entry*0.90).toFixed(2)),
+          slPct: parseFloat((((Math.max(entry-atr*0.8,entry*0.90)-entry)/entry)*100).toFixed(2)),
+          risk:  parseFloat((entry - Math.max(entry-atr*0.8, entry*0.90)).toFixed(2)),
+        },
       };
     });
 
-    const saveResult = canSave ? await saveSignals(rows) : { skipped: true, reason: "subscriber scan" };
+    const leaders     = results.filter(s=>s.type==="قيادي");
+    const speculation = results.filter(s=>s.type!=="قيادي");
+
+    // ── 8. حفظ Supabase (أدمن/cron فقط) ─────────────────────────
+    let saveResult = { skipped:true, reason:"subscriber scan" };
+    if (canSave) {
+      const rows = results.filter(s=>s.ep>=60).map(s=>({
+        symbol:         s.symbol,
+        entry_price:    s.price,
+        target1:        s.levels.t1,
+        target2:        s.levels.t2,
+        target3:        s.levels.t3,
+        stop_loss:      s.levels.sl,
+        score:          s.ep,
+        ep:             s.ep,
+        rvol:           s.rvol!=null ? parseFloat(s.rvol.toFixed(2)) : null,
+        volume:         s.volume,
+        change_pct:     s.change_pct,
+        news_age_hours: s.newsAgeHours,
+        is_hot:         s.is_hot,
+        type:           s.type,
+        status:         "OPEN",
+      }));
+      saveResult = await saveSignals(rows);
+    }
 
     return res.status(200).json({
-      success:   true,
-      total:     final.length,
-      hot:       final.filter(isHot).length,
-      saved:     rows.length,
+      success:     true,
+      total:       results.length,
+      hot:         results.filter(isHot).length,
+      saved:       canSave ? results.filter(s=>s.ep>=60).length : 0,
       saveResult,
-      results:   final,
+      results,
+      leaders,
+      speculation,
     });
 
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+  } catch(err) {
+    return res.status(500).json({ success:false, error:err.message });
   }
 }
