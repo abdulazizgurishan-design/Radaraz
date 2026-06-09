@@ -3,11 +3,10 @@ const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
 
 export default async function handler(req, res) {
   try {
-    // جيب كل الإشارات من اليوم
     const today = new Date().toISOString().split('T')[0];
     
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/signals?created_at=gte.${today}T00:00:00Z&select=*`,
+      `${SUPABASE_URL}/rest/v1/signals?created_at=gte.${today}T00:00:00Z&order=created_at.desc&select=*`,
       {
         headers: {
           apikey: SUPABASE_KEY,
@@ -16,9 +15,12 @@ export default async function handler(req, res) {
       }
     );
 
-    const signals = await r.json();
+    const data = await r.json();
 
-    if (!signals || signals.length === 0) {
+    // تحقق إن الناتج array
+    const signals = Array.isArray(data) ? data : [];
+
+    if (signals.length === 0) {
       return res.status(200).json({
         total: 0,
         t1: 0,
@@ -29,14 +31,12 @@ export default async function handler(req, res) {
       });
     }
 
-    // احسب الإحصائيات
     let t1 = 0, t2 = 0, t3 = 0, stops = 0;
 
     signals.forEach(s => {
       if (s.target3_hit) t3++;
       else if (s.target2_hit) t2++;
       else if (s.target1_hit) t1++;
-      
       if (s.stop_hit) stops++;
     });
 
@@ -46,7 +46,7 @@ export default async function handler(req, res) {
       t2,
       t3,
       stops,
-      signals: signals.sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0)),
+      signals: signals.sort((a, b) => (b.score || 0) - (a.score || 0)),
     });
 
   } catch (error) {
