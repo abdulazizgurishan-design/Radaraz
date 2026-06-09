@@ -234,7 +234,10 @@ export default async function handler(req, res) {
      }
 
      score = Math.max(0, Math.min(score, 99));
-     if (score < 60) continue;
+
+     // ✅ التعديل الوحيد: تخفيف الشرط في أول ساعة من السوق
+     const minScore = (h === 9 || h === 10) ? 50 : 60;
+     if (score < minScore) continue;
 
      const confidence =
        score >= 80 ? "💥 قوة قصوى" :
