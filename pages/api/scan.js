@@ -282,9 +282,10 @@ export default async function handler(req, res) {
    const spec    = finalResults.filter(s => s.type === "مضاربة").slice(0, 30);
    const all     = [...leaders, ...spec].sort((a, b) => b.score - a.score || b.volume - a.volume);
 
-   const isFromCron = req.headers['x-vercel-cron'] === 'true';
+   const isFromCron = req.headers["x-vercel-cron"] === "true";
+   const isFromAdmin = req.headers["x-admin-scan"] === "true";
    let saveDebug = { status: "skipped", reason: "manual scan" };
-   if (isFromCron) {
+   if (isFromCron || isFromAdmin) {
      saveDebug = await saveSignals(all.filter(s => s.score >= 60).map(s => ({
        symbol:      s.symbol,
        entry_price: parseFloat((s.price || 0).toFixed(2)),
