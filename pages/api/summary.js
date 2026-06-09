@@ -4,7 +4,7 @@ const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
 export default async function handler(req, res) {
   try {
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/signals?select=*&order=scan_time.desc&limit=100`,
+      `${SUPABASE_URL}/rest/v1/signals?select=*&order=scan_time.desc&limit=500`,
       {
         headers: {
           apikey: SUPABASE_KEY,
@@ -14,7 +14,15 @@ export default async function handler(req, res) {
     );
 
     const data = await r.json();
-    const signals = Array.isArray(data) ? data : [];
+    const all = Array.isArray(data) ? data : [];
+
+    // حذف المكررات — يبقى آخر إشارة لكل سهم
+    const seen = new Set();
+    const signals = all.filter(s => {
+      if (seen.has(s.symbol)) return false;
+      seen.add(s.symbol);
+      return true;
+    });
 
     if (signals.length === 0) {
       return res.status(200).json({
