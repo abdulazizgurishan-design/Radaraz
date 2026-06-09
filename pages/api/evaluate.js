@@ -5,8 +5,11 @@ const CRON_SECRET = process.env.CRON_SECRET;
 const BASE = "https://api.polygon.io";
 
 export default async function handler(req, res) {
-  // حماية — فقط الطلبات المصرح بها
-  if (req.headers["x-cron-secret"] !== CRON_SECRET) {
+  // حماية — يقبل من Vercel Cron أو من السيكريت
+  const isFromCron = req.headers['x-vercel-cron'] === 'true';
+  const isAuthorized = isFromCron || req.headers["x-cron-secret"] === CRON_SECRET;
+
+  if (!isAuthorized) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
@@ -26,7 +29,6 @@ export default async function handler(req, res) {
 
     // 2. احسب تاريخ اليوم (ET timezone)
     const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    // ✅ اليوم — مو أمس
     const date = et.toISOString().split("T")[0];
 
     console.log(`📊 Evaluating ${signals.length} signals for ${date}`);
