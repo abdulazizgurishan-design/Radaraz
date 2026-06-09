@@ -7,19 +7,19 @@ const T = {
     trial: "🕐 تجربة مجانية",
     subscribed: "✅ مشترك",
     logout: "خروج",
-    scanRange: "نطاق الفحص",
+    scanRange: "إشارات اليوم",
     explosive: "💥 انفجاري",
     high: "🔥 عالي",
     all: "✅ الكل",
-    scanBtn: "📡  ابدأ مسح السوق الفوري",
-    scanning: "⟳  جاري المسح اللحظي...",
+    scanBtn: "📡  تحديث الإشارات",
+    scanning: "⟳  جاري التحديث...",
     autoRefresh: "تحديث تلقائي كل دقيقة",
     filterAll: "الكل",
     filterLeaders: "🏆 قيادي",
     filterSpec: "💥 مضاربة",
     opportunities: "فرصة",
     noOpps: "لا توجد فرص حالياً",
-    marketClosed: "السوق يفتح 4:30م بتوقيت الرياض",
+    marketClosed: "سيتم تحديث الإشارات بعد مسح الأدمن",
     stopLoss: "🛑 وقف الخسارة",
     risk: "مخاطرة",
     volume: "حجم",
@@ -35,13 +35,13 @@ const T = {
     noKey: "ليس لديك مفتاح؟",
     freeTrial: "جرّب مجاناً 24 ساعة ←",
     bannerError: "خطأ في الاتصال",
-    bannerErrorSub: "تعذر الاتصال بـ Polygon API",
-    bannerClosed: "السوق مغلق",
-    bannerClosedSub: "يفتح 4:30م بتوقيت الرياض",
+    bannerErrorSub: "تعذر جلب الإشارات",
+    bannerClosed: "لا توجد إشارات حالياً",
+    bannerClosedSub: "سيتم تحديث الإشارات بعد مسح الأدمن",
     bannerPre: "Pre-Market نشط",
     bannerPreSub: "أفضل النتائج بعد 4:30م",
-    bannerOk: "متصل — أسعار حية",
-    bannerOkSub: "Polygon API يعمل بشكل طبيعي",
+    bannerOk: "الإشارات محدّثة",
+    bannerOkSub: "آخر مسح من الأدمن",
     lastUpdate: "آخر تحديث",
     largeCap: "🐋 Large Cap",
     midCap: "🦈 Mid Cap",
@@ -58,19 +58,19 @@ const T = {
     trial: "🕐 Free Trial",
     subscribed: "✅ Subscribed",
     logout: "Logout",
-    scanRange: "Scan Range",
+    scanRange: "Today's Signals",
     explosive: "💥 Explosive",
     high: "🔥 High",
     all: "✅ All",
-    scanBtn: "📡  Start Live Market Scan",
-    scanning: "⟳  Scanning in progress...",
+    scanBtn: "📡  Refresh Signals",
+    scanning: "⟳  Loading...",
     autoRefresh: "Auto refresh every minute",
     filterAll: "All",
     filterLeaders: "🏆 Leaders",
     filterSpec: "💥 Speculation",
     opportunities: "opportunities",
     noOpps: "No opportunities found",
-    marketClosed: "Market opens at 9:30 AM ET",
+    marketClosed: "Signals will appear after admin scan",
     stopLoss: "🛑 Stop Loss",
     risk: "Risk",
     volume: "Volume",
@@ -86,13 +86,13 @@ const T = {
     noKey: "Don't have a key?",
     freeTrial: "Try free for 24 hours →",
     bannerError: "Connection Error",
-    bannerErrorSub: "Failed to connect to Polygon API",
-    bannerClosed: "Market Closed",
-    bannerClosedSub: "Opens at 9:30 AM ET",
+    bannerErrorSub: "Failed to load signals",
+    bannerClosed: "No signals yet",
+    bannerClosedSub: "Signals will appear after admin scan",
     bannerPre: "Pre-Market Active",
     bannerPreSub: "Best results after 9:30 AM ET",
-    bannerOk: "Connected — Live Prices",
-    bannerOkSub: "Polygon API working normally",
+    bannerOk: "Signals Updated",
+    bannerOkSub: "Latest admin scan loaded",
     lastUpdate: "Last update",
     largeCap: "🐋 Large Cap",
     midCap: "🦈 Mid Cap",
@@ -138,41 +138,17 @@ const S = {
   dividerRow: { display: "flex", alignItems: "center", gap: 10, marginBottom: 16 },
   dividerLine: (flip) => ({ height: 1, flex: 1, background: flip ? "linear-gradient(90deg,rgba(255,255,255,0.08),transparent)" : "linear-gradient(90deg,transparent,rgba(255,255,255,0.08))" }),
   dividerText: { fontSize: 11, color: "rgba(255,255,255,0.25)", letterSpacing: 1 },
-  // ✅ Section header — قابل للطي
-  sectionHeader: (bg, border, color, open) => ({
-    background: bg,
-    border: `1px solid ${border}`,
-    borderRadius: open ? "14px 14px 0 0" : 14,
-    padding: "14px 18px",
-    marginBottom: 0,
-    marginTop: 8,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    cursor: "pointer",
-    userSelect: "none",
-    transition: "border-radius 0.2s",
-  }),
+  sectionHeader: (bg, border, color, open) => ({ background: bg, border: `1px solid ${border}`, borderRadius: open ? "14px 14px 0 0" : 14, padding: "14px 18px", marginBottom: 0, marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none", transition: "border-radius 0.2s" }),
   sectionTitle: (color) => ({ fontSize: 14, fontWeight: 800, color, letterSpacing: 1 }),
   sectionCount: (color, bg) => ({ fontSize: 13, fontWeight: 800, color, background: bg, borderRadius: 20, padding: "2px 10px", fontFamily: "monospace" }),
   sectionChevron: (open) => ({ fontSize: 10, color: "rgba(255,255,255,0.4)", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s", display: "inline-block", marginRight: 8 }),
-  sectionBody: (open) => ({
-    overflow: "hidden",
-    maxHeight: open ? "9999px" : 0,
-    transition: "max-height 0.3s ease",
-    border: open ? "1px solid rgba(255,255,255,0.07)" : "none",
-    borderTop: "none",
-    borderRadius: "0 0 14px 14px",
-    padding: open ? "10px 0 0 0" : 0,
-    marginBottom: open ? 12 : 0,
-  }),
+  sectionBody: (open) => ({ overflow: "hidden", maxHeight: open ? "9999px" : 0, transition: "max-height 0.3s ease", border: open ? "1px solid rgba(255,255,255,0.07)" : "none", borderTop: "none", borderRadius: "0 0 14px 14px", padding: open ? "10px 0 0 0" : 0, marginBottom: open ? 12 : 0 }),
   emptyBox: { textAlign: "center", padding: "64px 20px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 20 },
   footer: { marginTop: 32, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.04)", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
   cardWrap: (open, glowColor) => ({ background: "linear-gradient(135deg,rgba(15,20,35,0.95),rgba(20,28,48,0.95))", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, marginBottom: 10, overflow: "hidden", transition: "box-shadow 0.3s", boxShadow: open ? `0 8px 32px ${glowColor}` : "0 2px 8px rgba(0,0,0,0.3)" }),
   cardHeader: { padding: "16px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
   cardIdx: { fontSize: 10, color: "rgba(255,255,255,0.2)", minWidth: 22, fontFamily: "monospace" },
   cardSymbol: { fontSize: 17, fontWeight: 700, color: "#fff", letterSpacing: 1, fontFamily: "monospace" },
-  cardMcap: { fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 1 },
   cardTags: { display: "flex", gap: 5, flexWrap: "wrap", flex: 1 },
   tag: (bg, color, border) => ({ fontSize: 9, padding: "3px 8px", borderRadius: 20, background: bg, color, fontWeight: 600, border: `1px solid ${border}` }),
   cardPrice: { fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "monospace" },
@@ -229,9 +205,9 @@ const SkeletonCards = () => (
 
 function getMarketCapInfo(mcap, t) {
   if (!mcap) return null;
-  if (mcap >= 10000) return { label: t.largeCap, color: "#60a5fa", bg: "rgba(96,165,250,0.1)", border: "rgba(96,165,250,0.25)" };
-  if (mcap >= 2000)  return { label: t.midCap,   color: "#34d399", bg: "rgba(52,211,153,0.1)", border: "rgba(52,211,153,0.25)" };
-  if (mcap >= 300)   return { label: t.smallCap,  color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.25)" };
+  if (mcap >= 10000) return { label: t.largeCap, color: "#60a5fa", bg: "rgba(96,165,250,0.1)",  border: "rgba(96,165,250,0.25)"  };
+  if (mcap >= 2000)  return { label: t.midCap,   color: "#34d399", bg: "rgba(52,211,153,0.1)",  border: "rgba(52,211,153,0.25)"  };
+  if (mcap >= 300)   return { label: t.smallCap,  color: "#fbbf24", bg: "rgba(251,191,36,0.1)",  border: "rgba(251,191,36,0.25)"  };
   return               { label: t.microCap,  color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.25)" };
 }
 
@@ -240,30 +216,60 @@ function fmtPct(n) {
   return (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%";
 }
 
+// ✅ تحويل بيانات Supabase → format الكارد
+function convertSignal(s) {
+  const entry = s.entry_price || 0;
+  return {
+    symbol:     s.symbol,
+    price:      entry,
+    change_pct: s.change_pct || 0,
+    score:      s.ep || s.score || 0,
+    signal:     (s.ep || s.score || 0) >= 80 ? "💥 انفجاري" : "🔥 عالي",
+    type:       s.type || "مضاربة",
+    volume:     s.volume || 0,
+    rvol:       s.rvol || null,
+    marketCap:  null,
+    ema9:       null,
+    ema20:      null,
+    vwap:       null,
+    is_hot:     s.is_hot || false,
+    levels: {
+      t1:    s.target1   || 0,
+      t1Pct: s.target1   ? +(((s.target1   - entry) / entry) * 100).toFixed(2) : 0,
+      t2:    s.target2   || 0,
+      t2Pct: s.target2   ? +(((s.target2   - entry) / entry) * 100).toFixed(2) : 0,
+      t3:    s.target3   || 0,
+      t3Pct: s.target3   ? +(((s.target3   - entry) / entry) * 100).toFixed(2) : 0,
+      sl:    s.stop_loss || 0,
+      slPct: s.stop_loss ? +(((s.stop_loss - entry) / entry) * 100).toFixed(2) : 0,
+      risk:  entry && s.stop_loss ? +(entry - s.stop_loss).toFixed(2) : 0,
+    },
+  };
+}
+
 function Card({ r, idx, t }) {
   const [open, setOpen] = useState(false);
   const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
-  const formatPct = useCallback((n) => (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%", []);
-  const scoreColor = r.score >= 80 ? "#ff6b35" : r.score >= 60 ? "#ffd700" : "#00d4aa";
-  const glowColor = r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
-  const mcapInfo = getMarketCapInfo(r.marketCap, t);
+  const formatPct   = useCallback((n) => (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%", []);
+  const scoreColor  = r.score >= 80 ? "#ff6b35" : r.score >= 60 ? "#ffd700" : "#00d4aa";
+  const glowColor   = r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
 
   const typeTag = r.type === "قيادي"
-    ? { label: "🏆 قيادي", color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
+    ? { label: "🏆 قيادي",  color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
     : { label: "💥 مضاربة", color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.25)" };
 
   const metrics = useMemo(() => [
-    { label: "EMA 9", value: r.ema9 ? formatPrice(r.ema9) : "—", color: "#a78bfa" },
-    { label: "EMA 20", value: r.ema20 ? formatPrice(r.ema20) : "—", color: "#fbbf24" },
-    { label: "VWAP", value: r.vwap ? formatPrice(r.vwap) : "—", color: "#60a5fa" },
-    { label: "RVOL", value: r.rvol ? r.rvol.toFixed(1) + "x" : "—", color: "#fb923c" },
+    { label: "EP",     value: r.score ? r.score + "%" : "—",           color: "#a78bfa" },
+    { label: "RVOL",   value: r.rvol  ? r.rvol.toFixed(1) + "x" : "—", color: "#fb923c" },
     { label: t.volume, value: ((r.volume || 0) / 1e6).toFixed(1) + "M", color: "#34d399" },
-  ], [r, formatPrice, t]);
+    { label: "تغيّر",  value: formatPct(r.change_pct),                  color: r.change_pct >= 0 ? "#00d4aa" : "#ff4757" },
+    { label: "نوع",    value: r.type,                                    color: r.is_hot ? "#f87171" : "#94a3b8" },
+  ], [r, formatPct, t]);
 
   const tpLevels = useMemo(() => [
-    { n: 1, value: r.levels.t1, pct: r.levels.t1Pct, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)", border: "rgba(96,165,250,0.2)" },
-    { n: 2, value: r.levels.t2, pct: r.levels.t2Pct, label: "TP2", color: "#34d399", bg: "rgba(52,211,153,0.08)", border: "rgba(52,211,153,0.2)" },
-    { n: 3, value: r.levels.t3, pct: r.levels.t3Pct, label: "TP3", color: "#fbbf24", bg: "rgba(251,191,36,0.08)", border: "rgba(251,191,36,0.2)" },
+    { n: 1, value: r.levels.t1, pct: r.levels.t1Pct, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)",  border: "rgba(96,165,250,0.2)"  },
+    { n: 2, value: r.levels.t2, pct: r.levels.t2Pct, label: "TP2", color: "#34d399", bg: "rgba(52,211,153,0.08)",  border: "rgba(52,211,153,0.2)"  },
+    { n: 3, value: r.levels.t3, pct: r.levels.t3Pct, label: "TP3", color: "#fbbf24", bg: "rgba(251,191,36,0.08)",  border: "rgba(251,191,36,0.2)"  },
   ], [r]);
 
   return (
@@ -272,13 +278,13 @@ function Card({ r, idx, t }) {
         <span style={S.cardIdx}>{String(idx + 1).padStart(2, "0")}</span>
         <div style={{ minWidth: 64 }}>
           <div style={S.cardSymbol}>{r.symbol}</div>
-          <div style={S.cardMcap}>{r.marketCap ? `$${r.marketCap.toFixed(0)}M` : ""}</div>
+          {r.is_hot && <div style={{ fontSize: 9, color: "#fca5a5", marginTop: 2 }}>🚨 HOT</div>}
         </div>
         <div style={S.cardTags}>
           <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.signal}</span>
           <span style={S.tag(typeTag.bg, typeTag.color, typeTag.border)}>{typeTag.label}</span>
-          {mcapInfo && <span style={S.tag(mcapInfo.bg, mcapInfo.color, mcapInfo.border)}>{mcapInfo.label}</span>}
           {r.rvol && r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
+          {r.is_hot && <span style={S.tag("rgba(248,113,113,0.15)", "#fca5a5", "rgba(248,113,113,0.3)")}>🚨 HOT</span>}
         </div>
         <div style={{ textAlign: "right", minWidth: 80 }}>
           <div style={S.cardPrice}>{formatPrice(r.price)}</div>
@@ -325,33 +331,21 @@ function Card({ r, idx, t }) {
   );
 }
 
-// ✅ Section header قابل للطي مع عداد
 function CollapsibleSection({ title, count, color, bg, border, children, t }) {
   const [open, setOpen] = useState(true);
-
   return (
     <div style={{ marginTop: 8, marginBottom: 4 }}>
-      <div
-        style={S.sectionHeader(bg, border, color, open)}
-        onClick={() => setOpen(o => !o)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => e.key === "Enter" && setOpen(o => !o)}
-      >
+      <div style={S.sectionHeader(bg, border, color, open)} onClick={() => setOpen(o => !o)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && setOpen(o => !o)}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={S.sectionChevron(open)}>▼</span>
           <span style={S.sectionTitle(color)}>{title}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
-            {open ? t.tapToCollapse : t.tapToExpand}
-          </span>
+          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{open ? t.tapToCollapse : t.tapToExpand}</span>
           <span style={S.sectionCount(color, bg + "aa")}>{count}</span>
         </div>
       </div>
-      <div style={S.sectionBody(open)}>
-        {children}
-      </div>
+      <div style={S.sectionBody(open)}>{children}</div>
     </div>
   );
 }
@@ -359,10 +353,10 @@ function CollapsibleSection({ title, count, color, bg, border, children, t }) {
 function StatusBanner({ status, lastUpdate, scanError, t }) {
   if (!status) return null;
   const configs = {
-    error:     { bg: "rgba(255,71,87,0.1)",    border: "rgba(255,71,87,0.3)",   icon: "🔴", titleColor: "#ff4757", subColor: "rgba(255,71,87,0.7)",   title: t.bannerError,  sub: t.bannerErrorSub },
+    error:     { bg: "rgba(255,71,87,0.1)",    border: "rgba(255,71,87,0.3)",   icon: "🔴", titleColor: "#ff4757", subColor: "rgba(255,71,87,0.7)",   title: t.bannerError,  sub: t.bannerErrorSub  },
     closed:    { bg: "rgba(255,215,0,0.08)",   border: "rgba(255,215,0,0.2)",   icon: "🟡", titleColor: "#ffd700", subColor: "rgba(255,215,0,0.7)",   title: t.bannerClosed, sub: t.bannerClosedSub },
-    premarket: { bg: "rgba(100,200,255,0.08)", border: "rgba(100,200,255,0.2)", icon: "🔵", titleColor: "#64c8ff", subColor: "rgba(100,200,255,0.7)", title: t.bannerPre,    sub: t.bannerPreSub },
-    ok:        { bg: "rgba(0,212,170,0.08)",   border: "rgba(0,212,170,0.2)",   icon: "🟢", titleColor: "#00d4aa", subColor: "rgba(0,212,170,0.7)",  title: t.bannerOk,     sub: t.bannerOkSub },
+    premarket: { bg: "rgba(100,200,255,0.08)", border: "rgba(100,200,255,0.2)", icon: "🔵", titleColor: "#64c8ff", subColor: "rgba(100,200,255,0.7)", title: t.bannerPre,    sub: t.bannerPreSub    },
+    ok:        { bg: "rgba(0,212,170,0.08)",   border: "rgba(0,212,170,0.2)",   icon: "🟢", titleColor: "#00d4aa", subColor: "rgba(0,212,170,0.7)",  title: t.bannerOk,     sub: t.bannerOkSub     },
   };
   const cfg = configs[status];
   if (!cfg) return null;
@@ -381,22 +375,20 @@ function StatusBanner({ status, lastUpdate, scanError, t }) {
 }
 
 function LoginScreen({ onLogin, t, lang, setLang }) {
-  const [key, setKey] = useState("");
+  const [key, setKey]         = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError]     = useState(null);
   const [expired, setExpired] = useState(false);
 
   const handleLogin = async () => {
     if (!key.trim()) return;
-    setLoading(true);
-    setError(null);
-    setExpired(false);
+    setLoading(true); setError(null); setExpired(false);
     try {
-      const res = await fetch(`/api/verify-key?key=${key.trim()}`);
+      const res  = await fetch(`/api/verify-key?key=${key.trim()}`);
       const data = await res.json();
       if (data.valid) {
-        localStorage.setItem("radar_key", key.trim());
-        localStorage.setItem("radar_plan", data.plan);
+        localStorage.setItem("radar_key",     key.trim());
+        localStorage.setItem("radar_plan",    data.plan);
         localStorage.setItem("radar_expires", data.expires_at);
         onLogin({ key: key.trim(), plan: data.plan, expires_at: data.expires_at });
       } else if (data.reason === "expired") {
@@ -423,34 +415,20 @@ function LoginScreen({ onLogin, t, lang, setLang }) {
         <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: 3, marginBottom: 8 }}>
           RADAR <span style={S.titleAccent}>AZ</span>
         </div>
-        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", marginBottom: 32, lineHeight: 1.6 }}>
-          {t.loginTitle}
-        </div>
-
-        {error && <div style={S.loginError}>{error}</div>}
+        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", marginBottom: 32, lineHeight: 1.6 }}>{t.loginTitle}</div>
+        {error   && <div style={S.loginError}>{error}</div>}
         {expired && (
           <div style={S.loginExpired}>
             {t.expired}
-            <div style={{ marginTop: 8 }}>
-              <a href="https://radaraz.com" style={{ color: "#ffd700", fontSize: 12 }}>{t.renewLink}</a>
-            </div>
+            <div style={{ marginTop: 8 }}><a href="https://radaraz.com" style={{ color: "#ffd700", fontSize: 12 }}>{t.renewLink}</a></div>
           </div>
         )}
-
-        <input
-          style={S.loginInput}
-          placeholder="XXXX-XXXX-XXXX-XXXX"
-          value={key}
+        <input style={S.loginInput} placeholder="XXXX-XXXX-XXXX-XXXX" value={key}
           onChange={(e) => setKey(e.target.value.toUpperCase())}
-          onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-          maxLength={19}
-          dir="ltr"
-        />
-
+          onKeyDown={(e) => e.key === "Enter" && handleLogin()} maxLength={19} dir="ltr" />
         <button style={S.loginBtn(loading)} onClick={handleLogin} disabled={loading}>
           {loading ? t.loginLoading : t.loginBtn}
         </button>
-
         <div style={{ marginTop: 24, padding: "16px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)" }}>
           <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>{t.noKey}</div>
           <a href="/trial" style={{ fontSize: 12, color: "#6366f1" }}>{t.freeTrial}</a>
@@ -461,35 +439,34 @@ function LoginScreen({ onLogin, t, lang, setLang }) {
 }
 
 export default function Radar() {
-  const [lang, setLang] = useState("ar");
+  const [lang, setLang]               = useState("ar");
   const t = T[lang];
   const isRtl = lang === "ar";
 
-  const [auth, setAuth] = useState(null);
+  const [auth, setAuth]               = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [results, setResults] = useState([]);
-  const [leaders, setLeaders] = useState([]);
+  const [results, setResults]         = useState([]);
+  const [leaders, setLeaders]         = useState([]);
   const [speculation, setSpeculation] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [done, setDone] = useState(false);
-  const [filter, setFilter] = useState("all");
-  const [status, setStatus] = useState(null);
-  const [lastUpdate, setLastUpdate] = useState(null);
+  const [loading, setLoading]         = useState(false);
+  const [total, setTotal]             = useState(0);
+  const [done, setDone]               = useState(false);
+  const [filter, setFilter]           = useState("all");
+  const [status, setStatus]           = useState(null);
+  const [lastUpdate, setLastUpdate]   = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
-  const [scanError, setScanError] = useState(null);
+  const [scanError, setScanError]     = useState(null);
 
-  const lastScanRef = useRef(0);
+  const lastScanRef  = useRef(0);
   const autoTimerRef = useRef(null);
-  const COOLDOWN_MS = 10_000;
+  const COOLDOWN_MS  = 10_000;
 
   useEffect(() => {
-    const savedKey = localStorage.getItem("radar_key");
+    const savedKey     = localStorage.getItem("radar_key");
     const savedExpires = localStorage.getItem("radar_expires");
-    const savedPlan = localStorage.getItem("radar_plan");
+    const savedPlan    = localStorage.getItem("radar_plan");
     if (savedKey && savedExpires) {
-      const expires = new Date(savedExpires);
-      if (new Date() < expires) {
+      if (new Date() < new Date(savedExpires)) {
         setAuth({ key: savedKey, plan: savedPlan, expires_at: savedExpires });
       } else {
         localStorage.removeItem("radar_key");
@@ -507,41 +484,39 @@ export default function Radar() {
     setAuth(null);
   };
 
+  // ✅ يجيب البيانات من Supabase فقط — لا يلمس /api/scan أبداً
   const scan = useCallback(async () => {
     const now = Date.now();
     if (now - lastScanRef.current < COOLDOWN_MS) return;
     lastScanRef.current = now;
     setLoading(true);
-    setResults([]);
-    setLeaders([]);
-    setSpeculation([]);
-    setDone(false);
-    setStatus(null);
-    setScanError(null);
+    setResults([]); setLeaders([]); setSpeculation([]);
+    setDone(false); setStatus(null); setScanError(null);
     try {
-      const res = await fetch("/api/scan");
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        setScanError(`HTTP ${res.status}${errText ? ": " + errText : ""}`);
-        setStatus("error");
-        return;
-      }
+      const res = await fetch("/api/summary");
+      if (!res.ok) { setScanError(`HTTP ${res.status}`); setStatus("error"); return; }
       const data = await res.json();
-      if (data.error) { setScanError(data.error); setStatus("error"); return; }
-      setResults(data.results ?? []);
-      setLeaders(data.leaders ?? []);
-      setSpeculation(data.speculation ?? []);
-      setTotal(data.total ?? 0);
+
+      // فقط الإشارات المفتوحة لليوم
+      const all  = (data.signals || []).filter(s => s.status === "OPEN" || !s.status);
+      const lead = all.filter(s => s.type === "قيادي");
+      const spec = all.filter(s => s.type !== "قيادي");
+
+      const sortFn = (a, b) => {
+        if (b.is_hot !== a.is_hot) return b.is_hot ? 1 : -1;
+        return (b.ep || b.score || 0) - (a.ep || a.score || 0);
+      };
+
+      const conv     = all.map(convertSignal).sort(sortFn);
+      const convLead = lead.map(convertSignal).sort(sortFn);
+      const convSpec = spec.map(convertSignal).sort(sortFn);
+
+      setResults(conv);
+      setLeaders(convLead);
+      setSpeculation(convSpec);
+      setTotal(conv.length);
       setLastUpdate(new Date());
-      const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-      const h = etNow.getHours(), m = etNow.getMinutes(), day = etNow.getDay();
-      const isWeekend = day === 0 || day === 6;
-      const isMarketOpen = !isWeekend && (h > 9 || (h === 9 && m >= 30)) && h < 16;
-      const isPreMarket = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
-      if (isWeekend || h >= 16 || h < 4) setStatus("closed");
-      else if (isPreMarket) setStatus("premarket");
-      else if (isMarketOpen) setStatus("ok");
-      else setStatus("closed");
+      setStatus(conv.length > 0 ? "ok" : "closed");
     } catch (err) {
       setScanError(err.message ?? "Network error");
       setStatus("error");
@@ -551,25 +526,27 @@ export default function Radar() {
     }
   }, []);
 
+  // تحميل تلقائي عند الدخول
+  useEffect(() => { if (auth) scan(); }, [auth]);
+
   useEffect(() => {
     if (autoRefresh) { autoTimerRef.current = setInterval(scan, 60_000); }
-    else { clearInterval(autoTimerRef.current); }
+    else             { clearInterval(autoTimerRef.current); }
     return () => clearInterval(autoTimerRef.current);
   }, [autoRefresh, scan]);
 
   const filtered = useMemo(() => {
-    if (filter === "leaders") return leaders;
+    if (filter === "leaders")     return leaders;
     if (filter === "speculation") return speculation;
-    if (filter === "explosive") return results.filter((r) => r.score >= 80);
-    if (filter === "high") return results.filter((r) => r.score >= 60 && r.score < 80);
-    if (filter === "watch") return results.filter((r) => r.score < 60);
+    if (filter === "explosive")   return results.filter((r) => r.score >= 80);
+    if (filter === "high")        return results.filter((r) => r.score >= 60 && r.score < 80);
+    if (filter === "hot")         return results.filter((r) => r.is_hot);
     return results;
   }, [results, leaders, speculation, filter]);
 
   const explosive = useMemo(() => results.filter((r) => r.score >= 80).length, [results]);
-  const high = useMemo(() => results.filter((r) => r.score >= 60 && r.score < 80).length, [results]);
-  const dotColor = loading ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
-
+  const hotCount  = useMemo(() => results.filter((r) => r.is_hot).length,      [results]);
+  const dotColor  = loading ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
   const showSections = filter === "all" && leaders.length > 0 && speculation.length > 0;
 
   if (!authChecked) return null;
@@ -584,6 +561,7 @@ export default function Radar() {
     <div style={S.root} dir={isRtl ? "rtl" : "ltr"}>
       <div style={S.bgWrap}><div style={S.bgCircle} /><div style={S.bgGrid} /></div>
       <div style={S.container}>
+
         <div style={S.header}>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
             <button style={S.langBtn} onClick={() => setLang(lang === "ar" ? "en" : "ar")}>
@@ -606,13 +584,13 @@ export default function Radar() {
 
         <div style={S.statsRow}>
           {[
-            { label: t.scanRange, value: "+1,000", color: "#6366f1", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.2)" },
-            { label: t.explosive, value: explosive, color: "#ff6b35", bg: "rgba(255,107,53,0.1)", border: "rgba(255,107,53,0.2)" },
-            { label: t.high, value: high, color: "#ffd700", bg: "rgba(255,215,0,0.1)", border: "rgba(255,215,0,0.2)" },
-            { label: t.all, value: results.length, color: "#00d4aa", bg: "rgba(0,212,170,0.1)", border: "rgba(0,212,170,0.2)" },
+            { label: t.scanRange, value: total || "—",  color: "#6366f1", bg: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)"  },
+            { label: "🚨 HOT",    value: hotCount,       color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.2)" },
+            { label: t.explosive, value: explosive,      color: "#ff6b35", bg: "rgba(255,107,53,0.1)",  border: "rgba(255,107,53,0.2)"  },
+            { label: t.all,       value: results.length, color: "#00d4aa", bg: "rgba(0,212,170,0.1)",   border: "rgba(0,212,170,0.2)"   },
           ].map((s) => (
             <div key={s.label} style={S.statBox(s.bg, s.border)}>
-              <div style={{ ...S.statNum(s.color), fontSize: typeof s.value === 'string' ? 18 : 26 }}>{s.value}</div>
+              <div style={{ ...S.statNum(s.color), fontSize: typeof s.value === "string" ? 18 : 26 }}>{s.value}</div>
               <div style={S.statLabel(s.color)}>{s.label}</div>
             </div>
           ))}
@@ -625,12 +603,12 @@ export default function Radar() {
           {results.length > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {[
-                { id: "all",         label: t.filterAll },
+                { id: "all",         label: t.filterAll     },
                 { id: "leaders",     label: t.filterLeaders },
-                { id: "speculation", label: t.filterSpec },
-                { id: "explosive",   label: "💥" },
-                { id: "high",        label: "🔥" },
-                { id: "watch",       label: "👀" },
+                { id: "speculation", label: t.filterSpec    },
+                { id: "hot",         label: "🚨 HOT"        },
+                { id: "explosive",   label: "💥"            },
+                { id: "high",        label: "🔥"            },
               ].map((f) => (
                 <button key={f.id} onClick={() => setFilter(f.id)} style={S.filterBtn(filter === f.id)}>{f.label}</button>
               ))}
@@ -649,34 +627,17 @@ export default function Radar() {
         {loading && <SkeletonCards />}
         {(done || loading) && <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} t={t} />}
 
-        {/* ✅ عرض مقسم قيادي / مضاربة مع Accordion */}
         {!loading && done && showSections && (
           <>
-            <CollapsibleSection
-              title={t.sectionLeaders}
-              count={leaders.length}
-              color="#818cf8"
-              bg="rgba(129,140,248,0.08)"
-              border="rgba(129,140,248,0.2)"
-              t={t}
-            >
+            <CollapsibleSection title={t.sectionLeaders} count={leaders.length} color="#818cf8" bg="rgba(129,140,248,0.08)" border="rgba(129,140,248,0.2)" t={t}>
               {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} />)}
             </CollapsibleSection>
-
-            <CollapsibleSection
-              title={t.sectionSpec}
-              count={speculation.length}
-              color="#f87171"
-              bg="rgba(248,113,113,0.08)"
-              border="rgba(248,113,113,0.2)"
-              t={t}
-            >
+            <CollapsibleSection title={t.sectionSpec} count={speculation.length} color="#f87171" bg="rgba(248,113,113,0.08)" border="rgba(248,113,113,0.2)" t={t}>
               {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} />)}
             </CollapsibleSection>
           </>
         )}
 
-        {/* عرض عادي (فلتر محدد) */}
         {!loading && filtered.length > 0 && !showSections && (
           <>
             <div style={S.dividerRow}>
@@ -691,17 +652,8 @@ export default function Radar() {
         {done && !loading && results.length === 0 && (
           <div style={S.emptyBox}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔴</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>
-              {status === "closed" ? "السوق مغلق حالياً" : t.noOpps}
-            </div>
-            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", marginBottom: 4 }}>
-              {status === "closed" ? "⏰ يفتح الاثنين الساعة 4:30 مساء بتوقيت الرياض" : t.marketClosed}
-            </div>
-            {status === "closed" && (
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", marginTop: 8 }}>
-                السبت والأحد إجازة — السوق الأمريكي
-              </div>
-            )}
+            <div style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>{t.noOpps}</div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>{t.marketClosed}</div>
           </div>
         )}
 
