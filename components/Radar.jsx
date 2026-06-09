@@ -3,7 +3,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 const T = {
   ar: {
     title: "رادار",
-    subtitle: "الشرعية مسؤوليتك · الالتزام بوقف الخسارة يخفف المخاطرة",
+    subtitle: "الالتزام بوقف الخسارة يخفف المخاطرة",
     trial: "🕐 تجربة مجانية",
     subscribed: "✅ مشترك",
     logout: "خروج",
@@ -24,7 +24,7 @@ const T = {
     risk: "مخاطرة",
     volume: "حجم",
     footer1: "RADAR AZ PRO",
-    footer2: "أسهم شرعية · ليست نصيحة استثمارية",
+    footer2: "ليست نصيحة استثمارية · +1000 سهم · EP Model + RVOL + 📰 أخبار لحظية 🚀",
     loginTitle: "أدخل مفتاح الاشتراك للوصول للرادار",
     loginBtn: "🔓 دخول",
     loginLoading: "⟳ جاري التحقق...",
@@ -54,7 +54,7 @@ const T = {
   },
   en: {
     title: "Radar",
-    subtitle: "Shariah compliance is your responsibility · Stop loss reduces risk",
+    subtitle: "Stop loss reduces risk",
     trial: "🕐 Free Trial",
     subscribed: "✅ Subscribed",
     logout: "Logout",
@@ -75,7 +75,7 @@ const T = {
     risk: "Risk",
     volume: "Volume",
     footer1: "RADAR AZ PRO",
-    footer2: "Halal Stocks · Not investment advice",
+    footer2: "Not investment advice · 1000+ stocks · EP Model + RVOL + 📰 Live News 🚀",
     loginTitle: "Enter your subscription key to access the radar",
     loginBtn: "🔓 Login",
     loginLoading: "⟳ Verifying...",
@@ -144,7 +144,7 @@ const S = {
   sectionChevron: (open) => ({ fontSize: 10, color: "rgba(255,255,255,0.4)", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s", display: "inline-block", marginRight: 8 }),
   sectionBody: (open) => ({ overflow: "hidden", maxHeight: open ? "9999px" : 0, transition: "max-height 0.3s ease", border: open ? "1px solid rgba(255,255,255,0.07)" : "none", borderTop: "none", borderRadius: "0 0 14px 14px", padding: open ? "10px 0 0 0" : 0, marginBottom: open ? 12 : 0 }),
   emptyBox: { textAlign: "center", padding: "64px 20px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 20 },
-  footer: { marginTop: 32, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.04)", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
+  footer: { marginTop: 32, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.04)", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, textAlign: "center" },
   cardWrap: (open, glowColor) => ({ background: "linear-gradient(135deg,rgba(15,20,35,0.95),rgba(20,28,48,0.95))", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, marginBottom: 10, overflow: "hidden", transition: "box-shadow 0.3s", boxShadow: open ? `0 8px 32px ${glowColor}` : "0 2px 8px rgba(0,0,0,0.3)" }),
   cardHeader: { padding: "16px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
   cardIdx: { fontSize: 10, color: "rgba(255,255,255,0.2)", minWidth: 22, fontFamily: "monospace" },
@@ -679,8 +679,8 @@ export default function Radar() {
         )}
 
         <div style={S.footer}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.2)", letterSpacing: 2, fontFamily: "monospace" }}>{t.footer1}</span>
-          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.15)", fontStyle: "italic" }}>{t.footer2}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.25)", letterSpacing: 2, fontFamily: "monospace" }}>{t.footer1}</span>
+          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", lineHeight: 1.6 }}>{t.footer2}</span>
         </div>
       </div>
 
