@@ -106,9 +106,9 @@ async function processBatch(tickers) {
 export default async function handler(req, res) {
   const t0 = Date.now();
 
-  // Auth
+  // Auth (يقبل header أو query parameter)
   const isCron     = req.headers["x-vercel-cron"] === "true";
-  const secret     = req.headers["x-cron-secret"];
+  const secret     = req.headers["x-cron-secret"] || req.query.secret;
   const validSecret = secret && secret === process.env.CRON_SECRET;
   if (!isCron && !validSecret) {
     return res.status(401).json({ error: "Unauthorized" });
