@@ -31,9 +31,9 @@ export default function Admin() {
 
  const fetchSignals = async () => {
    try {
-     const res = await fetch("/api/scan");
+     const res = await fetch("/api/summary");
      const data = await res.json();
-     setSignals(data?.results || []);
+     setSignals(data?.signals || []);
    } catch (err) {
      console.error(err);
    }
@@ -60,19 +60,16 @@ export default function Admin() {
    return { icon: "⏳", label: "لم يصل هدف", pct: s?.close_gain_pct };
  };
 
- const buildTweet = () => {
-   if (!summary) return "";
-   const lines = [`📊 ملخص رادار الأسهم — ${date}\n`];
-   const signals = Array.isArray(summary.signals) ? summary.signals : [];
-   signals.forEach(s => {
-     const r = getResult(s);
-     const icon = r ? r.icon : "📡";
-     const result = r
-       ? `${r.label} ${r.pct != null ? (r.pct >= 0 ? `+${r.pct}%` : `${r.pct}%`) : ""}`
-       : `دخل $${s?.entry_price}`;
-     lines.push(`${icon} ${s?.symbol} (${s?.score}) — دخل $${s?.entry_price} | ${result}`);
+ const buildTweet = (src) => {
+   const list = src || (Array.isArray(summary?.signals) ? summary.signals : []);
+   const lines = [`📊 توصيات رادار الأسهم — ${date}\n`];
+   list.forEach(s => {
+     lines.push(`📡 ${s?.symbol} (${s?.score})`);
+     lines.push(`دخل: $${(s?.entry_price || 0).toFixed(2)}`);
+     lines.push(`🎯 T1: $${(s?.target1 || 0).toFixed(2)} | T2: $${(s?.target2 || 0).toFixed(2)} | T3: $${(s?.target3 || 0).toFixed(2)}`);
+     lines.push(`🛑 وقف: $${(s?.stop_loss || 0).toFixed(2)}\n`);
    });
-   lines.push(`\n🔗 radaraz.com`);
+   lines.push(`🔗 radaraz.com`);
    return lines.join("\n");
  };
 
@@ -166,6 +163,18 @@ export default function Admin() {
              ))}
            </div>
 
+
+           {signals.length > 0 && (
+             <div style={{ marginBottom: 16 }}>
+               <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={() => copyText(buildTweet(signals), null)}>
+                 {copied ? "✅ تم النسخ!" : "🐦 نسخ الكل للتغريد"}
+               </button>
+               <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: 16, marginTop: 12, whiteSpace: "pre-wrap", fontSize: 13, color: "rgba(255,255,255,0.7)", lineHeight: 1.8 }}>
+                 {buildTweet(signals)}
+               </div>
+             </div>
+           )}
+
            {signals.length === 0 ? (
              <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.3)" }}>
                لا توجد إشارات اليوم بعد — انتظر المسح الأوتوماتيكي
@@ -187,10 +196,10 @@ export default function Admin() {
 
                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
                    {[
-                     { label: "T1", price: s?.levels?.t1, pct: s?.levels?.t1Pct, color: "#60a5fa" },
-                     { label: "T2", price: s?.levels?.t2, pct: s?.levels?.t2Pct, color: "#34d399" },
-                     { label: "T3", price: s?.levels?.t3, pct: s?.levels?.t3Pct, color: "#fbbf24" },
-                     { label: "وقف", price: s?.stop_loss, pct: s?.levels?.slPct, color: "#ff4757" },
+                     { label: "T1", price: s?.target1, pct: s?.t1_pct, color: "#60a5fa" },
+                     { label: "T2", price: s?.target2, pct: s?.t2_pct, color: "#34d399" },
+                     { label: "T3", price: s?.target3, pct: s?.t3_pct, color: "#fbbf24" },
+                     { label: "وقف", price: s?.stop_loss, pct: s?.sl_pct, color: "#ff4757" },
                    ].map(t => (
                      <div key={t.label} style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${t.color}40`, borderRadius: 8, padding: "4px 10px", fontSize: 11 }}>
                        <span style={{ color: t.color, fontWeight: 600 }}>{t.label}</span>
