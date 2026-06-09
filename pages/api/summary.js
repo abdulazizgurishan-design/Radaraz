@@ -3,12 +3,8 @@ const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
 
 export default async function handler(req, res) {
   try {
-    // استخدم تاريخ اليوم بتوقيت UTC
-    const now = new Date();
-    const todayUTC = now.toISOString().split('T')[0];
-
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/signals?scan_time=gte.${todayUTC}T00:00:00+00:00&order=scan_time.desc&select=*`,
+      `${SUPABASE_URL}/rest/v1/signals?select=*&order=scan_time.desc&limit=100`,
       {
         headers: {
           apikey: SUPABASE_KEY,
