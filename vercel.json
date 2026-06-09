@@ -11,7 +11,7 @@
   "crons": [
     {
       "path": "/api/scan",
-      "schedule": "46 13 * * 1-5"
+      "schedule": "10 14 * * 1-5"
     },
     {
       "path": "/api/evaluate",
