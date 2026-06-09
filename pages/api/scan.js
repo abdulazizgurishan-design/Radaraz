@@ -205,15 +205,13 @@ async function saveSignals(signals) {
 //  HANDLER
 // ═══════════════════════════════════════════════════════════════════
 export default async function handler(req, res) {
-  // Auth: cron or admin panel only
-  const isCron  = req.headers["x-vercel-cron"]  === "true";
-  const isAdmin = req.headers["x-admin-scan"]   === "true";
+  // الحفظ في Supabase: فقط cron أو admin
+  // المشترك يقدر يستدعي scan عادي — بس بدون حفظ
+  const isCron  = req.headers["x-vercel-cron"] === "true";
+  const isAdmin = req.headers["x-admin-scan"]  === "true";
   const secret  = req.headers["x-cron-secret"];
   const validSecret = secret && secret === process.env.CRON_SECRET;
-
-  if (!isCron && !isAdmin && !validSecret) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  const canSave = isCron || isAdmin || validSecret;
 
   try {
     // ── 1. Full ticker list ──────────────────────────────────────
@@ -304,7 +302,7 @@ export default async function handler(req, res) {
       };
     });
 
-    const saveResult = await saveSignals(rows);
+    const saveResult = canSave ? await saveSignals(rows) : { skipped: true, reason: "subscriber scan" };
 
     return res.status(200).json({
       success:   true,
