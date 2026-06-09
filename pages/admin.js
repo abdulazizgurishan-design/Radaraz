@@ -39,6 +39,23 @@ export default function Admin() {
    }
  };
 
+ const [scanning, setScanning] = useState(false);
+
+ const runScan = async () => {
+   setScanning(true);
+   try {
+     await fetch("/api/scan", {
+       method: "GET",
+       headers: { "x-admin-scan": "true" },
+     });
+     await fetchSummary();
+     await fetchSignals();
+   } catch (err) {
+     console.error(err);
+   }
+   setScanning(false);
+ };
+
  const fetchSummary = async () => {
    setLoading(true);
    try {
@@ -130,7 +147,12 @@ export default function Admin() {
      <div style={S.box}>
        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
          <div style={S.title}>📊 لوحة التحكم</div>
-         <button style={S.btn()} onClick={() => { fetchSummary(); fetchSignals(); }}>🔄 تحديث</button>
+         <div style={{ display: "flex", gap: 8 }}>
+           <button style={S.btn("linear-gradient(135deg,#10b981,#059669)")} onClick={runScan} disabled={scanning}>
+             {scanning ? "⏳ جاري المسح..." : "📡 مسح"}
+           </button>
+           <button style={S.btn()} onClick={() => { fetchSummary(); fetchSignals(); }}>🔄 تحديث</button>
+         </div>
        </div>
 
        <div style={S.tabs}>
