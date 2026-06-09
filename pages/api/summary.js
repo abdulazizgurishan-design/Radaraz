@@ -6,7 +6,7 @@ export default async function handler(req, res) {
     const today = new Date().toISOString().split('T')[0];
     
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/signals?created_at=gte.${today}T00:00:00Z&order=created_at.desc&select=*`,
+      `${SUPABASE_URL}/rest/v1/signals?scan_time=gte.${today}T00:00:00Z&order=created_at.desc&select=*`,
       {
         headers: {
           apikey: SUPABASE_KEY,
