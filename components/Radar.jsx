@@ -493,30 +493,51 @@ export default function Radar() {
     setResults([]); setLeaders([]); setSpeculation([]);
     setDone(false); setStatus(null); setScanError(null);
     try {
-      const res = await fetch("/api/summary");
+      const res = await fetch("/api/scan");
       if (!res.ok) { setScanError(`HTTP ${res.status}`); setStatus("error"); return; }
       const data = await res.json();
+      if (data.error) { setScanError(data.error); setStatus("error"); return; }
 
-      // فقط الإشارات المفتوحة لليوم
-      const all  = (data.signals || []).filter(s => s.status === "OPEN" || !s.status);
-      const lead = all.filter(s => s.type === "قيادي");
-      const spec = all.filter(s => s.type !== "قيادي");
+      // scan.js يرجع results مباشرة مع أسعار حية
+      const raw  = data.results ?? [];
+      const lead = data.leaders     ?? raw.filter(s => s.type === "قيادي");
+      const spec = data.speculation ?? raw.filter(s => s.type !== "قيادي");
 
-      const sortFn = (a, b) => {
-        if (b.is_hot !== a.is_hot) return b.is_hot ? 1 : -1;
-        return (b.ep || b.score || 0) - (a.ep || a.score || 0);
-      };
+      // تحويل format scan → format الكارد
+      const toCard = s => ({
+        symbol:     s.symbol,
+        price:      s.price || 0,
+        change_pct: s.change_pct || 0,
+        score:      s.score || 0,
+        signal:     s.signal || ((s.score||0) >= 80 ? "💥 انفجاري" : "🔥 عالي"),
+        type:       s.type || "مضاربة",
+        volume:     s.volume || 0,
+        rvol:       s.rvol || null,
+        marketCap:  s.marketCap || null,
+        ema9:       s.ema9  || null,
+        ema20:      s.ema20 || null,
+        vwap:       s.vwap  || null,
+        is_hot:     s.is_hot || false,
+        levels: s.levels || {
+          t1: 0, t1Pct: 0, t2: 0, t2Pct: 0,
+          t3: 0, t3Pct: 0, sl: 0, slPct: 0, risk: 0,
+        },
+      });
 
-      const conv     = all.map(convertSignal).sort(sortFn);
-      const convLead = lead.map(convertSignal).sort(sortFn);
-      const convSpec = spec.map(convertSignal).sort(sortFn);
-
-      setResults(conv);
-      setLeaders(convLead);
-      setSpeculation(convSpec);
-      setTotal(conv.length);
+      setResults(raw.map(toCard));
+      setLeaders(lead.map(toCard));
+      setSpeculation(spec.map(toCard));
+      setTotal(raw.length);
       setLastUpdate(new Date());
-      setStatus(conv.length > 0 ? "ok" : "closed");
+
+      const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const h = etNow.getHours(), m = etNow.getMinutes(), day = etNow.getDay();
+      const isWeekend = day === 0 || day === 6;
+      const isMarketOpen = !isWeekend && (h > 9 || (h === 9 && m >= 30)) && h < 16;
+      const isPreMarket  = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
+      if      (isMarketOpen)                        setStatus(raw.length > 0 ? "ok" : "closed");
+      else if (isPreMarket)                         setStatus("premarket");
+      else                                          setStatus("closed");
     } catch (err) {
       setScanError(err.message ?? "Network error");
       setStatus("error");
