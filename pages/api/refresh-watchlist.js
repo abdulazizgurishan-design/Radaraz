@@ -197,16 +197,18 @@ export default async function handler(req, res) {
       }
     }
 
-    const finalList = [...leaders, ...speculation].map(s => ({
-      symbol:        s.symbol,
-      type:          s.type,
-      price:         s.price,
-      volume:        s.volume,
-      dollar_volume: s.dollar_volume,
-      change_pct:    s.change_pct,
-      mcap:          s.mcap,
-      updated_at:    new Date().toISOString(),
-    }));
+    const finalList = [...leaders, ...speculation]
+      .filter(s => s.symbol && typeof s.symbol === "string" && /^[A-Z]{1,6}$/.test(s.symbol))
+      .map(s => ({
+        symbol:        s.symbol,
+        type:          s.type,
+        price:         s.price || 0,
+        volume:        s.volume || 0,
+        dollar_volume: s.dollar_volume || 0,
+        change_pct:    s.change_pct || 0,
+        mcap:          s.mcap || null,
+        updated_at:    new Date().toISOString(),
+      }));
 
     // 7. حفظ في Supabase
     const deleteStatus = await clearWatchlist();
