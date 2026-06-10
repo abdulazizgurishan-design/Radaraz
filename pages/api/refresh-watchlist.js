@@ -90,13 +90,13 @@ async function countWatchlist() {
 }
 
 async function insertWatchlist(rows) {
-  const CHUNK = 100;  // أصغر = أسرع، يدخل خلال timeout
+  const CHUNK = 300;  // 4 chunks فقط لـ 1200 سهم
   let inserted = 0;
-  // نشغّل chunks متوازية بدل serial — أسرع 3x
   const chunks = [];
   for (let i = 0; i < rows.length; i += CHUNK) {
     chunks.push(rows.slice(i, i + CHUNK));
   }
+  // متوازية - 4 طلبات فقط، لا rate limit
   const results = await Promise.allSettled(chunks.map(chunk =>
     fetch(`${SUPABASE_URL}/rest/v1/watchlist_active`, {
       method: "POST",
@@ -107,7 +107,7 @@ async function insertWatchlist(rows) {
         Prefer: "resolution=merge-duplicates,return=minimal",
       },
       body: JSON.stringify(chunk),
-    }).then(r => ({ ok: r.ok || r.status === 201, count: chunk.length }))
+    }).then(r => ({ ok: r.ok || r.status === 201, count: chunk.length, status: r.status }))
   ));
   results.forEach(r => {
     if (r.status === "fulfilled" && r.value.ok) inserted += r.value.count;
