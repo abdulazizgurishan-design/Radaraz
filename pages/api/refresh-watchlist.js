@@ -90,15 +90,15 @@ async function countWatchlist() {
 }
 
 async function insertWatchlist(rows) {
-  const CHUNK = 300;  // 4 chunks فقط لـ 1200 سهم
+  const CHUNK = 150;  // 150 = 8 chunks لـ 1200
   let inserted = 0;
   const chunks = [];
   for (let i = 0; i < rows.length; i += CHUNK) {
     chunks.push(rows.slice(i, i + CHUNK));
   }
-  // متوازية - 4 طلبات فقط، لا rate limit
+  // متوازية كاملة
   const results = await Promise.allSettled(chunks.map(chunk =>
-    fetch(`${SUPABASE_URL}/rest/v1/watchlist_active`, {
+    fetch(`${SUPABASE_URL}/rest/v1/watchlist_active?on_conflict=symbol`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -109,10 +109,15 @@ async function insertWatchlist(rows) {
       body: JSON.stringify(chunk),
     }).then(r => ({ ok: r.ok || r.status === 201, count: chunk.length, status: r.status }))
   ));
-  results.forEach(r => {
-    if (r.status === "fulfilled" && r.value.ok) inserted += r.value.count;
+  const failed = [];
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled" && r.value.ok) {
+      inserted += r.value.count;
+    } else {
+      failed.push({ chunk: i, status: r.status === "fulfilled" ? r.value.status : "rejected" });
+    }
   });
-  return inserted;
+  return { inserted, failed };
 }
 
 export default async function handler(req, res) {
@@ -205,7 +210,7 @@ export default async function handler(req, res) {
 
     // 7. حفظ في Supabase
     const deleteStatus = await clearWatchlist();
-    const insertedCount = await insertWatchlist(finalList);
+    const insertResult = await insertWatchlist(finalList);
     const finalCount = await countWatchlist();
 
     const t2 = Date.now();
@@ -220,7 +225,8 @@ export default async function handler(req, res) {
       speculation: speculation.length,
       final_to_insert: finalList.length,
       delete_status: deleteStatus,
-      inserted: insertedCount,
+      inserted: insertResult.inserted,
+      failed_chunks: insertResult.failed,
       actual_in_supabase: finalCount,
       sample_top: finalList.slice(0, 5).map(s => s.symbol),
     });
