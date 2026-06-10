@@ -1,8 +1,22 @@
 {
+  "headers": [
+    {
+      "source": "/api/webhook-gumroad",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" }
+      ]
+    }
+  ],
   "crons": [
     { "path": "/api/refresh-watchlist", "schedule": "25 13 * * 1-5" },
-    { "path": "/api/refresh-meta", "schedule": "31 13 * * 1-5" },
-    { "path": "/api/scan", "schedule": "46 13 * * 1-5" },
-    { "path": "/api/evaluate", "schedule": "0 20 * * 1-5" }
+    { "path": "/api/refresh-meta-0",    "schedule": "26 13 * * 1-5" },
+    { "path": "/api/refresh-meta-1",    "schedule": "27 13 * * 1-5" },
+    { "path": "/api/refresh-meta-2",    "schedule": "28 13 * * 1-5" },
+    { "path": "/api/refresh-meta-3",    "schedule": "29 13 * * 1-5" },
+    { "path": "/api/refresh-meta-4",    "schedule": "30 13 * * 1-5" },
+    { "path": "/api/refresh-meta-5",    "schedule": "31 13 * * 1-5" },
+    { "path": "/api/scan",              "schedule": "46 13 * * 1-5" },
+    { "path": "/api/evaluate",          "schedule": "0 20 * * 1-5" }
   ]
 }
