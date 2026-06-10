@@ -118,15 +118,20 @@ export default async function handler(req, res) {
     // تحميل القائمة الديناميكية
     const { WATCHLIST, source: listSource } = await loadWatchlist();
 
-    const BATCH_SIZE  = 10;
-    const BATCH_DELAY = 400;
+    // دعم تشغيل مجزّأ عبر ?offset=0&limit=400
+    const offset = parseInt(req.query.offset || "0", 10);
+    const limit  = parseInt(req.query.limit  || String(WATCHLIST.length), 10);
+    const slice  = WATCHLIST.slice(offset, offset + limit);
+
+    const BATCH_SIZE  = 20;   // 20 متوازي بدل 10
+    const BATCH_DELAY = 150;  // 150ms بدل 400ms
     const allMeta = [];
 
-    for (let i = 0; i < WATCHLIST.length; i += BATCH_SIZE) {
-      const batch = WATCHLIST.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < slice.length; i += BATCH_SIZE) {
+      const batch = slice.slice(i, i + BATCH_SIZE);
       const batchResults = await processBatch(batch);
       allMeta.push(...batchResults);
-      if (i + BATCH_SIZE < WATCHLIST.length) await sleep(BATCH_DELAY);
+      if (i + BATCH_SIZE < slice.length) await sleep(BATCH_DELAY);
     }
 
     // حفظ Supabase دفعات (200 سهم لكل upsert)
@@ -143,9 +148,13 @@ export default async function handler(req, res) {
       duration_ms: Date.now() - t0,
       watchlist_source: listSource,
       watchlist_size: WATCHLIST.length,
+      processed: slice.length,
+      offset,
+      limit,
+      next_offset: offset + slice.length < WATCHLIST.length ? offset + slice.length : null,
       fetched: allMeta.length,
       saved: savedTotal,
-      missing: WATCHLIST.length - allMeta.length,
+      missing: slice.length - allMeta.length,
     });
 
   } catch (err) {
