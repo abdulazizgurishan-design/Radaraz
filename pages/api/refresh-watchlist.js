@@ -90,15 +90,14 @@ async function countWatchlist() {
 }
 
 async function insertWatchlist(rows) {
-  const CHUNK = 150;  // 150 = 8 chunks لـ 1200
+  const CHUNK = 150;
   let inserted = 0;
   const chunks = [];
   for (let i = 0; i < rows.length; i += CHUNK) {
     chunks.push(rows.slice(i, i + CHUNK));
   }
-  // متوازية كاملة
-  const results = await Promise.allSettled(chunks.map(chunk =>
-    fetch(`${SUPABASE_URL}/rest/v1/watchlist_active?on_conflict=symbol`, {
+  const results = await Promise.allSettled(chunks.map(async (chunk, idx) => {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/watchlist_active?on_conflict=symbol`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -107,14 +106,22 @@ async function insertWatchlist(rows) {
         Prefer: "resolution=merge-duplicates,return=minimal",
       },
       body: JSON.stringify(chunk),
-    }).then(r => ({ ok: r.ok || r.status === 201, count: chunk.length, status: r.status }))
-  ));
+    });
+    const ok = r.ok || r.status === 201;
+    let errorBody = null;
+    if (!ok) {
+      errorBody = (await r.text()).slice(0, 300);
+    }
+    return { ok, count: chunk.length, status: r.status, errorBody, firstSymbol: chunk[0]?.symbol };
+  }));
   const failed = [];
   results.forEach((r, i) => {
     if (r.status === "fulfilled" && r.value.ok) {
       inserted += r.value.count;
+    } else if (r.status === "fulfilled") {
+      failed.push({ chunk: i, status: r.value.status, error: r.value.errorBody, firstSymbol: r.value.firstSymbol });
     } else {
-      failed.push({ chunk: i, status: r.status === "fulfilled" ? r.value.status : "rejected" });
+      failed.push({ chunk: i, status: "rejected" });
     }
   });
   return { inserted, failed };
