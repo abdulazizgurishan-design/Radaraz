@@ -146,85 +146,117 @@ async function loadMetaFromSupabase(tickers) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  EP MODEL
+//  EP MODEL v2 — أوزان معاد توزيعها لتعطي قيمة حقيقية
+//  ─────────────────────────────────────────────────────────────────
+//  المنطق: نعطي وزن أكبر للبيانات المتوفرة دائماً (RVOL, change, gap)
+//  ونعطي وزن أقل للبيانات النادرة (float, short, news) كـ bonus فقط
+//
+//  المحاور الأساسية (دائماً متوفرة) = 70 نقطة
+//  المحاور الإضافية (bonuses)       = 30 نقطة
 // ═══════════════════════════════════════════════════════════════════
-const EP_W   = { float:22, rvol:20, news:15, short:12, breakout:13, gap:8, mcap:10 };
+const EP_W = {
+  rvol:     28,   // ⬆ كان 20
+  change:   22,   // 🆕 جديد - تغيير اليوم
+  gap:      12,   // ⬆ كان 8
+  vwap:     8,    // 🆕 جديد - فوق/تحت VWAP
+  // Bonuses (بيانات meta)
+  float:    12,   // ⬇ كان 22
+  news:     10,   // ⬇ كان 15
+  mcap:     5,    // ⬇ كان 10
+  short:    3,    // ⬇ كان 12
+};
 const EP_MAX = Object.values(EP_W).reduce((a,b) => a + b, 0);
 
 function calcEP(s) {
   let t = 0;
 
-  // Float (يستخدم البيانات من Meta Layer)
-  const fl = s.float;
-  if (fl) {
-    t += fl<5e6 ? EP_W.float
-       : fl<10e6 ? EP_W.float*.90
-       : fl<25e6 ? EP_W.float*.75
-       : fl<50e6 ? EP_W.float*.40
-       : 0;
-  }
+  // ─── المحاور الأساسية (متوفرة دائماً) ──────────────────
 
-  // RVOL (محسوب من snapshot)
+  // RVOL — أهم مؤشر للزخم
   const rv = s.rvol || 0;
-  t += rv>=15 ? EP_W.rvol*1.1
-     : rv>=10 ? EP_W.rvol
-     : rv>=5  ? EP_W.rvol*.85
-     : rv>=3  ? EP_W.rvol*.65
-     : rv>=2  ? EP_W.rvol*.35
+  t += rv>=50  ? EP_W.rvol*1.15   // 50x+ = حدث ضخم
+     : rv>=20  ? EP_W.rvol*1.1
+     : rv>=10  ? EP_W.rvol
+     : rv>=5   ? EP_W.rvol*.85
+     : rv>=3   ? EP_W.rvol*.65
+     : rv>=2   ? EP_W.rvol*.40
+     : rv>=1.5 ? EP_W.rvol*.20
      : 0;
 
-  // News (من جلب الأخبار)
-  const nh = s.newsAgeHours;
-  if (nh != null) {
-    t += nh<=6 ? EP_W.news*1.2
-       : nh<=24 ? EP_W.news
-       : nh<=48 ? EP_W.news*.55
-       : 0;
-  }
-
-  // Short % (من Meta)
-  const sp = s.shortPct || 0;
-  t += sp>=40 ? EP_W.short*1.1
-     : sp>=30 ? EP_W.short
-     : sp>=20 ? EP_W.short*.70
+  // Change % — قوة الحركة اليوم
+  const ch = s.changePct || 0;
+  t += ch>=30 ? EP_W.change*1.2
+     : ch>=20 ? EP_W.change
+     : ch>=10 ? EP_W.change*.80
+     : ch>=5  ? EP_W.change*.55
+     : ch>=3  ? EP_W.change*.30
+     : ch>=1  ? EP_W.change*.15
      : 0;
 
-  // Breakout (يحتاج high52 من Meta + weekHigh من snapshot)
-  let bk = 0;
-  if (s.high52 && s.price) {
-    const d = (s.price - s.high52) / s.high52 * 100;
-    bk += d>=0 ? 7 : d>=-2 ? 6 : d>=-5 ? 5 : d>=-15 ? 2 : 0;
-  }
-  if (s.weekHigh && s.price > s.weekHigh) bk += 6;
-  t += Math.min(bk, EP_W.breakout);
-
-  // Gap (محسوب من snapshot)
+  // Gap — قوة الفتح
   const g = s.gapPct || 0;
   t += g>=30 ? EP_W.gap*1.2
      : g>=20 ? EP_W.gap
      : g>=10 ? EP_W.gap*.75
      : g>=5  ? EP_W.gap*.45
+     : g>=2  ? EP_W.gap*.20
      : 0;
 
-  // MCap (من Meta)
-  const mc = s.mcap;
-  if (mc) {
-    t += mc<50e6 ? EP_W.mcap
-       : mc<150e6 ? EP_W.mcap*.85
-       : mc<300e6 ? EP_W.mcap*.60
-       : mc<500e6 ? EP_W.mcap*.30
+  // VWAP — السهم فوق VWAP = إيجابي
+  if (s.aboveVWAP) t += EP_W.vwap;
+  else if (s.vwap && s.price >= s.vwap * 0.99) t += EP_W.vwap * 0.5;
+
+  // ─── Bonuses (لو البيانات متوفرة) ─────────────────────
+
+  // Float (لو متوفر)
+  const fl = s.float;
+  if (fl) {
+    t += fl<5e6  ? EP_W.float
+       : fl<10e6 ? EP_W.float*.90
+       : fl<25e6 ? EP_W.float*.75
+       : fl<50e6 ? EP_W.float*.50
+       : fl<100e6? EP_W.float*.25
        : 0;
   }
 
-  // Velocity bonus
-  if ((s.gapPct||0)>=10 && (s.newsAgeHours||999)<=12 && (s.rvol||0)>=5) t += 8;
+  // News
+  const nh = s.newsAgeHours;
+  if (nh != null) {
+    t += nh<=6  ? EP_W.news*1.2
+       : nh<=24 ? EP_W.news
+       : nh<=48 ? EP_W.news*.55
+       : 0;
+  }
+
+  // MCap (الأصغر أحسن للانفجارات)
+  const mc = s.mcap;
+  if (mc) {
+    t += mc<50e6  ? EP_W.mcap
+       : mc<150e6 ? EP_W.mcap*.85
+       : mc<500e6 ? EP_W.mcap*.50
+       : mc<2e9   ? EP_W.mcap*.25
+       : 0;
+  }
+
+  // Short %
+  const sp = s.shortPct || 0;
+  t += sp>=40 ? EP_W.short*1.2
+     : sp>=30 ? EP_W.short
+     : sp>=20 ? EP_W.short*.70
+     : 0;
+
+  // ─── Velocity bonus (انفجار حقيقي) ───────────────────
+  // RVOL ضخم + تغيير قوي = bonus
+  if ((s.rvol||0) >= 10 && (s.changePct||0) >= 10) t += 8;
+  // RVOL خرافي = bonus إضافي
+  if ((s.rvol||0) >= 50) t += 5;
 
   return Math.min(Math.round((t / EP_MAX) * 100), 99);
 }
 
+// HOT = انفجار حقيقي
 const isHot = s =>
-  s.ep >= 85 && (s.rvol||0) >= 5 &&
-  s.newsAgeHours != null && s.newsAgeHours <= 24;
+  s.ep >= 75 && (s.rvol||0) >= 10 && (s.changePct||0) >= 10;
 
 // ═══════════════════════════════════════════════════════════════════
 //  SNAPSHOTS (يحل المشكلة #1 جزئياً + #3)
