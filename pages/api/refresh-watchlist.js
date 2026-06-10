@@ -90,11 +90,15 @@ async function countWatchlist() {
 }
 
 async function insertWatchlist(rows) {
-  const CHUNK = 200;
+  const CHUNK = 100;  // أصغر = أسرع، يدخل خلال timeout
   let inserted = 0;
+  // نشغّل chunks متوازية بدل serial — أسرع 3x
+  const chunks = [];
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK);
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/watchlist_active`, {
+    chunks.push(rows.slice(i, i + CHUNK));
+  }
+  const results = await Promise.allSettled(chunks.map(chunk =>
+    fetch(`${SUPABASE_URL}/rest/v1/watchlist_active`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -103,9 +107,11 @@ async function insertWatchlist(rows) {
         Prefer: "resolution=merge-duplicates,return=minimal",
       },
       body: JSON.stringify(chunk),
-    });
-    if (r.ok || r.status === 201) inserted += chunk.length;
-  }
+    }).then(r => ({ ok: r.ok || r.status === 201, count: chunk.length }))
+  ));
+  results.forEach(r => {
+    if (r.status === "fulfilled" && r.value.ok) inserted += r.value.count;
+  });
   return inserted;
 }
 
@@ -199,9 +205,7 @@ export default async function handler(req, res) {
 
     // 7. حفظ في Supabase
     const deleteStatus = await clearWatchlist();
-    await new Promise(r => setTimeout(r, 500));  // انتظر شوي قبل الإدخال
     const insertedCount = await insertWatchlist(finalList);
-    await new Promise(r => setTimeout(r, 500));
     const finalCount = await countWatchlist();
 
     const t2 = Date.now();
