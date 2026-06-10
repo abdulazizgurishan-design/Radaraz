@@ -71,7 +71,7 @@ async function loadKnownMcaps() {
 }
 
 async function clearWatchlist() {
-  await fetch(`${SUPABASE_URL}/rest/v1/watchlist_active?symbol=neq.__none__`, {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/watchlist_active?symbol=neq.__none__`, {
     method: "DELETE",
     headers: {
       apikey: SUPABASE_KEY,
@@ -79,23 +79,34 @@ async function clearWatchlist() {
       Prefer: "return=minimal",
     },
   });
+  return r.status;
+}
+
+async function countWatchlist() {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/watchlist_active?select=symbol`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Prefer: "count=exact" },
+  });
+  return parseInt(r.headers.get("content-range")?.split("/")[1] || "0", 10);
 }
 
 async function insertWatchlist(rows) {
-  const CHUNK = 300;
+  const CHUNK = 200;
+  let inserted = 0;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
-    await fetch(`${SUPABASE_URL}/rest/v1/watchlist_active`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/watchlist_active`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         apikey: SUPABASE_KEY,
         Authorization: `Bearer ${SUPABASE_KEY}`,
-        Prefer: "resolution=merge-duplicates",
+        Prefer: "resolution=merge-duplicates,return=minimal",
       },
       body: JSON.stringify(chunk),
     });
+    if (r.ok || r.status === 201) inserted += chunk.length;
   }
+  return inserted;
 }
 
 export default async function handler(req, res) {
@@ -186,24 +197,27 @@ export default async function handler(req, res) {
       updated_at:    new Date().toISOString(),
     }));
 
-    // 7. حفظ في Supabase (احذف القديم وضع الجديد)
-    await clearWatchlist();
-    await insertWatchlist(finalList);
+    // 7. حفظ في Supabase
+    const deleteStatus = await clearWatchlist();
+    await new Promise(r => setTimeout(r, 500));  // انتظر شوي قبل الإدخال
+    const insertedCount = await insertWatchlist(finalList);
+    await new Promise(r => setTimeout(r, 500));
+    const finalCount = await countWatchlist();
 
     const t2 = Date.now();
 
     return res.status(200).json({
       success: true,
       duration_ms: t2 - t0,
-      timing: {
-        snapshot: t1 - t0,
-        filter_and_save: t2 - t1,
-      },
+      timing: { snapshot: t1 - t0, filter_and_save: t2 - t1 },
       total_market: all.length,
       after_filter: filtered.length,
       leaders: leaders.length,
       speculation: speculation.length,
-      final: finalList.length,
+      final_to_insert: finalList.length,
+      delete_status: deleteStatus,
+      inserted: insertedCount,
+      actual_in_supabase: finalCount,
       sample_top: finalList.slice(0, 5).map(s => s.symbol),
     });
 
