@@ -44,7 +44,7 @@ const TUNING = {
 };
 
 // ─── القوائم (من lib/watchlist.js) ───────────────────────────────
-import { LEADERS, WATCHLIST } from "../../lib/watchlist";
+import { loadWatchlist } from "../../lib/watchlist";
 
 // ═══════════════════════════════════════════════════════════════════
 //  HELPERS
@@ -342,6 +342,9 @@ export default async function handler(req, res) {
   const canSave    = isCron || isAdmin || validSecret;
 
   try {
+    // ── 0. تحميل القائمة الديناميكية من Supabase ───────────────
+    const { LEADERS, WATCHLIST, source: listSource } = await loadWatchlist();
+
     // ── 1. تشغيل Snapshots و Meta بالتوازي ──────────────────────
     const [snaps, meta] = await Promise.all([
       fetchSnapshots(WATCHLIST),
@@ -503,6 +506,8 @@ export default async function handler(req, res) {
         total_ms:  t3 - t0,
       },
       meta_coverage: {
+        watchlist_source: listSource,
+        watchlist_size:   WATCHLIST.length,
         with_float: Object.values(meta).filter(m => m.float).length,
         with_mcap:  Object.values(meta).filter(m => m.mcap).length,
         total_meta: Object.keys(meta).length,
