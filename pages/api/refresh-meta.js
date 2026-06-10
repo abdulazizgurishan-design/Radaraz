@@ -21,7 +21,7 @@ const BASE         = "https://api.polygon.io";
 // نفس قائمة WATCHLIST من scan.js
 // ملاحظة: في الإنتاج، استورد القائمة من ملف مشترك (lib/watchlist.js)
 // هنا أضع نسخة مختصرة للوضوح
-import { WATCHLIST } from "../../lib/watchlist";  // أو انسخ القائمة هنا
+import { loadWatchlist } from "../../lib/watchlist";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -115,6 +115,9 @@ export default async function handler(req, res) {
   }
 
   try {
+    // تحميل القائمة الديناميكية
+    const { WATCHLIST, source: listSource } = await loadWatchlist();
+
     const BATCH_SIZE  = 10;
     const BATCH_DELAY = 400;
     const allMeta = [];
@@ -138,6 +141,8 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       duration_ms: Date.now() - t0,
+      watchlist_source: listSource,
+      watchlist_size: WATCHLIST.length,
       fetched: allMeta.length,
       saved: savedTotal,
       missing: WATCHLIST.length - allMeta.length,
