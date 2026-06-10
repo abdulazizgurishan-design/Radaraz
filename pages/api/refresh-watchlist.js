@@ -209,11 +209,11 @@ export default async function handler(req, res) {
       .map(s => ({
         symbol:        s.symbol,
         type:          s.type,
-        price:         s.price || 0,
-        volume:        s.volume || 0,
-        dollar_volume: s.dollar_volume || 0,
-        change_pct:    s.change_pct || 0,
-        mcap:          s.mcap || null,
+        price:         parseFloat(s.price) || 0,
+        volume:        Math.round(s.volume || 0),
+        dollar_volume: Math.round(s.dollar_volume || 0),
+        change_pct:    parseFloat(s.change_pct) || 0,
+        mcap:          s.mcap ? Math.round(s.mcap) : null,
         updated_at:    new Date().toISOString(),
       }));
 
