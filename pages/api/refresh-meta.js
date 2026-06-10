@@ -83,17 +83,14 @@ async function upsertMeta(rows) {
 }
 
 async function processBatch(tickers) {
-  // كل سهم: details + 52W بالتوازي
+  // فقط details (طلب واحد لكل سهم بدل اثنين) — أسرع 50%
   const results = await Promise.allSettled(
     tickers.map(async ticker => {
-      const [details, high52] = await Promise.all([
-        fetchTickerDetails(ticker),
-        fetch52WHigh(ticker),
-      ]);
+      const details = await fetchTickerDetails(ticker);
       if (!details) return null;
       return {
         ...details,
-        high_52w: high52,
+        high_52w: null,  // نتخطّى 52W لتوفير الوقت
         updated_at: new Date().toISOString(),
       };
     })
@@ -123,8 +120,8 @@ export default async function handler(req, res) {
     const limit  = parseInt(req.query.limit  || String(WATCHLIST.length), 10);
     const slice  = WATCHLIST.slice(offset, offset + limit);
 
-    const BATCH_SIZE  = 20;   // 20 متوازي بدل 10
-    const BATCH_DELAY = 150;  // 150ms بدل 400ms
+    const BATCH_SIZE  = 30;   // 30 متوازي
+    const BATCH_DELAY = 80;   // 80ms فقط
     const allMeta = [];
 
     for (let i = 0; i < slice.length; i += BATCH_SIZE) {
