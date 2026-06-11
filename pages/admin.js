@@ -1,4 +1,4 @@
-// pages/admin.js — RadarAZ Admin Panel v2
+// pages/admin.js — RadarAZ Admin Panel v3 (select-to-tweet + Gregorian date)
 import { useState, useEffect } from "react";
 
 const ADMIN_KEY = "123451";
@@ -141,7 +141,7 @@ function Toast({ msg, type }) {
 }
 
 // ─── Signal Card ──────────────────────────────────────────────────
-function SignalCard({ s, copiedId, onCopy }) {
+function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
   const ep  = s.ep || s.score || 0;
   const hot = s.is_hot;
   const epc = epColor(ep);
@@ -149,18 +149,31 @@ function SignalCard({ s, copiedId, onCopy }) {
   const text = `📡 $${s.symbol} — EP ${ep}%\nدخل: $${(s.entry_price||0).toFixed(2)}\nT1: $${(s.target1||0).toFixed(2)} | T2: $${(s.target2||0).toFixed(2)} | T3: $${(s.target3||0).toFixed(2)}\n🛑 وقف: $${(s.stop_loss||0).toFixed(2)}\n\nradaraz.com`;
 
   return (
-    <div style={{
-      background: hot ? "linear-gradient(135deg,rgba(11,14,31,1),rgba(20,8,8,1))" : "rgba(255,255,255,.03)",
-      border: `1px solid ${hot ? "rgba(248,113,113,.45)" : "rgba(255,255,255,.08)"}`,
-      borderRadius: 14, padding: "14px 16px", marginBottom: 10, position: "relative",
-      boxShadow: hot ? "0 0 20px rgba(248,113,113,.12)" : "none",
-    }}>
+    <div
+      onClick={selectMode ? onToggle : undefined}
+      style={{
+        background: hot ? "linear-gradient(135deg,rgba(11,14,31,1),rgba(20,8,8,1))" : "rgba(255,255,255,.03)",
+        border: `1px solid ${selectMode && selected ? "#6366f1" : hot ? "rgba(248,113,113,.45)" : "rgba(255,255,255,.08)"}`,
+        borderRadius: 14, padding: "14px 16px", marginBottom: 10, position: "relative",
+        boxShadow: selectMode && selected ? "0 0 0 2px rgba(99,102,241,.4)" : hot ? "0 0 20px rgba(248,113,113,.12)" : "none",
+        cursor: selectMode ? "pointer" : "default",
+        transition: "border .15s, box-shadow .15s",
+      }}>
       {/* top bar */}
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, borderRadius: "14px 14px 0 0", background: `linear-gradient(90deg,${epc.fg}88,transparent)` }} />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-        {/* Left: ticker + badges */}
+        {/* Left: checkbox + ticker + badges */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          {selectMode && (
+            <div style={{
+              width: 24, height: 24, borderRadius: 6, flexShrink: 0,
+              border: `2px solid ${selected ? "#6366f1" : "rgba(255,255,255,.2)"}`,
+              background: selected ? "#6366f1" : "transparent",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 14, color: "#fff", fontWeight: 800,
+            }}>{selected ? "✓" : ""}</div>
+          )}
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
               <span style={{ fontSize: 19, fontWeight: 800, color: "#f1f5f9", fontFamily: "monospace" }}>${s.symbol}</span>
@@ -190,12 +203,14 @@ function SignalCard({ s, copiedId, onCopy }) {
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <EPGauge ep={ep} />
-          <button onClick={() => onCopy(text, s.id)} style={{
-            background: "rgba(99,102,241,.15)", border: "1px solid rgba(99,102,241,.25)",
-            borderRadius: 8, padding: "5px 11px", color: "#a5b4fc", fontSize: 11, cursor: "pointer", fontWeight: 600,
-          }}>
-            {copiedId === s.id ? "✅" : "📋"}
-          </button>
+          {!selectMode && (
+            <button onClick={() => onCopy(text, s.id)} style={{
+              background: "rgba(99,102,241,.15)", border: "1px solid rgba(99,102,241,.25)",
+              borderRadius: 8, padding: "5px 11px", color: "#a5b4fc", fontSize: 11, cursor: "pointer", fontWeight: 600,
+            }}>
+              {copiedId === s.id ? "✅" : "📋"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -268,6 +283,10 @@ export default function Admin() {
   const [tweetText, setTweetText] = useState(null);
   const [scanStats, setScanStats] = useState(null);
 
+  // ── select-to-tweet state ──
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
   const showToast = (msg, type = "ok") => {
     setToast({ msg, type });
     setTimeout(() => setToast({ msg: "", type: "" }), 4000);
@@ -278,7 +297,8 @@ export default function Admin() {
   useEffect(() => {
     if (auth) {
       const today = new Date();
-      setDate(today.toLocaleDateString("ar-SA", { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
+      // ── التاريخ ميلادي ──
+      setDate(today.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
       fetchSummary();
       fetchSignals();
     }
@@ -333,6 +353,31 @@ export default function Admin() {
     });
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // ── select helpers ──
+  const sigKey = (s, i) => s.id || s.symbol || i;
+
+  const toggleSelect = (key) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(signals.map((s, i) => sigKey(s, i))));
+  };
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const tweetSelected = () => {
+    const chosen = signals.filter((s, i) => selectedIds.has(sigKey(s, i)));
+    if (chosen.length === 0) {
+      showToast("⚠️ اختر شركة واحدة على الأقل", "err");
+      return;
+    }
+    setTweetText(buildTweet(chosen, date, "signals"));
   };
 
   const hotCount  = signals.filter(s => s.is_hot).length;
@@ -435,12 +480,41 @@ export default function Admin() {
               ))}
             </div>
 
-            {/* Tweet button */}
+            {/* Tweet controls */}
             {signals.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={() => setTweetText(buildTweet(signals, date, "signals"))}>
-                  🐦 تغريد الإشارات
-                </button>
+              <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                {!selectMode ? (
+                  <>
+                    <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={() => setTweetText(buildTweet(signals, date, "signals"))}>
+                      🐦 تغريد الكل
+                    </button>
+                    <button style={S.btn("rgba(99,102,241,.18)")} onClick={() => { setSelectMode(true); clearSelection(); }}>
+                      ☑️ اختيار شركات
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={tweetSelected}>
+                      🐦 تغريد المختار ({selectedIds.size})
+                    </button>
+                    <button style={S.btn("rgba(99,102,241,.18)")} onClick={selectAll}>
+                      تحديد الكل
+                    </button>
+                    <button style={S.btn("rgba(255,255,255,.08)")} onClick={clearSelection}>
+                      مسح التحديد
+                    </button>
+                    <button style={S.btn("rgba(248,113,113,.18)")} onClick={() => { setSelectMode(false); clearSelection(); }}>
+                      ✕ إلغاء
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Select hint */}
+            {selectMode && (
+              <div style={{ marginBottom: 12, fontSize: 12, color: "#818cf8", textAlign: "center" }}>
+                👆 اضغط على الشركات اللي تبي تغرّدها
               </div>
             )}
 
@@ -451,9 +525,20 @@ export default function Admin() {
                 لا توجد إشارات — اضغط «تشغيل المسح»
               </div>
             ) : (
-              signals.map((s, i) => (
-                <SignalCard key={s.id || s.symbol || i} s={s} copiedId={copiedId} onCopy={copyText} />
-              ))
+              signals.map((s, i) => {
+                const key = sigKey(s, i);
+                return (
+                  <SignalCard
+                    key={key}
+                    s={s}
+                    copiedId={copiedId}
+                    onCopy={copyText}
+                    selectMode={selectMode}
+                    selected={selectedIds.has(key)}
+                    onToggle={() => toggleSelect(key)}
+                  />
+                );
+              })
             )}
           </>
         )}
