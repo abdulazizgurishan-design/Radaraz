@@ -187,6 +187,11 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
               <span style={{ fontSize: 11, color: "#94a3b8" }}>
                 دخل: <strong style={{ color: "#60a5fa", fontFamily: "monospace" }}>${(s.entry_price || 0).toFixed(2)}</strong>
               </span>
+              {s.change_pct != null && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: (s.change_pct || 0) >= 0 ? "#34d399" : "#f87171", fontFamily: "monospace" }}>
+                  {(s.change_pct || 0) >= 0 ? "▲" : "▼"} {(s.change_pct || 0) >= 0 ? "+" : ""}{parseFloat(s.change_pct).toFixed(2)}%
+                </span>
+              )}
               {s.rvol != null && (
                 <span style={{ fontSize: 11, color: (s.rvol || 0) >= 3 ? "#fbbf24" : "#475569" }}>
                   RVOL: {parseFloat(s.rvol).toFixed(1)}x
