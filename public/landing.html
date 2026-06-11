@@ -4,9 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RadarAZ — AI Stock Intelligence</title>
-<meta name="description" content="AI-powered stock scanner. Scans 1000+ US stocks in seconds. Real signals, no noise.">
-<meta name="keywords" content="stock scanner, AI trading, US stocks, stock signals, day trading, توصيات أسهم, رادار الأسهم, stock recommendations, stock alerts, best stocks to buy, top stocks today, stock market signals, swing trading, momentum stocks, penny stocks, growth stocks, NASDAQ stocks, NYSE stocks, S&P 500 stocks, stock screener, technical analysis, stock picks, best stock scanner, real-time stock alerts, stock trading bot, AI stock picker, stock market scanner, intraday trading, scalping stocks, AAPL, NVDA, TSLA, META, MSFT, AMZN, GOOGL, AMD, PLTR, SOFI, توصيات أسهم أمريكية, أسهم أمريكية, مسح الأسهم, بوت تداول, تداول يومي, فرص تداول, أفضل الأسهم, توصيات تداول, أسهم النمو, أسهم مومنتم, تحليل فني, إشارات تداول, أسهم اليوم, فرص استثمار, سوق الأسهم الأمريكي, تداول الأسهم, أسهم ناسداك, أسهم نيويورك, مضاربة أسهم, توصيات مجانية, أفضل أسهم للشراء, RADARAZ, radar stocks, stock intelligence">
-<!-- Hidden SEO Content -->
+<meta name="description" content="ماسح أسهم بالذكاء الاصطناعي. يمسح +1200 سهم أمريكي في ثواني مع أخبار لحظية. إشارات حقيقية بلا ضوضاء.">
+<meta name="keywords" content="stock scanner, AI trading, US stocks, stock signals, day trading, توصيات أسهم, رادار الأسهم, stock recommendations, stock alerts, best stocks to buy, top stocks today, stock market signals, swing trading, momentum stocks, penny stocks, growth stocks, NASDAQ stocks, NYSE stocks, S&P 500 stocks, stock screener, technical analysis, stock picks, best stock scanner, real-time stock alerts, stock trading bot, AI stock picker, stock market scanner, intraday trading, scalping stocks, AAPL, NVDA, TSLA, META, MSFT, AMZN, GOOGL, AMD, PLTR, SOFI, توصيات أسهم أمريكية, أسهم أمريكية, مسح الأسهم, بوت تداول, تداول يومي, فرص تداول, أفضل الأسهم, توصيات تداول, أسهم النمو, أسهم مومنتم, تحليل فني, إشارات تداول, أسهم اليوم, فرص استثمار, سوق الأسهم الأمريكي, تداول الأسهم, أسهم ناسداك, أسهم نيويورك, مضاربة أسهم, توصيات مجانية, أفضل أسهم للشراء, RADARAZ, radar stocks, stock intelligence, أخبار الأسهم اللحظية, زخم الأسهم, انفجارات الأسهم">
 <meta name="subject" content="US Stock Market Scanner and AI Trading Signals">
 <meta name="classification" content="Finance, Trading, Investment">
 <meta name="category" content="Stock Market Tools">
@@ -26,15 +25,14 @@
 <meta name="twitter:label1" content="Free Trial">
 <meta name="twitter:data1" content="24 Hours">
 <meta name="twitter:label2" content="Stocks Scanned">
-<meta name="twitter:data2" content="1000+">
-<!-- Schema.org Structured Data -->
+<meta name="twitter:data2" content="1200+">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "RadarAZ",
   "applicationCategory": "FinanceApplication",
-  "description": "AI-powered US stock scanner analyzing 1000+ stocks in real-time with smart scoring, entry points, stop loss, and 3 targets.",
+  "description": "AI-powered US stock scanner analyzing 1200+ stocks in real-time with live news, momentum detection, and explosive moves alerts.",
   "url": "https://radaraz.com",
   "offers": {
     "@type": "Offer",
@@ -50,11 +48,10 @@
 </script>
 <meta name="robots" content="index, follow">
 <meta property="og:title" content="RadarAZ — AI Stock Intelligence">
-<meta property="og:description" content="AI-powered stock scanner. 1000+ stocks. Real signals.">
+<meta property="og:description" content="AI-powered stock scanner. 1200+ stocks. Live news. Real signals.">
 <meta property="og:url" content="https://radaraz.com/landing.html">
 <meta property="og:type" content="website">
 <link rel="canonical" href="https://radaraz.com/landing.html">
-<!-- X Pixel -->
 <script>
 !function(e,t,n,s,u,a){e.twq||(s=e.twq=function(){s.exe?s.exe.apply(s,arguments):s.queue.push(arguments);
 },s.version='1.1',s.queue=[],u=t.createElement(n),u.async=!0,u.src='https://static.ads-twitter.com/uwt.js',
@@ -73,6 +70,7 @@ twq('config','rcp8t');
   --blue: #0066ff;
   --cyan: #00d4ff;
   --red: #ff3355;
+  --orange: #ff8800;
   --white: #f0f4ff;
   --muted: rgba(240,244,255,0.75);
   --font-display: 'Syne', sans-serif;
@@ -90,74 +88,39 @@ body {
   cursor: default;
 }
 
-/* CANVAS BACKGROUND */
-#bgCanvas {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-}
+#bgCanvas { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
 
-/* GRID OVERLAY */
 .grid-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1;
+  position: fixed; inset: 0; z-index: 1;
   background-image:
     linear-gradient(rgba(0,255,136,0.03) 1px, transparent 1px),
     linear-gradient(90deg, rgba(0,255,136,0.03) 1px, transparent 1px);
-  background-size: 40px 40px;
-  pointer-events: none;
+  background-size: 40px 40px; pointer-events: none;
 }
 
-/* SCANLINE */
 .scanline {
-  position: fixed;
-  top: -2px;
-  left: 0;
-  right: 0;
-  height: 2px;
+  position: fixed; top: -2px; left: 0; right: 0; height: 2px;
   background: linear-gradient(90deg, transparent, var(--green), var(--cyan), transparent);
-  z-index: 10;
-  animation: scan 4s linear infinite;
-  opacity: 0.4;
-  pointer-events: none;
+  z-index: 10; animation: scan 4s linear infinite; opacity: 0.4; pointer-events: none;
 }
 @keyframes scan { 0% { top: -2px; } 100% { top: 100vh; } }
 
-/* NAV */
 nav {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  z-index: 100;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; justify-content: space-between; align-items: center;
   padding: 1.2rem 3rem;
-  background: rgba(2,4,9,0.85);
-  backdrop-filter: blur(20px);
+  background: rgba(2,4,9,0.85); backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border);
 }
 
-.nav-logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  text-decoration: none;
-}
+.nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
 
 .logo-mark {
-  width: 32px;
-  height: 32px;
+  width: 32px; height: 32px;
   background: var(--green);
   clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--bg);
   animation: pulse-logo 2s ease-in-out infinite;
 }
 @keyframes pulse-logo {
@@ -165,369 +128,245 @@ nav {
   50% { box-shadow: 0 0 0 8px rgba(0,255,136,0); }
 }
 
-.logo-text {
-  font-family: var(--font-display);
-  font-size: 1.3rem;
-  font-weight: 800;
-  color: var(--white);
-  letter-spacing: 1px;
-}
+.logo-text { font-family: var(--font-display); font-size: 1.3rem; font-weight: 800; color: var(--white); letter-spacing: 1px; }
 .logo-text span { color: var(--green); }
 
 .nav-right { display: flex; align-items: center; gap: 1rem; }
 
 .nav-tag {
-  font-family: var(--font-mono);
-  font-size: 0.65rem;
-  color: var(--green);
-  border: 1px solid rgba(0,255,136,0.3);
-  padding: 3px 10px;
-  letter-spacing: 2px;
+  font-family: var(--font-mono); font-size: 0.65rem; color: var(--green);
+  border: 1px solid rgba(0,255,136,0.3); padding: 3px 10px; letter-spacing: 2px;
 }
 
 .nav-btn {
-  background: var(--green);
-  color: var(--bg);
-  border: none;
+  background: var(--green); color: var(--bg); border: none;
   padding: 0.6rem 1.4rem;
-  font-family: var(--font-display);
-  font-size: 0.82rem;
-  font-weight: 700;
-  cursor: pointer;
-  letter-spacing: 1px;
-  text-decoration: none;
-  transition: all 0.2s;
+  font-family: var(--font-display); font-size: 0.82rem; font-weight: 700;
+  cursor: pointer; letter-spacing: 1px; text-decoration: none; transition: all 0.2s;
   clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
 }
 .nav-btn:hover { background: var(--cyan); transform: translateY(-1px); }
 
-/* HERO */
 .hero {
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
   text-align: center;
   padding: 8rem 2rem 4rem;
-  position: relative;
-  z-index: 2;
+  position: relative; z-index: 2;
 }
 
 .hero-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: flex; align-items: center; gap: 8px;
   margin-bottom: 2rem;
-  opacity: 0;
-  animation: fadeUp 0.6s 0.2s forwards;
+  opacity: 0; animation: fadeUp 0.6s 0.2s forwards;
 }
 
 .dot-live {
-  width: 8px;
-  height: 8px;
-  background: var(--green);
-  border-radius: 50%;
+  width: 8px; height: 8px; background: var(--green); border-radius: 50%;
   animation: blink 1.5s ease-in-out infinite;
 }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
 
 .eyebrow-text {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--green);
-  letter-spacing: 3px;
-  text-transform: uppercase;
+  font-family: var(--font-mono); font-size: 0.72rem; color: var(--green);
+  letter-spacing: 3px; text-transform: uppercase;
 }
 
 .hero-title {
   font-family: var(--font-display);
   font-size: clamp(3.5rem, 10vw, 8rem);
-  font-weight: 800;
-  line-height: 0.95;
-  letter-spacing: -2px;
+  font-weight: 800; line-height: 0.95; letter-spacing: -2px;
   margin-bottom: 1.5rem;
-  opacity: 0;
-  animation: fadeUp 0.6s 0.4s forwards;
+  opacity: 0; animation: fadeUp 0.6s 0.4s forwards;
 }
 
 .hero-title .line1 { display: block; color: var(--white); }
 .hero-title .line2 {
   display: block;
   background: linear-gradient(90deg, var(--green), var(--cyan));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
-.hero-title .line3 { display: block; color: var(--white); opacity: 0.15; font-size: 0.5em; letter-spacing: 8px; font-weight: 400; font-family: var(--font-mono); margin-top: 0.5rem; }
+.hero-title .line3 {
+  display: block; color: var(--white); opacity: 0.15;
+  font-size: 0.5em; letter-spacing: 8px; font-weight: 400;
+  font-family: var(--font-mono); margin-top: 0.5rem;
+}
 
 .hero-sub {
-  font-size: clamp(1rem, 2vw, 1.2rem);
-  color: var(--muted);
-  max-width: 560px;
-  line-height: 1.7;
+  font-size: clamp(1rem, 2vw, 1.2rem); color: var(--muted);
+  max-width: 600px; line-height: 1.7;
   margin-bottom: 0.5rem;
-  opacity: 0;
-  animation: fadeUp 0.6s 0.5s forwards;
+  opacity: 0; animation: fadeUp 0.6s 0.5s forwards;
   font-weight: 300;
 }
 
 .hero-sub-ar {
-  font-size: 0.95rem;
-  color: rgba(240,244,255,0.55);
-  margin-bottom: 3rem;
-  opacity: 0;
-  animation: fadeUp 0.6s 0.6s forwards;
+  font-size: 0.95rem; color: rgba(240,244,255,0.55);
+  margin-bottom: 2rem;
+  opacity: 0; animation: fadeUp 0.6s 0.6s forwards;
   font-weight: 300;
+  max-width: 600px;
+}
+
+.hero-features {
+  display: flex; gap: 1.2rem; flex-wrap: wrap; justify-content: center;
+  margin-bottom: 2.5rem;
+  opacity: 0; animation: fadeUp 0.6s 0.65s forwards;
+}
+.hero-feat {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(0,255,136,0.05);
+  border: 1px solid rgba(0,255,136,0.15);
+  padding: 6px 14px;
+  font-family: var(--font-mono); font-size: 0.7rem; color: var(--green);
+  letter-spacing: 1px;
 }
 
 .hero-btns {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  justify-content: center;
+  display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center;
   margin-bottom: 4rem;
-  opacity: 0;
-  animation: fadeUp 0.6s 0.7s forwards;
+  opacity: 0; animation: fadeUp 0.6s 0.7s forwards;
 }
 
 .btn-main {
-  position: relative;
-  background: var(--green);
-  color: var(--bg);
-  border: none;
+  position: relative; background: var(--green); color: var(--bg); border: none;
   padding: 1rem 2.5rem;
-  font-family: var(--font-display);
-  font-size: 0.95rem;
-  font-weight: 700;
-  cursor: pointer;
-  letter-spacing: 1px;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  font-family: var(--font-display); font-size: 0.95rem; font-weight: 700;
+  cursor: pointer; letter-spacing: 1px; text-decoration: none;
+  display: inline-flex; align-items: center; gap: 8px;
   clip-path: polygon(12px 0%, 100% 0%, calc(100% - 12px) 100%, 0% 100%);
-  transition: all 0.3s;
-  overflow: hidden;
+  transition: all 0.3s; overflow: hidden;
 }
 .btn-main::before {
-  content: '';
-  position: absolute;
-  inset: 0;
+  content: ''; position: absolute; inset: 0;
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-  transform: translateX(-100%);
-  transition: transform 0.4s;
+  transform: translateX(-100%); transition: transform 0.4s;
 }
 .btn-main:hover::before { transform: translateX(100%); }
 .btn-main:hover { background: var(--cyan); transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,255,136,0.3); }
 
 .btn-sub {
-  background: transparent;
-  color: var(--white);
-  border: 1px solid var(--border);
+  background: transparent; color: var(--white); border: 1px solid var(--border);
   padding: 1rem 2.5rem;
-  font-family: var(--font-display);
-  font-size: 0.95rem;
-  cursor: pointer;
-  letter-spacing: 1px;
-  text-decoration: none;
-  display: inline-block;
-  transition: all 0.3s;
+  font-family: var(--font-display); font-size: 0.95rem;
+  cursor: pointer; letter-spacing: 1px; text-decoration: none;
+  display: inline-block; transition: all 0.3s;
 }
 .btn-sub:hover { border-color: var(--green); color: var(--green); }
 
-/* TICKER */
 .ticker-wrap {
-  width: 100%;
-  overflow: hidden;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: rgba(0,255,136,0.02);
-  padding: 10px 0;
-  position: relative;
-  z-index: 2;
+  width: 100%; overflow: hidden;
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  background: rgba(0,255,136,0.02); padding: 10px 0;
+  position: relative; z-index: 2;
 }
-.ticker {
-  display: flex;
-  gap: 3rem;
-  animation: ticker 25s linear infinite;
-  white-space: nowrap;
-  width: max-content;
-}
-.ticker-item {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-}
+.ticker { display: flex; gap: 3rem; animation: ticker 25s linear infinite; white-space: nowrap; width: max-content; }
+.ticker-item { font-family: var(--font-mono); font-size: 0.75rem; display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .ticker-item .sym { color: var(--white); font-weight: 700; }
 .ticker-item .up { color: var(--green); }
 .ticker-item .down { color: var(--red); }
 @keyframes ticker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 
-/* STATS */
 .stats-section {
-  position: relative;
-  z-index: 2;
-  padding: 5rem 3rem;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
+  position: relative; z-index: 2; padding: 5rem 3rem;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
   background: var(--border);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
 }
 .stat-block {
-  background: var(--bg);
-  padding: 3rem 2rem;
-  text-align: center;
-  position: relative;
-  overflow: hidden;
+  background: var(--bg); padding: 3rem 2rem;
+  text-align: center; position: relative; overflow: hidden;
 }
 .stat-block::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
   background: linear-gradient(90deg, transparent, var(--green), transparent);
-  transform: scaleX(0);
-  transition: transform 0.4s;
+  transform: scaleX(0); transition: transform 0.4s;
 }
 .stat-block:hover::before { transform: scaleX(1); }
 .stat-num {
   font-family: var(--font-mono);
-  font-size: clamp(2.5rem, 5vw, 4rem);
-  color: var(--green);
-  display: block;
-  line-height: 1;
-  margin-bottom: 0.5rem;
+  font-size: clamp(2.2rem, 4.5vw, 3.5rem); color: var(--green);
+  display: block; line-height: 1; margin-bottom: 0.5rem;
 }
 .stat-label { font-size: 0.85rem; color: var(--muted); display: block; margin-bottom: 0.2rem; }
 .stat-label-ar { font-size: 0.75rem; color: rgba(240,244,255,0.45); display: block; }
 
-/* SECTION BASE */
-.section {
-  position: relative;
-  z-index: 2;
-  padding: 7rem 3rem;
-  max-width: 1200px;
-  margin: 0 auto;
-}
+.section { position: relative; z-index: 2; padding: 7rem 3rem; max-width: 1200px; margin: 0 auto; }
 
 .section-tag {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--green);
-  letter-spacing: 4px;
-  text-transform: uppercase;
-  display: block;
-  margin-bottom: 1rem;
-  text-align: center;
+  font-family: var(--font-mono); font-size: 0.68rem; color: var(--green);
+  letter-spacing: 4px; text-transform: uppercase;
+  display: block; margin-bottom: 1rem; text-align: center;
 }
 
 .section-title {
   font-family: var(--font-display);
-  font-size: clamp(2rem, 4vw, 3rem);
-  font-weight: 800;
-  text-align: center;
-  line-height: 1.1;
-  margin-bottom: 0.8rem;
-  letter-spacing: -1px;
+  font-size: clamp(2rem, 4vw, 3rem); font-weight: 800;
+  text-align: center; line-height: 1.1;
+  margin-bottom: 0.8rem; letter-spacing: -1px;
 }
 
 .section-sub {
-  text-align: center;
-  color: var(--muted);
-  font-size: 1rem;
-  margin-bottom: 4rem;
-  font-weight: 300;
+  text-align: center; color: var(--muted);
+  font-size: 1rem; margin-bottom: 4rem; font-weight: 300;
 }
 
-/* HOW IT WORKS */
-.steps-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1.5rem;
-}
+.steps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem; }
 
 .step-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 2rem;
-  position: relative;
-  overflow: hidden;
-  transition: all 0.3s;
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 2rem; position: relative; overflow: hidden; transition: all 0.3s;
 }
 .step-card::after {
-  content: '';
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  height: 1px;
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
   background: linear-gradient(90deg, transparent, var(--green), transparent);
-  transform: scaleX(0);
-  transition: transform 0.4s;
+  transform: scaleX(0); transition: transform 0.4s;
 }
 .step-card:hover { border-color: rgba(0,255,136,0.2); transform: translateY(-4px); }
 .step-card:hover::after { transform: scaleX(1); }
 
 .step-num {
-  font-family: var(--font-mono);
-  font-size: 3rem;
-  color: rgba(0,255,136,0.08);
-  position: absolute;
-  top: 1rem; right: 1rem;
-  font-weight: 700;
-  line-height: 1;
+  font-family: var(--font-mono); font-size: 3rem; color: rgba(0,255,136,0.08);
+  position: absolute; top: 1rem; right: 1rem; font-weight: 700; line-height: 1;
 }
 .step-icon { font-size: 2rem; margin-bottom: 1.2rem; display: block; }
 .step-title { font-family: var(--font-display); font-size: 1rem; font-weight: 700; color: var(--green); margin-bottom: 0.2rem; }
 .step-title-ar { font-size: 0.8rem; color: rgba(240,244,255,0.55); margin-bottom: 0.8rem; }
 .step-desc { font-size: 0.95rem; color: var(--muted); line-height: 1.8; font-weight: 400; }
 
-/* FEATURES */
 .features-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1px;
-  background: var(--border);
-  border: 1px solid var(--border);
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1px;
+  background: var(--border); border: 1px solid var(--border);
 }
-.feature-cell {
-  background: var(--bg);
-  padding: 2.5rem;
-  transition: background 0.3s;
-  position: relative;
-}
+.feature-cell { background: var(--bg); padding: 2.5rem; transition: background 0.3s; position: relative; }
 .feature-cell:hover { background: var(--surface); }
 .feature-icon { font-size: 1.8rem; margin-bottom: 1rem; display: block; }
 .feature-name { font-family: var(--font-display); font-size: 1rem; font-weight: 700; margin-bottom: 0.2rem; }
 .feature-name-ar { font-size: 0.78rem; color: rgba(240,244,255,0.55); margin-bottom: 0.7rem; }
 .feature-desc { font-size: 0.92rem; color: var(--muted); line-height: 1.8; font-weight: 400; }
 
-/* PRICING */
+.feature-badge {
+  display: inline-block; margin-top: 0.8rem;
+  font-family: var(--font-mono); font-size: 0.6rem;
+  letter-spacing: 2px; padding: 2px 8px;
+  background: rgba(255,136,0,0.1); border: 1px solid rgba(255,136,0,0.25); color: var(--orange);
+}
+.feature-badge.green { background: rgba(0,255,136,0.08); border-color: rgba(0,255,136,0.25); color: var(--green); }
+.feature-badge.red   { background: rgba(255,51,85,0.08); border-color: rgba(255,51,85,0.25); color: #ff6680; }
+
 .pricing-wrap {
-  position: relative;
-  z-index: 2;
-  padding: 7rem 3rem;
+  position: relative; z-index: 2; padding: 7rem 3rem;
   background: var(--bg2);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
 }
 .pricing-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
-  max-width: 900px;
-  margin: 0 auto;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem; max-width: 900px; margin: 0 auto;
 }
 .price-card {
-  border: 1px solid var(--border);
-  padding: 3rem 2.5rem;
-  text-align: center;
-  background: var(--bg);
-  position: relative;
-  transition: all 0.3s;
+  border: 1px solid var(--border); padding: 3rem 2.5rem;
+  text-align: center; background: var(--bg);
+  position: relative; transition: all 0.3s;
 }
 .price-card.hot {
   border-color: var(--green);
@@ -535,17 +374,10 @@ nav {
 }
 .price-card.hot::before {
   content: '★ BEST VALUE · الأفضل';
-  position: absolute;
-  top: -1px; left: 50%;
-  transform: translateX(-50%);
-  background: var(--green);
-  color: var(--bg);
-  font-size: 0.68rem;
-  font-weight: 700;
-  padding: 3px 16px;
-  font-family: var(--font-mono);
-  letter-spacing: 1px;
-  white-space: nowrap;
+  position: absolute; top: -1px; left: 50%; transform: translateX(-50%);
+  background: var(--green); color: var(--bg);
+  font-size: 0.68rem; font-weight: 700; padding: 3px 16px;
+  font-family: var(--font-mono); letter-spacing: 1px; white-space: nowrap;
 }
 .price-card:hover { transform: translateY(-4px); box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
 .price-period { font-family: var(--font-mono); font-size: 0.75rem; color: var(--green); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 0.3rem; }
@@ -555,176 +387,66 @@ nav {
 .price-now sup { font-size: 1.5rem; vertical-align: top; margin-top: 0.8rem; color: var(--green); }
 .price-badge {
   display: inline-block;
-  background: rgba(255,51,85,0.15);
-  border: 1px solid rgba(255,51,85,0.3);
+  background: rgba(255,51,85,0.15); border: 1px solid rgba(255,51,85,0.3);
   color: #ff6680;
-  font-size: 0.65rem;
-  font-family: var(--font-mono);
-  padding: 3px 10px;
-  letter-spacing: 2px;
-  margin: 0.5rem 0 2rem;
+  font-size: 0.65rem; font-family: var(--font-mono);
+  padding: 3px 10px; letter-spacing: 2px; margin: 0.5rem 0 2rem;
 }
 .price-features { list-style: none; margin-bottom: 2.5rem; text-align: left; }
 .price-features li {
-  padding: 0.5rem 0;
-  font-size: 0.88rem;
-  color: var(--muted);
+  padding: 0.5rem 0; font-size: 0.88rem; color: var(--muted);
   border-bottom: 1px solid rgba(255,255,255,0.04);
-  font-weight: 300;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  font-weight: 300; display: flex; align-items: center; gap: 8px;
 }
 .price-features li::before { content: '→'; color: var(--green); font-family: var(--font-mono); font-size: 0.7rem; flex-shrink: 0; }
 
-/* TRIAL CTA */
-.trial-wrap {
-  position: relative;
-  z-index: 2;
-  padding: 8rem 3rem;
-  text-align: center;
-  overflow: hidden;
-}
+.trial-wrap { position: relative; z-index: 2; padding: 8rem 3rem; text-align: center; overflow: hidden; }
 .trial-wrap::before {
-  content: '';
-  position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
+  content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   width: 600px; height: 600px;
   background: radial-gradient(circle, rgba(0,255,136,0.06) 0%, transparent 70%);
   pointer-events: none;
 }
-.trial-big {
-  font-family: var(--font-display);
-  font-size: clamp(2.5rem, 6vw, 5rem);
-  font-weight: 800;
-  line-height: 1.1;
-  margin-bottom: 1rem;
-  letter-spacing: -1px;
-}
-.trial-big .highlight {
-  background: linear-gradient(90deg, var(--green), var(--cyan));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
+.trial-big { font-family: var(--font-display); font-size: clamp(2.5rem, 6vw, 5rem); font-weight: 800; line-height: 1.1; margin-bottom: 1rem; letter-spacing: -1px; }
+.trial-big .highlight { background: linear-gradient(90deg, var(--green), var(--cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .trial-sub { font-size: 1rem; color: var(--muted); margin-bottom: 0.4rem; font-weight: 300; }
 .trial-sub-ar { font-size: 0.88rem; color: rgba(240,244,255,0.5); margin-bottom: 3rem; }
 
-/* KEY SECTION */
-.key-wrap {
-  position: relative;
-  z-index: 2;
-  padding: 5rem 3rem;
-  background: var(--bg2);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  text-align: center;
-}
+.key-wrap { position: relative; z-index: 2; padding: 5rem 3rem; background: var(--bg2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: center; }
 .key-inner { max-width: 520px; margin: 0 auto; }
 .key-title { font-family: var(--font-display); font-size: 1.8rem; font-weight: 800; margin-bottom: 0.3rem; }
 .key-title-en { font-family: var(--font-mono); font-size: 0.7rem; color: var(--green); letter-spacing: 3px; margin-bottom: 0.8rem; }
 .key-desc { font-size: 0.9rem; color: var(--muted); margin-bottom: 1.8rem; line-height: 1.7; font-weight: 300; }
 .key-form { display: flex; gap: 0; max-width: 460px; margin: 0 auto 0.8rem; }
-.key-input {
-  flex: 1;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-right: none;
-  color: var(--white);
-  padding: 0.9rem 1.2rem;
-  font-family: var(--font-mono);
-  font-size: 0.9rem;
-  outline: none;
-  direction: ltr;
-  letter-spacing: 2px;
-  text-align: center;
-}
+.key-input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-right: none; color: var(--white); padding: 0.9rem 1.2rem; font-family: var(--font-mono); font-size: 0.9rem; outline: none; direction: ltr; letter-spacing: 2px; text-align: center; }
 .key-input:focus { border-color: var(--green); }
 .key-input::placeholder { color: rgba(255,255,255,0.15); font-size: 0.8rem; }
-.key-submit {
-  background: var(--green);
-  color: var(--bg);
-  border: none;
-  padding: 0.9rem 1.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-  letter-spacing: 1px;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
+.key-submit { background: var(--green); color: var(--bg); border: none; padding: 0.9rem 1.5rem; font-family: var(--font-mono); font-size: 0.8rem; font-weight: 700; cursor: pointer; letter-spacing: 1px; transition: all 0.2s; white-space: nowrap; }
 .key-submit:hover { background: var(--cyan); }
 .key-note { font-size: 0.72rem; color: rgba(255,255,255,0.2); font-family: var(--font-mono); }
 .key-divider { display: flex; align-items: center; gap: 1rem; margin: 2rem auto; max-width: 400px; }
 .key-divider-line { flex: 1; height: 1px; background: var(--border); }
 .key-divider-text { font-family: var(--font-mono); font-size: 0.65rem; color: rgba(255,255,255,0.2); letter-spacing: 2px; }
 
-/* TIPS */
-.tips-wrap {
-  position: relative;
-  z-index: 2;
-  padding: 7rem 3rem;
-}
-.tips-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1.5rem;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-.tip-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 2rem;
-  position: relative;
-  overflow: hidden;
-  transition: all 0.3s;
-}
+.tips-wrap { position: relative; z-index: 2; padding: 7rem 3rem; }
+.tips-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; max-width: 1200px; margin: 0 auto; }
+.tip-card { background: var(--surface); border: 1px solid var(--border); padding: 2rem; position: relative; overflow: hidden; transition: all 0.3s; }
 .tip-card:hover { border-color: rgba(0,255,136,0.2); transform: translateY(-3px); }
 .tip-icon { font-size: 1.5rem; margin-bottom: 1rem; display: block; }
 .tip-title { font-family: var(--font-display); font-size: 0.95rem; font-weight: 700; color: var(--green); margin-bottom: 0.7rem; line-height: 1.4; }
 .tip-body { font-size: 0.85rem; color: var(--muted); line-height: 1.8; font-weight: 300; }
 .tip-tag { display: inline-block; margin-top: 1rem; font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 2px; color: rgba(0,255,136,0.4); border: 1px solid rgba(0,255,136,0.15); padding: 2px 8px; }
 
-/* DISCLAIMER */
-.disclaimer {
-  max-width: 1200px;
-  margin: 2rem auto 0;
-  border: 1px solid rgba(255,255,255,0.06);
-  padding: 1.5rem 2rem;
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
-}
+.disclaimer { max-width: 1200px; margin: 2rem auto 0; border: 1px solid rgba(255,255,255,0.06); padding: 1.5rem 2rem; display: flex; gap: 1rem; align-items: flex-start; }
 .disclaimer-icon { font-size: 1.2rem; flex-shrink: 0; margin-top: 2px; }
 .disclaimer-text { font-size: 0.8rem; color: rgba(240,244,255,0.55); line-height: 1.8; font-weight: 300; }
 
-/* TESTIMONIALS */
-.testi-wrap {
-  position: relative;
-  z-index: 2;
-  padding: 7rem 3rem;
-  background: var(--bg2);
-  border-top: 1px solid var(--border);
-}
-.testi-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1.5rem;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-.testi-card {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  padding: 2rem;
-  transition: all 0.3s;
-  position: relative;
-}
+.testi-wrap { position: relative; z-index: 2; padding: 7rem 3rem; background: var(--bg2); border-top: 1px solid var(--border); }
+.testi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; max-width: 1200px; margin: 0 auto; }
+.testi-card { background: var(--bg); border: 1px solid var(--border); padding: 2rem; transition: all 0.3s; position: relative; }
 .testi-card:hover { border-color: rgba(0,255,136,0.2); transform: translateY(-3px); }
 .testi-stars { color: var(--green); font-size: 0.8rem; letter-spacing: 2px; margin-bottom: 1rem; font-family: var(--font-mono); }
-.testi-text { font-size: 0.88rem; color: var(--muted); line-height: 1.8; margin-bottom: 1.5rem; font-weight: 300; }
+.testi-text { font-size: 0.92rem; color: var(--muted); line-height: 1.9; margin-bottom: 1.5rem; font-weight: 300; }
 .testi-author { display: flex; align-items: center; gap: 1rem; border-top: 1px solid var(--border); padding-top: 1.2rem; }
 .testi-avatar {
   width: 40px; height: 40px;
@@ -739,73 +461,20 @@ nav {
 .testi-loc { font-size: 0.72rem; color: var(--muted); }
 .testi-badge { margin-right: auto; font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 1px; color: var(--green); border: 1px solid rgba(0,255,136,0.2); padding: 2px 8px; }
 
-/* DIVIDER */
-.line-divider {
-  width: 100%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--border), transparent);
-  position: relative;
-  z-index: 2;
-}
+.line-divider { width: 100%; height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); position: relative; z-index: 2; }
 
-/* FOOTER */
-footer {
-  position: relative;
-  z-index: 2;
-  padding: 2.5rem 3rem;
-  border-top: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 1rem;
-}
+footer { position: relative; z-index: 2; padding: 2.5rem 3rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
 .footer-logo { font-family: var(--font-display); font-size: 1.1rem; font-weight: 800; color: var(--white); }
 .footer-logo span { color: var(--green); }
 .footer-copy { font-family: var(--font-mono); font-size: 0.65rem; color: rgba(255,255,255,0.2); letter-spacing: 1px; }
 .social-links { display: flex; gap: 10px; }
-.social-btn {
-  display: flex; align-items: center; gap: 6px;
-  padding: 7px 14px;
-  border: 1px solid var(--border);
-  text-decoration: none;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--muted);
-  transition: all 0.2s;
-  letter-spacing: 1px;
-}
+.social-btn { display: flex; align-items: center; gap: 6px; padding: 7px 14px; border: 1px solid var(--border); text-decoration: none; font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); transition: all 0.2s; letter-spacing: 1px; }
 .social-btn:hover { border-color: var(--green); color: var(--green); }
 
-/* PAIN SECTION */
-.pain-wrap {
-  position: relative;
-  z-index: 2;
-  padding: 7rem 3rem;
-  background: var(--bg2);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-.pain-grid {
-  max-width: 1100px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: 1fr 1px 1fr;
-  gap: 4rem;
-  align-items: start;
-}
+.pain-wrap { position: relative; z-index: 2; padding: 7rem 3rem; background: var(--bg2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.pain-grid { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1px 1fr; gap: 4rem; align-items: start; }
 .pain-divider { background: var(--border); }
-.pain-tag {
-  font-family: var(--font-mono);
-  font-size: 0.65rem;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  padding: 3px 10px;
-  border: 1px solid rgba(255,51,85,0.3);
-  color: rgba(255,102,128,0.8);
-  display: inline-block;
-  margin-bottom: 1.2rem;
-}
+.pain-tag { font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 3px; text-transform: uppercase; padding: 3px 10px; border: 1px solid rgba(255,51,85,0.3); color: rgba(255,102,128,0.8); display: inline-block; margin-bottom: 1.2rem; }
 .pain-tag.green { border-color: rgba(0,255,136,0.3); color: var(--green); }
 .pain-title { font-family: var(--font-display); font-size: clamp(1.5rem, 3vw, 2.2rem); font-weight: 800; line-height: 1.2; margin-bottom: 1.5rem; letter-spacing: -0.5px; }
 .pain-red { color: var(--red); }
@@ -815,24 +484,44 @@ footer {
 .pain-check { color: var(--green); font-family: var(--font-mono); flex-shrink: 0; }
 .pain-en { font-size: 0.75rem; color: rgba(240,244,255,0.5); display: block; margin-top: 2px; }
 
-/* ANIMATIONS */
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(24px); }
-  to { opacity: 1; transform: translateY(0); }
+/* News Strip — Live indicator */
+.news-strip {
+  position: relative; z-index: 2;
+  background: linear-gradient(90deg, rgba(255,136,0,0.05), rgba(255,51,85,0.05));
+  border-top: 1px solid rgba(255,136,0,0.2);
+  border-bottom: 1px solid rgba(255,136,0,0.2);
+  padding: 10px 0; overflow: hidden;
 }
+.news-strip-inner {
+  display: flex; align-items: center; gap: 2rem;
+  animation: ticker 30s linear infinite;
+  white-space: nowrap; width: max-content;
+}
+.news-pulse {
+  display: inline-block; width: 8px; height: 8px;
+  background: var(--orange); border-radius: 50%;
+  animation: blink 1.2s ease-in-out infinite;
+  margin-left: 12px;
+}
+.news-tag {
+  font-family: var(--font-mono); font-size: 0.65rem;
+  color: var(--orange); letter-spacing: 3px;
+  padding: 0 1rem;
+}
+.news-item {
+  font-size: 0.78rem; color: var(--muted);
+  display: flex; align-items: center; gap: 8px;
+}
+.news-item .sym { color: var(--green); font-weight: 700; font-family: var(--font-mono); }
 
-.reveal {
-  opacity: 0;
-  transform: translateY(24px);
-  transition: opacity 0.6s ease, transform 0.6s ease;
-}
+@keyframes fadeUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+.reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.6s ease, transform 0.6s ease; }
 .reveal.visible { opacity: 1; transform: translateY(0); }
 
-/* MOBILE */
 @media (max-width: 768px) {
   nav { padding: 1rem 1.5rem; }
   .nav-tag { display: none; }
-  .stats-section { grid-template-columns: 1fr; }
+  .stats-section { grid-template-columns: 1fr 1fr; }
   .pain-grid { grid-template-columns: 1fr; }
   .pain-divider { display: none; }
   .section { padding: 5rem 1.5rem; }
@@ -849,8 +538,7 @@ footer {
 </head>
 <body>
 
-<!-- SEO Hidden -->
-<div style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;" aria-hidden="true">stock scanner US stocks AI trading signals توصيات أسهم أمريكية رادار الأسهم best stocks AAPL NVDA TSLA META MSFT AMZN GOOGL AMD PLTR SOFI stock screener day trading swing trading momentum stocks NASDAQ NYSE technical analysis stock picks real-time alerts intraday scalping أسهم أمريكية مسح الأسهم بوت تداول تداول يومي فرص تداول أفضل الأسهم توصيات تداول تحليل فني إشارات تداول أسهم اليوم سوق الأسهم الأمريكي مضاربة أسهم أفضل أسهم للشراء ناسداك نيويورك استثمار خوارزميات تداول ذكاء اصطناعي</div>
+<div style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;" aria-hidden="true">stock scanner US stocks AI trading signals توصيات أسهم أمريكية رادار الأسهم best stocks AAPL NVDA TSLA META MSFT AMZN GOOGL AMD PLTR SOFI stock screener day trading swing trading momentum stocks NASDAQ NYSE technical analysis stock picks real-time alerts intraday scalping أسهم أمريكية مسح الأسهم بوت تداول تداول يومي فرص تداول أفضل الأسهم توصيات تداول تحليل فني إشارات تداول أسهم اليوم سوق الأسهم الأمريكي مضاربة أسهم أفضل أسهم للشراء ناسداك نيويورك استثمار خوارزميات تداول ذكاء اصطناعي أخبار لحظية زخم انفجارات</div>
 <canvas id="bgCanvas"></canvas>
 <div class="grid-overlay"></div>
 <div class="scanline"></div>
@@ -876,13 +564,41 @@ footer {
     <span class="line2">MARKET</span>
     <span class="line3">امسح السوق · اكتشف الفرص · تداول بذكاء</span>
   </h1>
-  <p class="hero-sub">AI-powered scanner analyzing 1000+ US stocks in real-time. Real signals, real targets, zero noise.</p>
-  <p class="hero-sub-ar">رادار ذكي يمسح فوق 1000 سهم أمريكي في ثواني — فرص حقيقية مبنية على خوارزميات</p>
+  <p class="hero-sub">AI scanner analyzing 1200+ US stocks with live news, momentum detection & explosive moves alerts.</p>
+  <p class="hero-sub-ar">رادار ذكي يمسح +1200 سهم أمريكي مع أخبار لحظية ورصد الانفجارات واستهداف الزخم</p>
+
+  <div class="hero-features">
+    <span class="hero-feat">📰 أخبار لحظية</span>
+    <span class="hero-feat">🚀 رصد الانفجارات</span>
+    <span class="hero-feat">⚡ استهداف الزخم</span>
+    <span class="hero-feat">🎯 1200+ سهم</span>
+  </div>
+
   <div class="hero-btns">
     <a href="https://radaraz.com/trial" class="btn-main">⚡ Try Free 24h · جرّب مجاناً</a>
     <a href="#pricing" class="btn-sub">View Plans · الأسعار</a>
   </div>
 </section>
+
+<!-- LIVE NEWS STRIP -->
+<div class="news-strip">
+  <div class="news-strip-inner">
+    <span class="news-pulse"></span>
+    <span class="news-tag">📰 LIVE NEWS · أخبار لحظية</span>
+    <span class="news-item"><span class="sym">NVDA</span> · أرباح فصلية تفوق التوقعات</span>
+    <span class="news-item"><span class="sym">TSLA</span> · إطلاق سيارة جديدة</span>
+    <span class="news-item"><span class="sym">AMD</span> · شراكة مع Microsoft</span>
+    <span class="news-item"><span class="sym">PLTR</span> · عقد حكومي جديد</span>
+    <span class="news-item"><span class="sym">META</span> · توسع في الذكاء الاصطناعي</span>
+    <span class="news-pulse"></span>
+    <span class="news-tag">📰 LIVE NEWS · أخبار لحظية</span>
+    <span class="news-item"><span class="sym">NVDA</span> · أرباح فصلية تفوق التوقعات</span>
+    <span class="news-item"><span class="sym">TSLA</span> · إطلاق سيارة جديدة</span>
+    <span class="news-item"><span class="sym">AMD</span> · شراكة مع Microsoft</span>
+    <span class="news-item"><span class="sym">PLTR</span> · عقد حكومي جديد</span>
+    <span class="news-item"><span class="sym">META</span> · توسع في الذكاء الاصطناعي</span>
+  </div>
+</div>
 
 <!-- TICKER -->
 <div class="ticker-wrap">
@@ -897,7 +613,6 @@ footer {
     <span class="ticker-item"><span class="sym">AMD</span> $152.40 <span class="up">▲ +4.2%</span></span>
     <span class="ticker-item"><span class="sym">PLTR</span> $21.80 <span class="up">▲ +6.1%</span></span>
     <span class="ticker-item"><span class="sym">SOFI</span> $8.45 <span class="up">▲ +2.8%</span></span>
-    <!-- DUPLICATE FOR LOOP -->
     <span class="ticker-item"><span class="sym">AAPL</span> $189.45 <span class="up">▲ +1.2%</span></span>
     <span class="ticker-item"><span class="sym">NVDA</span> $721.33 <span class="up">▲ +3.4%</span></span>
     <span class="ticker-item"><span class="sym">TSLA</span> $248.10 <span class="down">▼ -0.8%</span></span>
@@ -914,18 +629,23 @@ footer {
 <!-- STATS -->
 <div class="stats-section">
   <div class="stat-block reveal">
-    <span class="stat-num">1000+</span>
-    <span class="stat-label">Stocks Scanned Daily</span>
+    <span class="stat-num">1200+</span>
+    <span class="stat-label">Stocks Scanned</span>
     <span class="stat-label-ar">سهم يفحص يومياً</span>
   </div>
   <div class="stat-block reveal">
+    <span class="stat-num">📰</span>
+    <span class="stat-label">Live News</span>
+    <span class="stat-label-ar">أخبار لحظية</span>
+  </div>
+  <div class="stat-block reveal">
     <span class="stat-num">99</span>
-    <span class="stat-label">Maximum Smart Score</span>
-    <span class="stat-label-ar">أعلى سكور ممكن</span>
+    <span class="stat-label">Smart Score Max</span>
+    <span class="stat-label-ar">أعلى سكور</span>
   </div>
   <div class="stat-block reveal">
     <span class="stat-num">24H</span>
-    <span class="stat-label">Free Trial Access</span>
+    <span class="stat-label">Free Trial</span>
     <span class="stat-label-ar">تجربة مجانية</span>
   </div>
 </div>
@@ -939,21 +659,21 @@ footer {
       <span class="pain-tag">The Old Way · الطريقة القديمة</span>
       <h2 class="pain-title">Random Tips<br><span class="pain-red">No Data</span></h2>
       <ul class="pain-list">
-        <li><span class="pain-x">✕</span><span>Emotion-based tips with zero data<br><em class="pain-en">توصيات عشوائية بلا بيانات</em></span></li>
-        <li><span class="pain-x">✕</span><span>Unreliable Telegram & X groups<br><em class="pain-en">مجموعات غير موثوقة</em></span></li>
-        <li><span class="pain-x">✕</span><span>No entry, no stop loss, no targets<br><em class="pain-en">بلا دخول أو وقف خسارة</em></span></li>
-        <li><span class="pain-x">✕</span><span>Inconsistent results, no system<br><em class="pain-en">نتائج متذبذبة بلا منهجية</em></span></li>
+        <li><span class="pain-x">✕</span><span>توصيات عشوائية بلا بيانات أو تحليل<br><em class="pain-en">Emotion-based tips with zero data</em></span></li>
+        <li><span class="pain-x">✕</span><span>مجموعات تيليجرام وتويتر غير موثوقة<br><em class="pain-en">Unreliable Telegram & X groups</em></span></li>
+        <li><span class="pain-x">✕</span><span>بدون دخول أو وقف خسارة أو أهداف<br><em class="pain-en">No entry, no stop loss, no targets</em></span></li>
+        <li><span class="pain-x">✕</span><span>تفويت الأخبار اللحظية المهمة<br><em class="pain-en">Missing live market-moving news</em></span></li>
       </ul>
     </div>
     <div class="pain-divider"></div>
     <div class="reveal">
       <span class="pain-tag green">RadarAZ Way · طريقة رادار</span>
-      <h2 class="pain-title">Algorithms<br><span style="color:var(--green)">Not Opinions</span></h2>
+      <h2 class="pain-title">Data<br><span style="color:var(--green)">+ Speed</span></h2>
       <ul class="pain-list">
-        <li><span class="pain-check">✓</span><span>AI algorithms trained on real strategies<br><em class="pain-en">خوارزميات مدربة على استراتيجيات حقيقية</em></span></li>
-        <li><span class="pain-check">✓</span><span>Entry + Stop Loss + 3 Targets auto-generated<br><em class="pain-en">دخول + وقف خسارة + 3 أهداف تلقائية</em></span></li>
-        <li><span class="pain-check">✓</span><span>Smart Score 30-99 per stock<br><em class="pain-en">سكور ذكي لكل سهم</em></span></li>
-        <li><span class="pain-check">✓</span><span>Built on 15+ years market experience<br><em class="pain-en">مبني على خبرة +15 سنة</em></span></li>
+        <li><span class="pain-check">✓</span><span>خوارزميات مدربة على استراتيجيات حقيقية<br><em class="pain-en">AI algorithms trained on real strategies</em></span></li>
+        <li><span class="pain-check">✓</span><span>دخول + وقف خسارة + 3 أهداف تلقائية<br><em class="pain-en">Entry + Stop Loss + 3 Targets auto-generated</em></span></li>
+        <li><span class="pain-check">✓</span><span>أخبار لحظية مدمجة لكل سهم<br><em class="pain-en">Live news integrated for every stock</em></span></li>
+        <li><span class="pain-check">✓</span><span>رصد الانفجارات واستهداف الزخم<br><em class="pain-en">Explosive moves & momentum detection</em></span></li>
       </ul>
     </div>
   </div>
@@ -969,29 +689,29 @@ footer {
       <span class="step-num">01</span>
       <span class="step-icon">🔍</span>
       <div class="step-title">Full Market Scan</div>
-      <div class="step-title-ar">الفحص الشامل</div>
-      <p class="step-desc">Scans 1000+ US stocks daily looking for the highest-potential opportunities.</p>
+      <div class="step-title-ar">فحص شامل</div>
+      <p class="step-desc">يمسح +1200 سهم أمريكي يومياً بحثاً عن أعلى الفرص</p>
     </div>
     <div class="step-card reveal">
       <span class="step-num">02</span>
-      <span class="step-icon">⚡</span>
-      <div class="step-title">Smart 20% Filter</div>
-      <div class="step-title-ar">الفلتر الذكي</div>
-      <p class="step-desc">Filters stocks showing real momentum — eliminating noise instantly.</p>
+      <span class="step-icon">📰</span>
+      <div class="step-title">Live News Check</div>
+      <div class="step-title-ar">فحص الأخبار</div>
+      <p class="step-desc">يرصد آخر الأخبار اللحظية المؤثرة على كل سهم</p>
     </div>
     <div class="step-card reveal">
       <span class="step-num">03</span>
-      <span class="step-icon">🎯</span>
-      <div class="step-title">Smart Score 30-99</div>
-      <div class="step-title-ar">السكور الذكي</div>
-      <p class="step-desc">Every stock gets a precision score reflecting opportunity strength.</p>
+      <span class="step-icon">⚡</span>
+      <div class="step-title">Momentum Filter</div>
+      <div class="step-title-ar">فلتر الزخم</div>
+      <p class="step-desc">يلتقط الأسهم بزخم حقيقي ويتجاهل الضوضاء</p>
     </div>
     <div class="step-card reveal">
       <span class="step-num">04</span>
-      <span class="step-icon">💰</span>
-      <div class="step-title">Make Your Move</div>
-      <div class="step-title-ar">قرار مدروس</div>
-      <p class="step-desc">Trade with confidence using real data — not guesswork.</p>
+      <span class="step-icon">🎯</span>
+      <div class="step-title">Smart Score 30-99</div>
+      <div class="step-title-ar">السكور الذكي</div>
+      <p class="step-desc">كل سهم يحصل على درجة دقيقة تعكس قوة الفرصة</p>
     </div>
   </div>
 </section>
@@ -1006,39 +726,61 @@ footer {
   <div class="features-grid">
     <div class="feature-cell reveal">
       <span class="feature-icon">📡</span>
-      <div class="feature-name">1000+ Stocks Scan</div>
-      <div class="feature-name-ar">فحص 1000+ سهم</div>
-      <p class="feature-desc">Full US market coverage in real-time — every session.</p>
+      <div class="feature-name">1200+ Stocks Daily</div>
+      <div class="feature-name-ar">فحص +1200 سهم يومياً</div>
+      <p class="feature-desc">تغطية كاملة للسوق الأمريكي بشكل لحظي مع تحديث القائمة تلقائياً</p>
+      <span class="feature-badge green">PREMIUM</span>
+    </div>
+    <div class="feature-cell reveal">
+      <span class="feature-icon">📰</span>
+      <div class="feature-name">Live News Engine</div>
+      <div class="feature-name-ar">محرك الأخبار اللحظية</div>
+      <p class="feature-desc">يرصد آخر الأخبار لكل سهم خلال 24 ساعة ويرفع السكور للأسهم ذات الأخبار القوية</p>
+      <span class="feature-badge">NEW</span>
+    </div>
+    <div class="feature-cell reveal">
+      <span class="feature-icon">🚀</span>
+      <div class="feature-name">Explosive Detection</div>
+      <div class="feature-name-ar">رصد الانفجارات 🚨</div>
+      <p class="feature-desc">يكتشف الأسهم التي تتحرك بقوة قبل وصولها للقمم — تنبيهات HOT للفرص الذهبية</p>
+      <span class="feature-badge red">HOT</span>
+    </div>
+    <div class="feature-cell reveal">
+      <span class="feature-icon">⚡</span>
+      <div class="feature-name">Momentum Targeting</div>
+      <div class="feature-name-ar">استهداف الزخم</div>
+      <p class="feature-desc">RVOL ذكي يكشف الأسهم بحجم تداول استثنائي (10x-300x متوسط الحجم العادي)</p>
+      <span class="feature-badge green">SMART</span>
     </div>
     <div class="feature-cell reveal">
       <span class="feature-icon">🎯</span>
-      <div class="feature-name">Score 30 to 99</div>
-      <div class="feature-name-ar">سكور من 30 إلى 99</div>
-      <p class="feature-desc">Intelligent rating system identifying the strongest opportunities with precision.</p>
+      <div class="feature-name">Smart Score 30-99</div>
+      <div class="feature-name-ar">سكور ذكي من 30 إلى 99</div>
+      <p class="feature-desc">نظام تقييم ذكي يحدد الفرص الأقوى بدقة بناءً على الزخم والحجم والأخبار</p>
+    </div>
+    <div class="feature-cell reveal">
+      <span class="feature-icon">🎁</span>
+      <div class="feature-name">Auto Targets + SL</div>
+      <div class="feature-name-ar">أهداف ووقف خسارة تلقائي</div>
+      <p class="feature-desc">3 أهداف (T1, T2, T3) ووقف خسارة محسوب تلقائياً لكل إشارة بناءً على ATR</p>
+    </div>
+    <div class="feature-cell reveal">
+      <span class="feature-icon">🏆</span>
+      <div class="feature-name">Leaders + Speculation</div>
+      <div class="feature-name-ar">قيادي + مضاربة</div>
+      <p class="feature-desc">تصنيف ذكي يفصل الأسهم القيادية الكبيرة عن أسهم المضاربة الصغيرة</p>
     </div>
     <div class="feature-cell reveal">
       <span class="feature-icon">🔒</span>
       <div class="feature-name">Private Access Key</div>
-      <div class="feature-name-ar">وصول بمفتاح خاص</div>
-      <p class="feature-desc">Your account, your key. Fully secured and private.</p>
-    </div>
-    <div class="feature-cell reveal">
-      <span class="feature-icon">⚡</span>
-      <div class="feature-name">Smart 20% Filter</div>
-      <div class="feature-name-ar">فلتر 20% الذكي</div>
-      <p class="feature-desc">Highlights only stocks with real momentum. Zero noise.</p>
+      <div class="feature-name-ar">مفتاح وصول خاص</div>
+      <p class="feature-desc">حسابك ومفتاحك الخاص. حماية كاملة وخصوصية تامة</p>
     </div>
     <div class="feature-cell reveal">
       <span class="feature-icon">📱</span>
       <div class="feature-name">Any Device</div>
-      <div class="feature-name-ar">يعمل من أي جهاز</div>
-      <p class="feature-desc">Mobile, tablet, or desktop — trade from anywhere.</p>
-    </div>
-    <div class="feature-cell reveal">
-      <span class="feature-icon">🕐</span>
-      <div class="feature-name">24-Hour Free Trial</div>
-      <div class="feature-name-ar">تجربة مجانية 24 ساعة</div>
-      <p class="feature-desc">Full access, no credit card. Try everything before you subscribe.</p>
+      <div class="feature-name-ar">من أي جهاز</div>
+      <p class="feature-desc">جوال، تابلت، أو كمبيوتر — تداول من أي مكان</p>
     </div>
   </div>
 </section>
@@ -1048,7 +790,7 @@ footer {
   <div style="max-width:1200px; margin:0 auto;">
     <span class="section-tag reveal">Pricing · الأسعار</span>
     <h2 class="section-title reveal">Choose Your <span style="color:var(--green)">Plan</span></h2>
-    <p class="section-sub reveal">اختر خطتك · Transparent pricing, no surprises</p>
+    <p class="section-sub reveal">اختر خطتك · أسعار شفافة بلا مفاجآت</p>
     <div class="pricing-grid">
       <div class="price-card reveal">
         <div class="price-period">MONTHLY · شهري</div>
@@ -1057,10 +799,12 @@ footer {
         <div class="price-now"><sup>$</sup>18</div>
         <div class="price-badge">⏳ LIMITED OFFER · عرض محدود</div>
         <ul class="price-features">
-          <li>Full access to all features · وصول كامل</li>
-          <li>Daily scan 1000+ stocks · فحص يومي</li>
-          <li>Smart Score 30-99 · سكور ذكي</li>
-          <li>Technical support · دعم فني</li>
+          <li>وصول كامل لكل المميزات · Full access</li>
+          <li>فحص يومي +1200 سهم · Daily scan</li>
+          <li>أخبار لحظية لكل سهم · Live news</li>
+          <li>رصد الانفجارات + الزخم · Hot alerts</li>
+          <li>أهداف + وقف خسارة تلقائي · Auto targets</li>
+          <li>دعم فني · Technical support</li>
         </ul>
         <a href="https://radaraz.gumroad.com/l/kbkpl" class="btn-sub" target="_blank" style="display:block; text-align:center;">Subscribe · اشترك الآن</a>
       </div>
@@ -1071,10 +815,11 @@ footer {
         <div class="price-now"><sup>$</sup>40</div>
         <div class="price-badge">⏳ LIMITED OFFER · عرض محدود</div>
         <ul class="price-features">
-          <li>Everything in Monthly · كل مميزات الشهري</li>
-          <li>Maximum savings · أعلى توفير</li>
-          <li>Priority support · أولوية الدعم</li>
-          <li>New features first · ميزات جديدة أولاً</li>
+          <li>كل مميزات الشهري · Everything in Monthly</li>
+          <li>أعلى توفير · Maximum savings</li>
+          <li>أولوية الدعم · Priority support</li>
+          <li>ميزات جديدة أولاً · New features first</li>
+          <li>تقارير أداء شهرية · Monthly reports</li>
         </ul>
         <a href="https://radaraz.gumroad.com/l/ereqyb" class="btn-main" target="_blank" style="display:block; text-align:center; justify-content:center;">Save Now · اشترك وفّر</a>
       </div>
@@ -1100,14 +845,14 @@ footer {
     <div class="key-title">Already Subscribed? · عندك مفتاح؟</div>
     <div class="key-title-en">ENTER YOUR ACCESS KEY · أدخل مفتاح الدخول</div>
     <p class="key-desc">
-      Enter your private access key to go directly to the radar.<br>
-      <span style="font-size:0.8rem; color:rgba(255,255,255,0.2);">أدخل مفتاحك للوصول المباشر للرادار</span>
+      أدخل مفتاحك الخاص للوصول المباشر للرادار<br>
+      <span style="font-size:0.8rem; color:rgba(255,255,255,0.2);">Enter your private access key to go directly to the radar</span>
     </p>
     <div class="key-form">
       <input type="text" class="key-input" id="accessKeyInput" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19" oninput="formatKey(this)" />
       <button class="key-submit" onclick="enterKey()">ENTER →</button>
     </div>
-    <p class="key-note">Your key is sent to your email after subscribing · المفتاح يُرسل لإيميلك بعد الاشتراك</p>
+    <p class="key-note">المفتاح يُرسل لإيميلك بعد الاشتراك · Your key is sent after subscribing</p>
     <div class="key-divider">
       <span class="key-divider-line"></span>
       <span class="key-divider-text">OR · أو</span>
@@ -1122,100 +867,112 @@ footer {
   <div style="max-width:1200px; margin:0 auto;">
     <span class="section-tag reveal">Pro Tips · نصائح المتداولين</span>
     <h2 class="section-title reveal">From <span style="color:var(--green)">Market Experience</span></h2>
-    <p class="section-sub reveal">من خبرة السوق · Practical tips for smarter trading</p>
+    <p class="section-sub reveal">من خبرة السوق · نصائح عملية للتداول الذكي</p>
     <div class="tips-grid">
       <div class="tip-card reveal">
         <span class="tip-icon">🕐</span>
-        <div class="tip-title">Best Time to Run the Radar · أفضل وقت للرادار</div>
-        <p class="tip-body">Wait one full hour after market open. The first hour is chaotic — after that, real opportunities become clear. انتظر ساعة بعد الفتح لتهدأ الحركة.</p>
+        <div class="tip-title">أفضل وقت لتشغيل الرادار</div>
+        <p class="tip-body">انتظر ساعة بعد فتح السوق. أول ساعة فوضوية — بعدها تتضح الفرص الحقيقية. شغّل الرادار بعد 5:30 مساءً بتوقيت الرياض للحصول على أفضل النتائج.</p>
         <span class="tip-tag">TIMING · التوقيت</span>
       </div>
       <div class="tip-card reveal">
+        <span class="tip-icon">📰</span>
+        <div class="tip-title">انتبه للأخبار اللحظية</div>
+        <p class="tip-body">السهم مع خبر قوي + RVOL عالي = انفجار محتمل. الأخبار اللحظية في الرادار تظهر لك الأسهم التي تحركها أخبار حقيقية لا شائعات.</p>
+        <span class="tip-tag">NEWS · الأخبار</span>
+      </div>
+      <div class="tip-card reveal">
+        <span class="tip-icon">🚀</span>
+        <div class="tip-title">الانفجارات لا تنتظر طويلاً</div>
+        <p class="tip-body">عند ظهور تنبيه HOT 🚨 تحرّك بسرعة لكن بحذر. الأسهم HOT هي التي جمعت كل الشروط: زخم + حجم + خبر + سعر منخفض.</p>
+        <span class="tip-tag">HOT · انفجار</span>
+      </div>
+      <div class="tip-card reveal">
         <span class="tip-icon">⚡</span>
-        <div class="tip-title">Don't Chase Every Target · لا تطمع بكل الأهداف</div>
-        <p class="tip-body">Taking partial profits is real profit. Discipline is the edge. الانضباط هو الربح — الاكتفاء ببعض الأهداف يحميك من الانعكاس.</p>
+        <div class="tip-title">لا تطمع بكل الأهداف</div>
+        <p class="tip-body">الانضباط هو الربح — الاكتفاء بـ T1 يحميك من الانعكاس. الأرباح الجزئية أرباح حقيقية، لا تنتظر T3 دائماً.</p>
         <span class="tip-tag">DISCIPLINE · الانضباط</span>
       </div>
       <div class="tip-card reveal">
         <span class="tip-icon">🛡️</span>
-        <div class="tip-title">Stop Loss Is Not Optional · وقف الخسارة ضرورة</div>
-        <p class="tip-body">Every trade needs a stop loss. Protecting capital is the #1 rule. حماية رأس المال هي القاعدة الأولى في التداول.</p>
-        <span class="tip-tag">RISK MGMT · إدارة المخاطر</span>
+        <div class="tip-title">وقف الخسارة ضرورة</div>
+        <p class="tip-body">كل صفقة تحتاج وقف خسارة. حماية رأس المال هي القاعدة الأولى في التداول الذكي. الرادار يحدد لك وقف الخسارة تلقائياً.</p>
+        <span class="tip-tag">RISK · إدارة المخاطر</span>
       </div>
       <div class="tip-card reveal">
         <span class="tip-icon">🔐</span>
-        <div class="tip-title">100% Secure Payment · دفعك آمن 100%</div>
-        <p class="tip-body">We use Gumroad — a trusted global payment gateway. We never store your card info. نستخدم Gumroad، بوابة دفع عالمية موثوقة.</p>
+        <div class="tip-title">دفعك آمن 100%</div>
+        <p class="tip-body">نستخدم Gumroad، بوابة دفع عالمية موثوقة. لا نخزّن بيانات بطاقتك أبداً. خصوصية كاملة وأمان تام.</p>
         <span class="tip-tag">SECURITY · الأمان</span>
       </div>
     </div>
     <div class="disclaimer reveal">
       <span class="disclaimer-icon">⚠️</span>
       <p class="disclaimer-text">
-        <strong style="color:rgba(255,255,255,0.5);">Disclaimer:</strong> RadarAZ is an analytical tool for decision support only — not financial advice. Trading involves risk. Past performance does not guarantee future results. Shariah compliance is your personal responsibility. · رادار الأسهم أداة تحليلية فقط وليست توصية مالية. التداول ينطوي على مخاطر. الشرعية مسؤوليتك الشخصية.
+        <strong style="color:rgba(255,255,255,0.5);">إخلاء مسؤولية:</strong> رادار الأسهم أداة تحليلية فقط وليست توصية مالية. التداول ينطوي على مخاطر. الأداء السابق لا يضمن النتائج المستقبلية. · RadarAZ is an analytical tool for decision support only — not financial advice. Trading involves risk.
       </p>
     </div>
   </div>
 </div>
 
-<!-- TESTIMONIALS -->
+<!-- TESTIMONIALS - ALL ARABIC -->
 <div class="testi-wrap">
   <div style="max-width:1200px; margin:0 auto;">
     <span class="section-tag reveal">Testimonials · آراء المشتركين</span>
-    <h2 class="section-title reveal">What <span style="color:var(--green)">Traders Say</span></h2>
-    <p class="section-sub reveal">ماذا قال المتداولون · Real reviews from real users</p>
+    <h2 class="section-title reveal">ماذا قال <span style="color:var(--green)">المتداولون</span></h2>
+    <p class="section-sub reveal">آراء حقيقية من مشتركين حقيقيين</p>
     <div class="testi-grid">
       <div class="testi-card reveal">
         <div class="testi-stars">★★★★★</div>
-        <p class="testi-text">"Changed my trading completely. I used to follow random Telegram channels and lose more than I made. RadarAZ gives you real numbers and a clear score — no guessing. First week, 3 profitable trades."</p>
+        <p class="testi-text">"غيّر طريقة تداولي بالكامل. كنت أتابع قنوات تيليجرام عشوائية وأخسر أكثر مما أربح. رادار AZ يعطيك أرقام حقيقية وسكور واضح — بدون تخمين. أول أسبوع حققت 3 صفقات رابحة، والميزة الأقوى الأخبار اللحظية."</p>
         <div class="testi-author">
           <div class="testi-avatar">خ</div>
-          <div><div class="testi-name">Khalid Al-Otaibi</div><div class="testi-loc">🇸🇦 Riyadh, Saudi Arabia</div></div>
+          <div><div class="testi-name">خالد العتيبي</div><div class="testi-loc">🇸🇦 الرياض، السعودية</div></div>
           <div class="testi-badge">MONTHLY</div>
         </div>
       </div>
       <div class="testi-card reveal">
         <div class="testi-stars">★★★★★</div>
-        <p class="testi-text">"Got the quarterly plan and never looked back. The smart filter saves hours of research. I run it exactly one hour after open as recommended — results are excellent."</p>
+        <p class="testi-text">"اشتركت في الخطة الربع سنوية ولم أندم. فلتر الزخم الذكي يوفّر ساعات من البحث اليدوي. أشغّل الرادار ساعة بعد فتح السوق كما يوصى، والنتائج ممتازة. تنبيهات HOT 🚨 أنقذتني من تفويت فرص ذهبية."</p>
         <div class="testi-author">
           <div class="testi-avatar">م</div>
-          <div><div class="testi-name">Mohammed Al-Shammari</div><div class="testi-loc">🇸🇦 Jeddah, Saudi Arabia</div></div>
+          <div><div class="testi-name">محمد الشمري</div><div class="testi-loc">🇸🇦 جدة، السعودية</div></div>
           <div class="testi-badge">QUARTERLY</div>
         </div>
       </div>
       <div class="testi-card reveal">
         <div class="testi-stars">★★★★★</div>
-        <p class="testi-text">"Tried the free trial then subscribed immediately. The smart score is incredibly accurate — stocks scoring above 80 moved beautifully. Recommend to every day trader."</p>
+        <p class="testi-text">"جربت التجربة المجانية ثم اشتركت فوراً. السكور الذكي دقيق بشكل لا يصدق — الأسهم بسكور فوق 80 تحركت بشكل جميل. أنصح به لكل متداول يومي يبحث عن أداة احترافية. الأخبار اللحظية ميزة لا تُقدر بثمن."</p>
         <div class="testi-author">
           <div class="testi-avatar">ف</div>
-          <div><div class="testi-name">Faisal Al-Mutairi</div><div class="testi-loc">🇰🇼 Kuwait</div></div>
+          <div><div class="testi-name">فيصل المطيري</div><div class="testi-loc">🇰🇼 الكويت</div></div>
           <div class="testi-badge">MONTHLY</div>
         </div>
       </div>
       <div class="testi-card reveal">
         <div class="testi-stars">★★★★★</div>
-        <p class="testi-text">"Tired of emotion-based tips on X. RadarAZ works quietly with data. Used it for two months, very satisfied — especially the stop loss reminders."</p>
+        <p class="testi-text">"تعبت من التوصيات العاطفية على تويتر. رادار AZ يعمل بهدوء بالبيانات فقط. استخدمته شهرين، راضي جداً — خاصة تنبيهات وقف الخسارة وميزة رصد الانفجارات التي تكشف الأسهم قبل ارتفاعها."</p>
         <div class="testi-author">
           <div class="testi-avatar">ع</div>
-          <div><div class="testi-name">Abdullah Al-Zahrani</div><div class="testi-loc">🇸🇦 Dammam, Saudi Arabia</div></div>
+          <div><div class="testi-name">عبدالله الزهراني</div><div class="testi-loc">🇸🇦 الدمام، السعودية</div></div>
           <div class="testi-badge">QUARTERLY</div>
         </div>
       </div>
       <div class="testi-card reveal">
         <div class="testi-stars">★★★★★</div>
-        <p class="testi-text">"Simple interface, works perfectly on mobile. I run it after 4:30 PM when the US market opens — pick 2-3 trades. Worth every penny."</p>
+        <p class="testi-text">"واجهة بسيطة، تعمل بشكل ممتاز على الجوال. أشغّله بعد 4:30 مساءً عند فتح السوق الأمريكي، أختار 2-3 صفقات بناءً على أعلى الأسهم سكوراً. كل ريال دفعته في محله. ميزة استهداف الزخم رهيبة."</p>
         <div class="testi-author">
           <div class="testi-avatar">س</div>
-          <div><div class="testi-name">Sultan Al-Mansouri</div><div class="testi-loc">🇦🇪 Dubai, UAE</div></div>
+          <div><div class="testi-name">سلطان المنصوري</div><div class="testi-loc">🇦🇪 دبي، الإمارات</div></div>
           <div class="testi-badge">MONTHLY</div>
         </div>
       </div>
       <div class="testi-card reveal">
         <div class="testi-stars">★★★★★</div>
-        <p class="testi-text">"You can feel the 15 years of experience in the algorithms. The stocks it surfaces aren't random. Tried it for a week then went straight for the 3-month plan."</p>
+        <p class="testi-text">"خبرة الـ 15 سنة تحس فيها داخل الخوارزميات. الأسهم اللي يطرحها مش عشوائية، كلها فيها سبب — زخم أو خبر أو حجم. جربته أسبوع، ودخلت مباشرة على الخطة الربع سنوية. أكثر من 1200 سهم بضغطة زر، مستحيل أعملها يدوياً."</p>
         <div class="testi-author">
           <div class="testi-avatar">ن</div>
-          <div><div class="testi-name">Nasser Al-Qahtani</div><div class="testi-loc">🇸🇦 Mecca, Saudi Arabia</div></div>
+          <div><div class="testi-name">ناصر القحطاني</div><div class="testi-loc">🇸🇦 مكة، السعودية</div></div>
           <div class="testi-badge">QUARTERLY</div>
         </div>
       </div>
@@ -1229,25 +986,19 @@ footer {
     <a href="https://x.com/radarazpro" target="_blank" class="social-btn">𝕏 Follow</a>
     <a href="https://t.me/radarazpro2" target="_blank" class="social-btn">✈️ Telegram</a>
   </div>
-  <div class="footer-copy">© 2026 RADARAZ · ALL RIGHTS RESERVED · جميع الحقوق محفوظة</div>
+  <div class="footer-copy">© 2026 RADARAZ · جميع الحقوق محفوظة</div>
 </footer>
 
 <script>
-// CANVAS ANIMATION
 const canvas = document.getElementById('bgCanvas');
 const ctx = canvas.getContext('2d');
-
-function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
 resize();
 window.addEventListener('resize', resize);
 
 const particles = [];
 const lines = [];
 
-// Create candlestick-like particles
 for (let i = 0; i < 60; i++) {
   particles.push({
     x: Math.random() * window.innerWidth,
@@ -1260,7 +1011,6 @@ for (let i = 0; i < 60; i++) {
   });
 }
 
-// Create chart lines
 for (let i = 0; i < 3; i++) {
   const points = [];
   let y = Math.random() * window.innerHeight;
@@ -1270,8 +1020,7 @@ for (let i = 0; i < 3; i++) {
     points.push({ x, y });
   }
   lines.push({
-    points,
-    offset: 0,
+    points, offset: 0,
     speed: Math.random() * 0.5 + 0.2,
     opacity: Math.random() * 0.06 + 0.02,
     color: Math.random() > 0.5 ? '#00ff88' : '#0066ff',
@@ -1280,8 +1029,6 @@ for (let i = 0; i < 3; i++) {
 
 function animate() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Draw chart lines
   lines.forEach(line => {
     ctx.beginPath();
     ctx.strokeStyle = line.color;
@@ -1301,8 +1048,6 @@ function animate() {
       line.points.shift();
     }
   });
-
-  // Draw particles
   particles.forEach(p => {
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
@@ -1316,13 +1061,11 @@ function animate() {
     if (p.y < 0) p.y = canvas.height;
     if (p.y > canvas.height) p.y = 0;
   });
-
   ctx.globalAlpha = 1;
   requestAnimationFrame(animate);
 }
 animate();
 
-// REVEAL ON SCROLL
 const reveals = document.querySelectorAll('.reveal');
 const observer = new IntersectionObserver((entries) => {
   entries.forEach((entry, i) => {
@@ -1334,7 +1077,6 @@ const observer = new IntersectionObserver((entries) => {
 }, { threshold: 0.1 });
 reveals.forEach(el => observer.observe(el));
 
-// KEY INPUT FORMAT
 function formatKey(input) {
   let value = input.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   let formatted = '';
@@ -1348,7 +1090,7 @@ function formatKey(input) {
 function enterKey() {
   const key = document.getElementById('accessKeyInput').value.trim();
   if (key.length < 19) {
-    alert('Please enter a valid key · يرجى إدخال مفتاح صحيح');
+    alert('يرجى إدخال مفتاح صحيح · Please enter a valid key');
     return;
   }
   window.location.href = 'https://radaraz.com/app?key=' + encodeURIComponent(key);
