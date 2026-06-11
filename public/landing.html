@@ -400,6 +400,87 @@ nav {
 }
 .price-features li::before { content: '→'; color: var(--green); font-family: var(--font-mono); font-size: 0.7rem; flex-shrink: 0; }
 
+/* ─── RADAR TRADER COMING SOON CARD ─── */
+.pricing-3col { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important; max-width: 1200px !important; }
+
+.price-card.coming-soon {
+  position: relative;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, var(--bg) 0%, rgba(99, 102, 241, 0.04) 100%);
+  overflow: hidden;
+}
+.price-card.coming-soon::after {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #818cf8, var(--cyan), transparent);
+  animation: shine 3s linear infinite;
+}
+@keyframes shine {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.coming-badge {
+  position: absolute; top: -1px; left: 50%; transform: translateX(-50%);
+  background: linear-gradient(90deg, #818cf8, var(--cyan));
+  color: var(--bg);
+  font-family: var(--font-mono); font-size: 0.65rem; font-weight: 700;
+  padding: 3px 16px; letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.bot-preview {
+  background: rgba(2, 4, 9, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 1.2rem 1rem;
+  margin: 1rem 0 1.5rem;
+  text-align: center;
+}
+.bot-header { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 0.6rem; }
+.bot-emoji { font-size: 1.2rem; }
+.bot-title { font-family: var(--font-display); font-weight: 800; font-size: 0.9rem; letter-spacing: 1px; color: var(--white); }
+.bot-title span { color: #818cf8; }
+
+.bot-status { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 0.8rem; }
+.bot-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+  animation: blink 1.5s ease-in-out infinite;
+  box-shadow: 0 0 8px var(--green);
+}
+.bot-status-text { font-size: 0.7rem; color: var(--green); font-family: var(--font-mono); }
+
+.bot-chart {
+  width: 100%; height: 60px; margin-bottom: 0.8rem;
+}
+.bot-chart svg { width: 100%; height: 100%; }
+
+.bot-stats { display: flex; justify-content: space-around; gap: 0.5rem; }
+.bot-stat { display: flex; flex-direction: column; align-items: center; }
+.bot-stat-num {
+  font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700;
+  color: var(--green); line-height: 1;
+}
+.bot-stat-label { font-size: 0.65rem; color: rgba(255,255,255,0.4); margin-top: 4px; }
+
+.btn-coming {
+  display: block; text-align: center;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: #a5b4fc;
+  padding: 0.9rem 1.5rem;
+  font-family: var(--font-display); font-size: 0.9rem; font-weight: 700;
+  cursor: pointer; letter-spacing: 1px; text-decoration: none;
+  transition: all 0.3s;
+}
+.btn-coming:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: #818cf8;
+  color: #c7d2fe;
+  transform: translateY(-2px);
+}
+
 .trial-wrap { position: relative; z-index: 2; padding: 8rem 3rem; text-align: center; overflow: hidden; }
 .trial-wrap::before {
   content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -791,7 +872,7 @@ footer { position: relative; z-index: 2; padding: 2.5rem 3rem; border-top: 1px s
     <span class="section-tag reveal">Pricing · الأسعار</span>
     <h2 class="section-title reveal">Choose Your <span style="color:var(--green)">Plan</span></h2>
     <p class="section-sub reveal">اختر خطتك · أسعار شفافة بلا مفاجآت</p>
-    <div class="pricing-grid">
+    <div class="pricing-grid pricing-3col">
       <div class="price-card reveal">
         <div class="price-period">MONTHLY · شهري</div>
         <div class="price-period-ar">اشتراك شهري</div>
@@ -822,6 +903,58 @@ footer { position: relative; z-index: 2; padding: 2.5rem 3rem; border-top: 1px s
           <li>تقارير أداء شهرية · Monthly reports</li>
         </ul>
         <a href="https://radaraz.gumroad.com/l/ereqyb" class="btn-main" target="_blank" style="display:block; text-align:center; justify-content:center;">Save Now · اشترك وفّر</a>
+      </div>
+
+      <!-- ─── RADAR TRADER COMING SOON ─── -->
+      <div class="price-card coming-soon reveal">
+        <div class="coming-badge">🚀 COMING SOON · قريباً</div>
+        <div class="price-period">RADAR TRADER</div>
+        <div class="price-period-ar">التداول الآلي</div>
+
+        <!-- صورة البوت Mock -->
+        <div class="bot-preview">
+          <div class="bot-header">
+            <span class="bot-emoji">🤖</span>
+            <div class="bot-title">RADAR <span>TRADER</span></div>
+          </div>
+          <div class="bot-status">
+            <span class="bot-dot"></span>
+            <span class="bot-status-text">السوق مفتوح</span>
+          </div>
+          <div class="bot-chart">
+            <svg viewBox="0 0 200 60" preserveAspectRatio="none">
+              <polyline points="0,40 25,20 50,30 75,45 100,35 125,25 150,30 175,15 200,20"
+                fill="none" stroke="#00ff88" stroke-width="2"/>
+              <polyline points="0,40 25,20 50,30 75,45 100,35 125,25 150,30 175,15 200,20"
+                fill="url(#grad)" stroke="none" opacity="0.2"/>
+              <defs>
+                <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#00ff88"/>
+                  <stop offset="100%" stop-color="#00ff88" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <div class="bot-stats">
+            <div class="bot-stat">
+              <span class="bot-stat-num">+8.4%</span>
+              <span class="bot-stat-label">عائد شهري</span>
+            </div>
+            <div class="bot-stat">
+              <span class="bot-stat-num">72%</span>
+              <span class="bot-stat-label">دقة الإشارات</span>
+            </div>
+          </div>
+        </div>
+
+        <ul class="price-features">
+          <li>تداول آلي مرتبط بحسابك · Auto trading</li>
+          <li>يفتح ويغلق الصفقات تلقائياً · Smart entries</li>
+          <li>وقف خسارة وأهداف تلقائية · Auto SL & TP</li>
+          <li>متابعة لحظية من جوالك · Live monitoring</li>
+          <li>يعمل بنفس إشارات الرادار · Same signals</li>
+        </ul>
+        <a href="#" class="btn-coming">🔔 سجّل اهتمامك · Notify me</a>
       </div>
     </div>
   </div>
@@ -924,7 +1057,7 @@ footer { position: relative; z-index: 2; padding: 2.5rem 3rem; border-top: 1px s
     <div class="testi-grid">
       <div class="testi-card reveal">
         <div class="testi-stars">★★★★★</div>
-        <p class="testi-text">"غيّر طريقة تداولي بالكامل. كنت أتابع قنوات تيليجرام عشوائية وأخسر أكثر مما أربح. رادار AZ يعطيك أرقام حقيقية وسكور واضح — بدون تخمين. أول أسبوع حققت 3 صفقات رابحة، والميزة الأقوى الأخبار اللحظية."</p>
+        <p class="testi-text">"غيّر طريقة تداولي بالكامل. كنت أتابع قنوات تيليجرام عشوائية وأخسر أكثر مما أربح. الرادار يعطيك أرقام حقيقية وسكور واضح — بدون تخمين. أول أسبوع حققت 3 صفقات رابحة، والميزة الأقوى الأخبار اللحظية."</p>
         <div class="testi-author">
           <div class="testi-avatar">خ</div>
           <div><div class="testi-name">خالد العتيبي</div><div class="testi-loc">🇸🇦 الرياض، السعودية</div></div>
@@ -951,7 +1084,7 @@ footer { position: relative; z-index: 2; padding: 2.5rem 3rem; border-top: 1px s
       </div>
       <div class="testi-card reveal">
         <div class="testi-stars">★★★★★</div>
-        <p class="testi-text">"تعبت من التوصيات العاطفية على تويتر. رادار AZ يعمل بهدوء بالبيانات فقط. استخدمته شهرين، راضي جداً — خاصة تنبيهات وقف الخسارة وميزة رصد الانفجارات التي تكشف الأسهم قبل ارتفاعها."</p>
+        <p class="testi-text">"تعبت من التوصيات العاطفية على تويتر. الرادار يعمل بهدوء بالبيانات فقط. استخدمته شهرين، راضي جداً — خاصة تنبيهات وقف الخسارة وميزة رصد الانفجارات التي تكشف الأسهم قبل ارتفاعها."</p>
         <div class="testi-author">
           <div class="testi-avatar">ع</div>
           <div><div class="testi-name">عبدالله الزهراني</div><div class="testi-loc">🇸🇦 الدمام، السعودية</div></div>
