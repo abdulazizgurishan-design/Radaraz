@@ -195,16 +195,16 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
             </div>
             <div style={{ display: "flex", gap: 12, marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 11, color: "#94a3b8" }}>
-                دخل: <strong style={{ color: "#60a5fa", fontFamily: "monospace" }}>${(s.entry_price || 0).toFixed(2)}</strong>
+                دخل: <strong style={{ color: "#60a5fa", fontFamily: "monospace", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>${(s.entry_price || 0).toFixed(2)}</strong>
               </span>
               {s.change_pct != null && (
-                <span dir="ltr" style={{ fontSize: 11, fontWeight: 700, color: (s.change_pct || 0) >= 0 ? "#34d399" : "#f87171", fontFamily: "monospace" }}>
-                  {(s.change_pct || 0) >= 0 ? "+" : ""}{parseFloat(s.change_pct).toFixed(2)}% {(s.change_pct || 0) >= 0 ? "▲" : "▼"}
+                <span style={{ fontSize: 11, fontWeight: 700, color: (s.change_pct || 0) >= 0 ? "#34d399" : "#f87171", fontFamily: "monospace", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>
+                  {`${(s.change_pct || 0) >= 0 ? "▲ +" : "▼ "}${parseFloat(s.change_pct).toFixed(2)}%`}
                 </span>
               )}
               {s.rvol != null && (
-                <span style={{ fontSize: 11, color: (s.rvol || 0) >= 3 ? "#fbbf24" : "#475569" }}>
-                  RVOL: {parseFloat(s.rvol).toFixed(1)}x
+                <span style={{ fontSize: 11, color: (s.rvol || 0) >= 3 ? "#fbbf24" : "#475569", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>
+                  {`RVOL: ${parseFloat(s.rvol).toFixed(1)}x`}
                 </span>
               )}
               {s.ma_signal && (
@@ -216,11 +216,11 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
                 </span>
               )}
               {s.rsi != null && (
-                <span dir="ltr" style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 12,
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 12, direction: "ltr", unicodeBidi: "isolate", display: "inline-block",
                   background: s.rsi >= 72 ? "rgba(248,113,113,0.12)" : (s.rsi >= 50 && s.rsi <= 65) ? "rgba(52,211,153,0.12)" : "rgba(148,163,184,0.1)",
                   color: s.rsi >= 72 ? "#f87171" : (s.rsi >= 50 && s.rsi <= 65) ? "#34d399" : "#94a3b8",
                   border: `1px solid ${s.rsi >= 72 ? "rgba(248,113,113,0.3)" : (s.rsi >= 50 && s.rsi <= 65) ? "rgba(52,211,153,0.3)" : "rgba(148,163,184,0.25)"}` }}>
-                  📊 RSI {s.rsi}
+                  {`📊 RSI ${s.rsi}`}
                 </span>
               )}
               {s.news_age_hours != null && (
