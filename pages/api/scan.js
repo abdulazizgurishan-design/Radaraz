@@ -194,7 +194,8 @@ function calcSMA(prices, period) {
   return slice.reduce((a, b) => a + b, 0) / period;
 }
 
-// ─── ATR حقيقي من 14 شمعة (الطريقة الاحترافية) ───────────────────
+// ─── ATR14 بتمهيد Wilder (المعيار العالمي — مطابق TradingView) ──────
+// الشموع القديمة تؤثر بوزن نسبي متناقص، أدق من المتوسط البسيط
 function calcATR14(bars) {
   if (!bars || bars.length < 15) return null;
   const trs = [];
@@ -202,8 +203,39 @@ function calcATR14(bars) {
     const h = bars[i].h, l = bars[i].l, pc = bars[i-1].c;
     trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
   }
-  const last14 = trs.slice(-14);
-  return last14.reduce((a, b) => a + b, 0) / 14;
+  if (trs.length < 14) return null;
+  // أول ATR = متوسط بسيط لأول 14 شمعة
+  let atr = trs.slice(0, 14).reduce((a, b) => a + b, 0) / 14;
+  // تمهيد Wilder على باقي الشموع: ATR = (ATR_prev × 13 + TR) / 14
+  for (let i = 14; i < trs.length; i++) {
+    atr = (atr * 13 + trs[i]) / 14;
+  }
+  return atr;
+}
+
+// ─── RSI14 بتمهيد Wilder (مؤشر القوة النسبية) ───────────────────
+// >75 = إشباع شرائي (خطر) · 55-65 = زخم فتي صحي (مثالي)
+function calcRSI14(bars) {
+  if (!bars || bars.length < 15) return null;
+  const closes = bars.map(b => b.c);
+  let gains = 0, losses = 0;
+  // أول 14 تغيير
+  for (let i = 1; i <= 14; i++) {
+    const diff = closes[i] - closes[i-1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / 14, avgLoss = losses / 14;
+  // تمهيد Wilder على الباقي
+  for (let i = 15; i < closes.length; i++) {
+    const diff = closes[i] - closes[i-1];
+    const g = diff >= 0 ? diff : 0;
+    const l = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * 13 + g) / 14;
+    avgLoss = (avgLoss * 13 + l) / 14;
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
 }
 
 // ─── دعم/مقاومة من القمم والقيعان (آخر 20 شمعة) ──────────────────
@@ -351,9 +383,9 @@ async function fetchMACrossover(symbol) {
       if (jump > weekMaxJump) weekMaxJump = jump;
     }
 
-    return { maBonus: Math.min(maBonus, 20), maSignal, bars, weekMaxJump: +weekMaxJump.toFixed(1) };
+    return { maBonus: Math.min(maBonus, 20), maSignal, bars, weekMaxJump: +weekMaxJump.toFixed(1), rsi: calcRSI14(bars) };
   } catch {
-    return { maBonus: 0, maSignal: null, bars: null, weekMaxJump: 0 };
+    return { maBonus: 0, maSignal: null, bars: null, weekMaxJump: 0, rsi: null };
   }
 }
 
@@ -363,6 +395,14 @@ export default async function handler(req, res) {
   const isSubscriber = req.query.sub === "1";  // مسح المشترك لا يحفظ
 
   try {
+    // ⚡ فوليوم ديناميكي حسب توقيت السوق (Pre-Market vs الجلسة الرسمية)
+    //   قبل الافتتاح: حجم أقل (50K) لاصطياد الفرص المبكرة جداً
+    //   أثناء الجلسة: حجم أعلى (300K) لضمان سيولة حقيقية
+    const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const etH = etNow.getHours(), etM = etNow.getMinutes();
+    const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
+    const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
+
     // 1. جلب كامل السوق (طلب واحد!)
     const allTickers = await fetchFullMarket();
     const t1 = Date.now();
@@ -382,7 +422,7 @@ export default async function handler(req, res) {
       if (!t.ticker || t.ticker.includes(".")) continue;
       if (!/^[A-Z]{1,6}$/.test(t.ticker))       continue;
       if (price < FILTER.MIN_PRICE || price > FILTER.MAX_PRICE) continue;
-      if (volume < FILTER.MIN_VOLUME)           continue;
+      if (volume < minVolume)                   continue;
 
       const prevClose = prev.c || day.o || price;
 
@@ -417,8 +457,18 @@ export default async function handler(req, res) {
       const ep = calcEP(s);
       const levels = calcLevels(s);
       const is_hot = ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
-      const type = s.changePct > 0 && s.volume > 5e6 && s.price > 10 ? "قيادي" : "مضاربة";
-      return { ...s, ep, levels, is_hot, type,
+
+      // 🏆 تصنيف القيادي الاحترافي:
+      // القيادي الحقيقي = سعر مؤسسي + سيولة دولارية ضخمة + حركة غير جنونية
+      // (نتجنّب تصنيف السهم البيني الرخيص المنفجر كـ"قيادي" خطأً)
+      const dollarVolume = s.price * s.volume;       // السيولة الدولارية الفعلية
+      const isLeader =
+        s.price >= 20 &&                              // سعر مؤسسي (مو بيني)
+        dollarVolume >= 100_000_000 &&                // سيولة دولارية ≥ 100M
+        s.changePct <= 40;                            // حركة منطقية (مو مضاربة جنونية)
+      const type = isLeader ? "قيادي" : "مضاربة";
+
+      return { ...s, ep, levels, is_hot, type, dollarVolume,
         signal: ep >= 80 ? "💥 انفجاري" : ep >= 60 ? "🔥 عالي" : "👀 مراقبة" };
     });
 
@@ -435,18 +485,30 @@ export default async function handler(req, res) {
     // 5.5 ⚡ تطبيق تقاطع المتوسطات (MA9 × MA21 + EMA) على المرشّحين فقط
     //     يرفع EP فقط — لا يستبعد أي سهم
     await Promise.all(top.map(async (s) => {
-      const { maBonus, maSignal, bars, weekMaxJump } = await fetchMACrossover(s.symbol);
+      const { maBonus, maSignal, bars, weekMaxJump, rsi } = await fetchMACrossover(s.symbol);
       if (maBonus > 0) {
         s.ep = Math.min(s.ep + maBonus, 99);  // يرفع EP بحد أقصى 99
         s.ma_signal = maSignal;
         s.ma_bonus = maBonus;
-        // أعد تقييم HOT و signal بعد رفع EP
-        s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
-        s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
       } else {
         s.ma_signal = null;
         s.ma_bonus = 0;
       }
+
+      // 📊 RSI14 — تعديل EP حسب القوة النسبية:
+      //   >78 إشباع شرائي خطر (خصم) · 80+ خطر شديد
+      //   50-65 زخم فتي صحي (مكافأة) · يحمي من شراء القمم
+      s.rsi = rsi != null ? Math.round(rsi) : null;
+      if (rsi != null) {
+        if      (rsi >= 80) s.ep = Math.max(0, s.ep - 8);   // إشباع شديد
+        else if (rsi >= 72) s.ep = Math.max(0, s.ep - 4);   // إشباع
+        else if (rsi >= 50 && rsi <= 65) s.ep = Math.min(99, s.ep + 3); // زخم فتي صحي
+      }
+
+      // أعد تقييم HOT و signal بعد كل التعديلات
+      s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
+      s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
+
       // 🎯 أهداف ووقف ذكي (ATR14 + دعم/مقاومة + فيبوناتشي)
       // يعيد استخدام نفس بيانات الشموع — صفر تكلفة إضافية
       if (bars && bars.length >= 15) {
@@ -501,6 +563,7 @@ export default async function handler(req, res) {
       vwap:       s.vwap,
       ma_signal:  s.ma_signal || null,
       ma_bonus:   s.ma_bonus || 0,
+      rsi:        s.rsi ?? null,
       early_watch: s.early_watch || false,
       week_max_jump: s.week_max_jump ?? null,
       levels:     s.levels,
