@@ -177,8 +177,11 @@ export default async function handler(req, res) {
     for (const t of allTickers) {
       const day  = t.day || {};
       const prev = t.prevDay || {};
-      const price  = day.c || prev.c || 0;
-      const volume = day.v || 0;
+      const min  = t.min || {};
+      // السعر الحالي: آخر صفقة → آخر دقيقة → إغلاق اليوم → إغلاق أمس
+      const price  = t.lastTrade?.p || min.c || day.c || prev.c || 0;
+      // الحجم: حجم اليوم → حجم آخر دقيقة المتراكم
+      const volume = day.v || min.av || 0;
 
       // فلترة أساسية
       if (!t.ticker || t.ticker.includes(".")) continue;
@@ -186,10 +189,15 @@ export default async function handler(req, res) {
       if (price < FILTER.MIN_PRICE || price > FILTER.MAX_PRICE) continue;
       if (volume < FILTER.MIN_VOLUME)           continue;
 
-      const changePct = t.todaysChangePerc || 0;
+      const prevClose = prev.c || day.o || price;
+
+      // التغيير %: من Polygon → fallback يدوي من السعر الحالي مقابل إغلاق أمس
+      let changePct = t.todaysChangePerc;
+      if (changePct == null || changePct === 0) {
+        changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
+      }
       if (Math.abs(changePct) < FILTER.MIN_CHANGE) continue;
 
-      const prevClose = prev.c || price;
       const gapPct = (day.o && prevClose) ? ((day.o - prevClose) / prevClose) * 100 : 0;
       const rvol = (prev.v && prev.v > 0) ? +(volume / prev.v).toFixed(1) : 0;
 
@@ -198,9 +206,9 @@ export default async function handler(req, res) {
         price:     +price.toFixed(2),
         open:      day.o || price,
         volume,
-        vwap:      day.vw || 0,
-        high:      day.h || price,
-        low:       day.l || price,
+        vwap:      day.vw || min.vw || 0,
+        high:      day.h || min.h || price,
+        low:       day.l || min.l || price,
         prevClose,
         changePct: +changePct.toFixed(2),
         gapPct:    +gapPct.toFixed(2),
