@@ -74,7 +74,10 @@ function buildTweet(signals, date, mode = "signals") {
   } else {
     signals.slice(0, 8).forEach(s => {
       const hot = s.is_hot ? " 🚨" : "";
-      lines.push(`📡 $${s.symbol}${hot} (EP: ${s.ep || s.score}%)`);
+      const early = s.early_watch ? " 🔍" : "";
+      const chg = s.change_pct != null ? ` ${s.change_pct >= 0 ? "+" : ""}${parseFloat(s.change_pct).toFixed(1)}%${s.change_pct >= 0 ? "▲" : "▼"}` : "";
+      const ma = s.ma_signal ? ` · ${s.ma_signal}` : "";
+      lines.push(`📡 $${s.symbol}${hot}${early} (EP: ${s.ep || s.score}%)${chg}${ma}`);
       lines.push(`  دخل: $${(s.entry_price || 0).toFixed(2)}`);
       lines.push(`  🎯 T1: $${(s.target1 || 0).toFixed(2)} | T2: $${(s.target2 || 0).toFixed(2)} | T3: $${(s.target3 || 0).toFixed(2)}`);
       lines.push(`  🛑 وقف: $${(s.stop_loss || 0).toFixed(2)}\n`);
@@ -177,6 +180,13 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
               <span style={{ fontSize: 19, fontWeight: 800, color: "#f1f5f9", fontFamily: "monospace" }}>${s.symbol}</span>
+              {s.early_watch && (
+                <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6,
+                  background: "linear-gradient(135deg,rgba(16,185,129,0.25),rgba(5,150,105,0.18))",
+                  color: "#34d399", border: "1px solid rgba(52,211,153,0.5)", letterSpacing: "0.5px" }}>
+                  🔍 رصد مبكر
+                </span>
+              )}
               {hot && <HotBadge />}
               <EPBadge ep={ep} />
               {s.type && (
@@ -188,13 +198,29 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
                 دخل: <strong style={{ color: "#60a5fa", fontFamily: "monospace" }}>${(s.entry_price || 0).toFixed(2)}</strong>
               </span>
               {s.change_pct != null && (
-                <span style={{ fontSize: 11, fontWeight: 700, color: (s.change_pct || 0) >= 0 ? "#34d399" : "#f87171", fontFamily: "monospace" }}>
-                  {(s.change_pct || 0) >= 0 ? "▲" : "▼"} {(s.change_pct || 0) >= 0 ? "+" : ""}{parseFloat(s.change_pct).toFixed(2)}%
+                <span dir="ltr" style={{ fontSize: 11, fontWeight: 700, color: (s.change_pct || 0) >= 0 ? "#34d399" : "#f87171", fontFamily: "monospace" }}>
+                  {(s.change_pct || 0) >= 0 ? "+" : ""}{parseFloat(s.change_pct).toFixed(2)}% {(s.change_pct || 0) >= 0 ? "▲" : "▼"}
                 </span>
               )}
               {s.rvol != null && (
                 <span style={{ fontSize: 11, color: (s.rvol || 0) >= 3 ? "#fbbf24" : "#475569" }}>
                   RVOL: {parseFloat(s.rvol).toFixed(1)}x
+                </span>
+              )}
+              {s.ma_signal && (
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 12,
+                  background: s.ma_signal.includes("ذهبي") ? "rgba(251,191,36,0.12)" : "rgba(52,211,153,0.12)",
+                  color: s.ma_signal.includes("ذهبي") ? "#fbbf24" : "#34d399",
+                  border: `1px solid ${s.ma_signal.includes("ذهبي") ? "rgba(251,191,36,0.3)" : "rgba(52,211,153,0.3)"}` }}>
+                  📈 {s.ma_signal}
+                </span>
+              )}
+              {s.rsi != null && (
+                <span dir="ltr" style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 12,
+                  background: s.rsi >= 72 ? "rgba(248,113,113,0.12)" : (s.rsi >= 50 && s.rsi <= 65) ? "rgba(52,211,153,0.12)" : "rgba(148,163,184,0.1)",
+                  color: s.rsi >= 72 ? "#f87171" : (s.rsi >= 50 && s.rsi <= 65) ? "#34d399" : "#94a3b8",
+                  border: `1px solid ${s.rsi >= 72 ? "rgba(248,113,113,0.3)" : (s.rsi >= 50 && s.rsi <= 65) ? "rgba(52,211,153,0.3)" : "rgba(148,163,184,0.25)"}` }}>
+                  📊 RSI {s.rsi}
                 </span>
               )}
               {s.news_age_hours != null && (
