@@ -57,6 +57,12 @@ const T = {
     atr: "ATR",
     weekQuiet: "هدوء أسبوعي",
     earlyTooltip: "كل المؤشرات الفنية مطابقة + بداية ارتفاع + هدوء أسبوعي = فرصة قبل الانفجار",
+    favorites: "⭐ المفضلة",
+    addFav: "أضف للمفضلة",
+    removeFav: "إزالة من المفضلة",
+    noFavs: "لا توجد أسهم في المفضلة",
+    noFavsSub: "اضغط ⭐ على أي سهم لحفظه في مفضلتك الخاصة",
+    favPrivate: "مفضلتك خاصة بك — محفوظة في جهازك فقط",
   },
   en: {
     title: "Radar",
@@ -114,6 +120,12 @@ const T = {
     atr: "ATR",
     weekQuiet: "Weekly Quiet",
     earlyTooltip: "All technicals aligned + early move + weekly quiet = opportunity before breakout",
+    favorites: "⭐ Favorites",
+    addFav: "Add to favorites",
+    removeFav: "Remove from favorites",
+    noFavs: "No favorite stocks yet",
+    noFavsSub: "Tap ⭐ on any stock to save it to your private list",
+    favPrivate: "Your favorites are private — saved on your device only",
   }
 };
 
@@ -249,7 +261,7 @@ function MABadge({ signal }) {
   );
 }
 
-function Card({ r, idx, t, isEarly }) {
+function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
   const [open, setOpen] = useState(false);
   const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
   const formatPct   = useCallback((n) => (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%", []);
@@ -306,6 +318,17 @@ function Card({ r, idx, t, isEarly }) {
           <div style={S.cardScore(scoreColor)}>{r.score}</div>
           <ScoreBar score={r.score} />
         </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleFav && onToggleFav(r.symbol); }}
+          title={isFav ? t.removeFav : t.addFav}
+          style={{
+            background: "transparent", border: "none", cursor: "pointer",
+            fontSize: 18, padding: "2px 4px", lineHeight: 1,
+            color: isFav ? "#ffd700" : "rgba(255,255,255,0.25)",
+            transition: "color 0.2s, transform 0.15s",
+            filter: isFav ? "drop-shadow(0 0 6px rgba(255,215,0,0.5))" : "none",
+          }}
+        >{isFav ? "⭐" : "☆"}</button>
         <span style={S.chevron(open)}>▼</span>
       </div>
       {open && (
@@ -469,6 +492,7 @@ export default function Radar() {
   const [leaders, setLeaders]         = useState([]);
   const [speculation, setSpeculation] = useState([]);
   const [earlyWatch, setEarlyWatch]   = useState([]);
+  const [favorites, setFavorites]     = useState([]);
   const [loading, setLoading]         = useState(false);
   const [total, setTotal]             = useState(0);
   const [done, setDone]               = useState(false);
@@ -496,6 +520,25 @@ export default function Radar() {
       }
     }
     setAuthChecked(true);
+  }, []);
+
+  // ⭐ تحميل المفضلة من جهاز المشترك (خاصة به)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("radar_favorites");
+      if (saved) setFavorites(JSON.parse(saved));
+    } catch { /* ignore */ }
+  }, []);
+
+  // ⭐ إضافة/إزالة سهم من المفضلة + حفظ فوري
+  const toggleFav = useCallback((symbol) => {
+    setFavorites((prev) => {
+      const next = prev.includes(symbol)
+        ? prev.filter((s) => s !== symbol)
+        : [...prev, symbol];
+      try { localStorage.setItem("radar_favorites", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
   }, []);
 
   const handleLogout = () => {
@@ -580,6 +623,7 @@ export default function Radar() {
   }, [autoRefresh, scan]);
 
   const filtered = useMemo(() => {
+    if (filter === "favorites")   return results.filter((r) => favorites.includes(r.symbol));
     if (filter === "early")       return earlyWatch;
     if (filter === "leaders")     return leaders;
     if (filter === "speculation") return speculation;
@@ -587,7 +631,10 @@ export default function Radar() {
     if (filter === "high")        return results.filter((r) => r.score >= 60 && r.score < 80);
     if (filter === "hot")         return results.filter((r) => r.is_hot);
     return results;
-  }, [results, leaders, speculation, earlyWatch, filter]);
+  }, [results, leaders, speculation, earlyWatch, favorites, filter]);
+
+  const favSet      = useMemo(() => new Set(favorites), [favorites]);
+  const favCount    = useMemo(() => results.filter((r) => favorites.includes(r.symbol)).length, [results, favorites]);
 
   const explosive   = useMemo(() => results.filter((r) => r.score >= 80).length, [results]);
   const hotCount    = useMemo(() => results.filter((r) => r.is_hot).length,      [results]);
@@ -651,6 +698,7 @@ export default function Radar() {
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {[
                 { id: "all",         label: t.filterAll     },
+                ...(favorites.length > 0 ? [{ id: "favorites", label: `${t.favorites} (${favCount})` }] : []),
                 ...(earlyCount > 0 ? [{ id: "early", label: t.earlyBadge }] : []),
                 { id: "leaders",     label: t.filterLeaders },
                 { id: "speculation", label: t.filterSpec    },
@@ -678,17 +726,17 @@ export default function Radar() {
         {/* 🔍 قسم الرصد المبكر — يظهر في الأعلى */}
         {!loading && done && filter === "all" && earlyWatch.length > 0 && (
           <CollapsibleSection title={t.sectionEarly} subtitle={t.sectionEarlySub} count={earlyWatch.length} color="#34d399" bg="rgba(52,211,153,0.08)" border="rgba(52,211,153,0.3)" t={t}>
-            {earlyWatch.map((r, i) => <Card key={"early-" + r.symbol} r={r} idx={i} t={t} isEarly={true} />)}
+            {earlyWatch.map((r, i) => <Card key={"early-" + r.symbol} r={r} idx={i} t={t} isEarly={true} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
           </CollapsibleSection>
         )}
 
         {!loading && done && showSections && (
           <>
             <CollapsibleSection title={t.sectionLeaders} count={leaders.length} color="#818cf8" bg="rgba(129,140,248,0.08)" border="rgba(129,140,248,0.2)" t={t}>
-              {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} />)}
+              {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
             </CollapsibleSection>
             <CollapsibleSection title={t.sectionSpec} count={speculation.length} color="#f87171" bg="rgba(248,113,113,0.08)" border="rgba(248,113,113,0.2)" t={t}>
-              {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} />)}
+              {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
             </CollapsibleSection>
           </>
         )}
@@ -700,8 +748,17 @@ export default function Radar() {
               <span style={S.dividerText}>{filtered.length} {t.opportunities}</span>
               <div style={S.dividerLine(true)} />
             </div>
-            {filtered.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={filter === "early" || earlySymbols.has(r.symbol)} />)}
+            {filtered.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={filter === "early" || earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
           </>
+        )}
+
+        {/* ⭐ حالة المفضلة الفارغة */}
+        {!loading && done && filter === "favorites" && filtered.length === 0 && (
+          <div style={S.emptyBox}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>⭐</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>{t.noFavs}</div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>{t.noFavsSub}</div>
+          </div>
         )}
 
         {done && !loading && results.length === 0 && (
