@@ -155,6 +155,10 @@ async function saveSignals(signals) {
     target3:     s.levels.t3,
     stop_loss:   s.levels.sl,
     status:      "OPEN",
+    ma_signal:   s.ma_signal || null,
+    rsi:         s.rsi ?? null,
+    atr14:       s.levels?.atr14 ?? null,
+    early_watch: s.early_watch || false,
     created_at:  new Date().toISOString(),
   }));
 
