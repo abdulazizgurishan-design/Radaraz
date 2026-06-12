@@ -62,13 +62,17 @@ function calcEP(s) {
      : rv>=2   ? W.rvol*.40
      : rv>=1.5 ? W.rvol*.20 : 0;
 
-  // Change %
+  // Change % — منحنى مخاطرة:
+  // المنطقة الذهبية (3-30%) تأخذ نقاط كاملة، فوقها يقل المردود تدريجياً
+  // لأن الدخول على سهم صعد كثيراً = مخاطرة شراء القمة
   const ch = s.changePct || 0;
-  t += ch>=30 ? W.change*1.2
-     : ch>=20 ? W.change
-     : ch>=10 ? W.change*.80
-     : ch>=5  ? W.change*.55
-     : ch>=3  ? W.change*.35 : 0;
+  t += ch>=10 && ch<=30 ? W.change            // 🟢 المنطقة الذهبية — كامل
+     : ch>=5  && ch<10   ? W.change*.70        // بداية الزخم
+     : ch>=3  && ch<5    ? W.change*.45        // مبكر جداً
+     : ch>30  && ch<=50  ? W.change*.85        // ممتد قليلاً
+     : ch>50  && ch<=80  ? W.change*.65        // ممتد
+     : ch>80  && ch<=120 ? W.change*.45        // ممتد كثيراً ⚠️
+     : ch>120            ? W.change*.30 : 0;    // دخول متأخر — مخاطرة عالية
 
   // Gap
   const g = s.gapPct || 0;
@@ -97,8 +101,17 @@ function calcEP(s) {
   if (rv >= 10 && ch >= 10) t += 8;
   if (rv >= 50) t += 5;
 
-  const MAX = Object.values(W).reduce((a,b)=>a+b,0);
-  return Math.min(Math.round((t / MAX) * 100), 99);
+  let ep = Math.min(Math.round((t / Object.values(W).reduce((a,b)=>a+b,0)) * 100), 99);
+
+  // ⚠️ خصم مخاطرة الامتداد (Overextension Penalty)
+  // كل ما ارتفع السهم أكثر فوق المنطقة الذهبية، قلّت نقاطه
+  // يحمي المشترك من الدخول المتأخر قرب القمة
+  if (ch > 30 && ch <= 50)  ep -= 4;   // ممتد قليلاً
+  else if (ch > 50 && ch <= 80)  ep -= 8;   // ممتد
+  else if (ch > 80 && ch <= 120) ep -= 12;  // ممتد كثيراً
+  else if (ch > 120)             ep -= 16;  // دخول متأخر خطر
+
+  return Math.max(0, Math.min(ep, 99));
 }
 
 // ─── حساب الأهداف ووقف الخسارة (ATR-based) ───────────────────────
@@ -162,6 +175,179 @@ async function saveSignals(signals) {
   }
 }
 
+// ─── حساب EMA من مصفوفة أسعار ─────────────────────────────────────
+function calcEMA(prices, period) {
+  if (!prices || prices.length < period) return null;
+  const k = 2 / (period + 1);
+  // ابدأ بـ SMA لأول period
+  let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+// ─── حساب SMA البسيط ──────────────────────────────────────────────
+function calcSMA(prices, period) {
+  if (!prices || prices.length < period) return null;
+  const slice = prices.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / period;
+}
+
+// ─── ATR حقيقي من 14 شمعة (الطريقة الاحترافية) ───────────────────
+function calcATR14(bars) {
+  if (!bars || bars.length < 15) return null;
+  const trs = [];
+  for (let i = 1; i < bars.length; i++) {
+    const h = bars[i].h, l = bars[i].l, pc = bars[i-1].c;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  const last14 = trs.slice(-14);
+  return last14.reduce((a, b) => a + b, 0) / 14;
+}
+
+// ─── دعم/مقاومة من القمم والقيعان (آخر 20 شمعة) ──────────────────
+function calcSupportResistance(bars, price) {
+  if (!bars || bars.length < 10) return { resistances: [], supports: [] };
+  const recent = bars.slice(-20);
+  const highs = recent.map(b => b.h);
+  const lows  = recent.map(b => b.l);
+
+  // المقاومات: قمم أعلى من السعر الحالي (مرتبة تصاعدياً)
+  const resistances = [...new Set(highs)]
+    .filter(h => h > price)
+    .sort((a, b) => a - b);
+
+  // الدعوم: قيعان أقل من السعر الحالي (مرتبة تنازلياً = الأقرب أولاً)
+  const supports = [...new Set(lows)]
+    .filter(l => l < price)
+    .sort((a, b) => b - a);
+
+  return { resistances, supports };
+}
+
+// ─── مستويات فيبوناتشي (امتداد من القاع للقمة) ───────────────────
+function calcFibTargets(bars, price) {
+  if (!bars || bars.length < 10) return [];
+  const recent = bars.slice(-20);
+  const swingLow  = Math.min(...recent.map(b => b.l));
+  const swingHigh = Math.max(...recent.map(b => b.h));
+  const range = swingHigh - swingLow;
+  if (range <= 0) return [];
+
+  // امتدادات فيبوناتشي الصاعدة من القمة
+  return [
+    swingHigh + range * 0.272,  // 127.2%
+    swingHigh + range * 0.618,  // 161.8%
+    swingHigh + range * 1.0,    // 200%
+  ].filter(f => f > price);
+}
+
+// ─── حساب أهداف ووقف ذكي (ATR + دعم/مقاومة + فيبوناتشي) ──────────
+function calcSmartLevels(price, bars) {
+  const atr = calcATR14(bars) || price * 0.05;
+  const { resistances, supports } = calcSupportResistance(bars, price);
+  const fibs = calcFibTargets(bars, price);
+
+  // الأهداف: ندمج ATR + مقاومات + فيبوناتشي، ونختار الأقرب المنطقي لكل مستوى
+  const atrT1 = price + atr * 1.0;
+  const atrT2 = price + atr * 2.0;
+  const atrT3 = price + atr * 3.0;
+
+  // T1 = الأقرب من (ATR×1 أو أول مقاومة) — هدف واقعي قريب
+  // بحد أدنى +3% حتى لا يكون قريباً جداً
+  let t1 = resistances[0] && resistances[0] < atrT1 * 1.3
+    ? Math.min(resistances[0], atrT1 * 1.3)
+    : atrT1;
+  t1 = Math.max(t1, price * 1.03);
+
+  // T2 = ATR×2 أو ثاني مقاومة (لا يقل عن T1 + هامش)
+  let t2 = resistances[1] && resistances[1] > t1
+    ? Math.max(atrT2, Math.min(resistances[1], atrT2 * 1.2))
+    : atrT2;
+  t2 = Math.max(t2, t1 * 1.04);
+
+  // T3 = الأبعد من (ATR×3 أو فيبوناتشي 161%) — هدف الانفجار
+  let t3 = fibs[1] && fibs[1] > t2 ? Math.max(atrT3, Math.min(fibs[1], atrT3 * 1.3)) : atrT3;
+  t3 = Math.max(t3, t2 * 1.05);
+
+  // SL = الأذكى من (تحت أقرب دعم بهامش) أو (ATR×1.5)، بحد أقصى -12%
+  const atrSL = price - atr * 1.5;
+  const supportSL = supports[0] ? supports[0] * 0.985 : atrSL;  // 1.5% تحت الدعم
+  const sl = Math.max(
+    Math.min(atrSL, supportSL),   // الأبعد حماية بين الاثنين
+    price * 0.88                   // لكن لا يتجاوز -12%
+  );
+
+  const f2 = n => +n.toFixed(2);
+  const pct = n => +(((n - price) / price) * 100).toFixed(2);
+
+  return {
+    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
+    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
+    risk: f2(price - sl),
+    atr14: f2(atr),
+  };
+}
+
+// ─── جلب شموع يومية + حساب تقاطع المتوسطات (MA9 × MA21 + EMA) ─────
+// يرجع كائن { maBonus, maSignal, bars } — يرفع EP فقط، لا يستبعد
+async function fetchMACrossover(symbol) {
+  try {
+    // آخر 30 يوم تداول (يكفي لـ MA21 + EMA + ATR14)
+    const to   = new Date().toISOString().slice(0, 10);
+    const from = new Date(Date.now() - 50 * 86400000).toISOString().slice(0, 10);
+    const url  = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=50&apiKey=${POLYGON_KEY}`;
+
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+
+    if (!res.ok) return { maBonus: 0, maSignal: null, bars: null };
+    const data = await res.json();
+    const bars = data.results || [];
+    if (bars.length < 21) return { maBonus: 0, maSignal: null, bars: bars.length ? bars : null };
+
+    const closes = bars.map(b => b.c);
+
+    const sma9   = calcSMA(closes, 9);
+    const sma21  = calcSMA(closes, 21);
+    const ema9   = calcEMA(closes, 9);
+    const ema21  = calcEMA(closes, 21);
+    const price  = closes[closes.length - 1];
+
+    let maBonus = 0;
+    let maSignal = null;
+
+    // تقاطع SMA صاعد (MA9 فوق MA21)
+    if (sma9 && sma21 && sma9 > sma21) {
+      maBonus += 6;
+      maSignal = "صاعد";
+    }
+    // تأكيد EMA (أسرع استجابة)
+    if (ema9 && ema21 && ema9 > ema21) {
+      maBonus += 5;
+      maSignal = maSignal === "صاعد" ? "صاعد قوي ⚡" : "EMA صاعد";
+    }
+    // السعر فوق MA21 = اتجاه سليم
+    if (sma21 && price > sma21) {
+      maBonus += 3;
+    }
+    // golden cross حديث (SMA9 عبر SMA21 خلال آخر 3 شموع)
+    const sma9_prev  = calcSMA(closes.slice(0, -3), 9);
+    const sma21_prev = calcSMA(closes.slice(0, -3), 21);
+    if (sma9_prev && sma21_prev && sma9_prev <= sma21_prev && sma9 > sma21) {
+      maBonus += 6; // تقاطع ذهبي طازج = إشارة قوية
+      maSignal = "تقاطع ذهبي 🌟";
+    }
+
+    return { maBonus: Math.min(maBonus, 20), maSignal, bars };
+  } catch {
+    return { maBonus: 0, maSignal: null, bars: null };
+  }
+}
+
 // ─── MAIN HANDLER ─────────────────────────────────────────────────
 export default async function handler(req, res) {
   const t0 = Date.now();
@@ -196,7 +382,8 @@ export default async function handler(req, res) {
       if (changePct == null || changePct === 0) {
         changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
       }
-      if (Math.abs(changePct) < FILTER.MIN_CHANGE) continue;
+      // ⚠️ زخم صاعد فقط — استبعاد الأسهم الهابطة (لا ارتداد)
+      if (changePct < FILTER.MIN_CHANGE) continue;
 
       const gapPct = (day.o && prevClose) ? ((day.o - prevClose) / prevClose) * 100 : 0;
       const rvol = (prev.v && prev.v > 0) ? +(volume / prev.v).toFixed(1) : 0;
@@ -233,8 +420,40 @@ export default async function handler(req, res) {
       return b.rvol - a.rvol;
     });
 
-    // 5. أعلى N نتيجة
+    // 5. أعلى N نتيجة (مبدئياً قبل MA)
     const top = scored.slice(0, FILTER.MAX_RESULTS);
+
+    // 5.5 ⚡ تطبيق تقاطع المتوسطات (MA9 × MA21 + EMA) على المرشّحين فقط
+    //     يرفع EP فقط — لا يستبعد أي سهم
+    await Promise.all(top.map(async (s) => {
+      const { maBonus, maSignal, bars } = await fetchMACrossover(s.symbol);
+      if (maBonus > 0) {
+        s.ep = Math.min(s.ep + maBonus, 99);  // يرفع EP بحد أقصى 99
+        s.ma_signal = maSignal;
+        s.ma_bonus = maBonus;
+        // أعد تقييم HOT و signal بعد رفع EP
+        s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
+        s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
+      } else {
+        s.ma_signal = null;
+        s.ma_bonus = 0;
+      }
+      // 🎯 أهداف ووقف ذكي (ATR14 + دعم/مقاومة + فيبوناتشي)
+      // يعيد استخدام نفس بيانات الشموع — صفر تكلفة إضافية
+      if (bars && bars.length >= 15) {
+        s.levels = calcSmartLevels(s.price, bars);
+        s.levels_source = "smart";
+      } else {
+        s.levels_source = "atr_basic";  // fallback للأهداف التقريبية
+      }
+    }));
+
+    // أعد الترتيب بعد رفع EP بالمتوسطات
+    top.sort((a, b) => {
+      if (b.is_hot !== a.is_hot) return b.is_hot ? 1 : -1;
+      if (b.ep !== a.ep) return b.ep - a.ep;
+      return b.rvol - a.rvol;
+    });
 
     // 6. حفظ (فقط للمسح غير المشترك، وفقط EP >= حد)
     let saveResult = { skipped: true, reason: "subscriber scan" };
@@ -255,7 +474,11 @@ export default async function handler(req, res) {
       rvol:       s.rvol,
       is_hot:     s.is_hot,
       vwap:       s.vwap,
+      ma_signal:  s.ma_signal || null,
+      ma_bonus:   s.ma_bonus || 0,
       levels:     s.levels,
+      atr14:      s.levels?.atr14 || null,
+      levels_source: s.levels_source || "atr_basic",
     });
 
     const results     = top.map(toCard);
