@@ -47,10 +47,16 @@ const T = {
     midCap: "🦈 Mid Cap",
     smallCap: "🐟 Small Cap",
     microCap: "🦐 Micro Cap",
+    sectionEarly: "🔍 رصد مبكر",
+    sectionEarlySub: "أسهم جاهزة قبل الانفجار",
     sectionLeaders: "🏆 أسهم قيادية",
     sectionSpec: "💥 مضاربة لحظية",
     tapToExpand: "اضغط للعرض",
     tapToCollapse: "اضغط للإخفاء",
+    earlyBadge: "🔍 رصد مبكر",
+    atr: "ATR",
+    weekQuiet: "هدوء أسبوعي",
+    earlyTooltip: "كل المؤشرات الفنية مطابقة + بداية ارتفاع + هدوء أسبوعي = فرصة قبل الانفجار",
   },
   en: {
     title: "Radar",
@@ -98,10 +104,16 @@ const T = {
     midCap: "🦈 Mid Cap",
     smallCap: "🐟 Small Cap",
     microCap: "🦐 Micro Cap",
+    sectionEarly: "🔍 Early Watch",
+    sectionEarlySub: "Stocks ready before the breakout",
     sectionLeaders: "🏆 Leadership Stocks",
     sectionSpec: "💥 Speculation",
     tapToExpand: "Tap to expand",
     tapToCollapse: "Tap to collapse",
+    earlyBadge: "🔍 Early",
+    atr: "ATR",
+    weekQuiet: "Weekly Quiet",
+    earlyTooltip: "All technicals aligned + early move + weekly quiet = opportunity before breakout",
   }
 };
 
@@ -203,68 +215,66 @@ const SkeletonCards = () => (
   </>
 );
 
-function getMarketCapInfo(mcap, t) {
-  if (!mcap) return null;
-  if (mcap >= 10000) return { label: t.largeCap, color: "#60a5fa", bg: "rgba(96,165,250,0.1)",  border: "rgba(96,165,250,0.25)"  };
-  if (mcap >= 2000)  return { label: t.midCap,   color: "#34d399", bg: "rgba(52,211,153,0.1)",  border: "rgba(52,211,153,0.25)"  };
-  if (mcap >= 300)   return { label: t.smallCap,  color: "#fbbf24", bg: "rgba(251,191,36,0.1)",  border: "rgba(251,191,36,0.25)"  };
-  return               { label: t.microCap,  color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.25)" };
-}
-
 function fmtPct(n) {
   if (n == null) return "";
   return (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%";
 }
 
-// ✅ تحويل بيانات Supabase → format الكارد
-function convertSignal(s) {
-  const entry = s.entry_price || 0;
-  return {
-    symbol:     s.symbol,
-    price:      entry,
-    change_pct: s.change_pct || 0,
-    score:      s.ep || s.score || 0,
-    signal:     (s.ep || s.score || 0) >= 80 ? "💥 انفجاري" : "🔥 عالي",
-    type:       s.type || "مضاربة",
-    volume:     s.volume || 0,
-    rvol:       s.rvol || null,
-    marketCap:  null,
-    ema9:       null,
-    ema20:      null,
-    vwap:       null,
-    is_hot:     s.is_hot || false,
-    levels: {
-      t1:    s.target1   || 0,
-      t1Pct: s.target1   ? +(((s.target1   - entry) / entry) * 100).toFixed(2) : 0,
-      t2:    s.target2   || 0,
-      t2Pct: s.target2   ? +(((s.target2   - entry) / entry) * 100).toFixed(2) : 0,
-      t3:    s.target3   || 0,
-      t3Pct: s.target3   ? +(((s.target3   - entry) / entry) * 100).toFixed(2) : 0,
-      sl:    s.stop_loss || 0,
-      slPct: s.stop_loss ? +(((s.stop_loss - entry) / entry) * 100).toFixed(2) : 0,
-      risk:  entry && s.stop_loss ? +(entry - s.stop_loss).toFixed(2) : 0,
-    },
-  };
+// 🔍 شارة الرصد المبكر
+function EarlyBadge({ t }) {
+  return (
+    <span style={{
+      fontSize: 9, padding: "3px 9px", borderRadius: 20,
+      background: "linear-gradient(135deg,rgba(16,185,129,0.25),rgba(5,150,105,0.18))",
+      color: "#34d399", fontWeight: 800, border: "1px solid rgba(52,211,153,0.5)",
+      letterSpacing: 0.5, animation: "earlyglow 2s ease-in-out infinite",
+    }}>{t.earlyBadge}</span>
+  );
 }
 
-function Card({ r, idx, t }) {
+// 📈 شارة المتوسطات
+function MABadge({ signal }) {
+  if (!signal) return null;
+  const map = {
+    "تقاطع ذهبي 🌟": { color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.3)" },
+    "صاعد قوي ⚡":   { color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.3)" },
+    "EMA صاعد":      { color: "#60a5fa", bg: "rgba(96,165,250,0.12)", border: "rgba(96,165,250,0.3)" },
+    "صاعد":          { color: "#94a3b8", bg: "rgba(148,163,184,0.1)", border: "rgba(148,163,184,0.25)" },
+  };
+  const c = map[signal] || map["صاعد"];
+  return (
+    <span style={{ fontSize: 9, padding: "3px 8px", borderRadius: 20, background: c.bg, color: c.color, fontWeight: 700, border: `1px solid ${c.border}` }}>
+      📈 {signal}
+    </span>
+  );
+}
+
+function Card({ r, idx, t, isEarly }) {
   const [open, setOpen] = useState(false);
   const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
   const formatPct   = useCallback((n) => (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%", []);
   const scoreColor  = r.score >= 80 ? "#ff6b35" : r.score >= 60 ? "#ffd700" : "#00d4aa";
-  const glowColor   = r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
+  const glowColor   = isEarly ? "rgba(52,211,153,0.2)" : r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
 
   const typeTag = r.type === "قيادي"
     ? { label: "🏆 قيادي",  color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
     : { label: "💥 مضاربة", color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.25)" };
 
-  const metrics = useMemo(() => [
-    { label: "EP",     value: r.score ? r.score + "%" : "—",           color: "#a78bfa" },
-    { label: "RVOL",   value: r.rvol  ? r.rvol.toFixed(1) + "x" : "—", color: "#fb923c" },
-    { label: t.volume, value: ((r.volume || 0) / 1e6).toFixed(1) + "M", color: "#34d399" },
-    { label: "تغيّر",  value: formatPct(r.change_pct),                  color: r.change_pct >= 0 ? "#00d4aa" : "#ff4757" },
-    { label: "نوع",    value: r.type,                                    color: r.is_hot ? "#f87171" : "#94a3b8" },
-  ], [r, formatPct, t]);
+  const wrapStyle = isEarly
+    ? { ...S.cardWrap(open, glowColor), border: "1px solid rgba(52,211,153,0.4)", background: "linear-gradient(135deg,rgba(12,28,22,0.95),rgba(15,32,26,0.95))" }
+    : S.cardWrap(open, glowColor);
+
+  const metrics = useMemo(() => {
+    const base = [
+      { label: "EP",     value: r.score ? r.score + "%" : "—",           color: "#a78bfa" },
+      { label: "RVOL",   value: r.rvol  ? r.rvol.toFixed(1) + "x" : "—", color: "#fb923c" },
+      { label: t.volume, value: ((r.volume || 0) / 1e6).toFixed(1) + "M", color: "#34d399" },
+      { label: "تغيّر",  value: formatPct(r.change_pct),                  color: r.change_pct >= 0 ? "#00d4aa" : "#ff4757" },
+    ];
+    if (r.atr14) base.push({ label: t.atr, value: "$" + (+r.atr14).toFixed(2), color: "#c084fc" });
+    if (r.week_max_jump != null && isEarly) base.push({ label: t.weekQuiet, value: "▲" + (+r.week_max_jump).toFixed(1) + "%", color: "#34d399" });
+    return base;
+  }, [r, formatPct, t, isEarly]);
 
   const tpLevels = useMemo(() => [
     { n: 1, value: r.levels.t1, pct: r.levels.t1Pct, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)",  border: "rgba(96,165,250,0.2)"  },
@@ -273,7 +283,7 @@ function Card({ r, idx, t }) {
   ], [r]);
 
   return (
-    <div style={S.cardWrap(open, glowColor)}>
+    <div style={wrapStyle}>
       <div style={S.cardHeader} onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && setOpen((o) => !o)}>
         <span style={S.cardIdx}>{String(idx + 1).padStart(2, "0")}</span>
         <div style={{ minWidth: 64 }}>
@@ -281,7 +291,9 @@ function Card({ r, idx, t }) {
           {r.is_hot && <div style={{ fontSize: 9, color: "#fca5a5", marginTop: 2 }}>🚨 HOT</div>}
         </div>
         <div style={S.cardTags}>
+          {isEarly && <EarlyBadge t={t} />}
           <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.signal}</span>
+          {r.ma_signal && <MABadge signal={r.ma_signal} />}
           <span style={S.tag(typeTag.bg, typeTag.color, typeTag.border)}>{typeTag.label}</span>
           {r.rvol && r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
           {r.is_hot && <span style={S.tag("rgba(248,113,113,0.15)", "#fca5a5", "rgba(248,113,113,0.3)")}>🚨 HOT</span>}
@@ -298,6 +310,11 @@ function Card({ r, idx, t }) {
       </div>
       {open && (
         <div style={S.detailWrap}>
+          {isEarly && (
+            <div style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 11, color: "#34d399", lineHeight: 1.6 }}>
+              💡 {t.earlyTooltip}
+            </div>
+          )}
           <div style={S.metricsRow}>
             {metrics.map((m) => (
               <div key={m.label} style={S.metricBox}>
@@ -331,14 +348,17 @@ function Card({ r, idx, t }) {
   );
 }
 
-function CollapsibleSection({ title, count, color, bg, border, children, t }) {
-  const [open, setOpen] = useState(true);
+function CollapsibleSection({ title, subtitle, count, color, bg, border, children, t, defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{ marginTop: 8, marginBottom: 4 }}>
       <div style={S.sectionHeader(bg, border, color, open)} onClick={() => setOpen(o => !o)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && setOpen(o => !o)}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={S.sectionChevron(open)}>▼</span>
-          <span style={S.sectionTitle(color)}>{title}</span>
+          <div>
+            <span style={S.sectionTitle(color)}>{title}</span>
+            {subtitle && <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>{subtitle}</div>}
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{open ? t.tapToCollapse : t.tapToExpand}</span>
@@ -448,6 +468,7 @@ export default function Radar() {
   const [results, setResults]         = useState([]);
   const [leaders, setLeaders]         = useState([]);
   const [speculation, setSpeculation] = useState([]);
+  const [earlyWatch, setEarlyWatch]   = useState([]);
   const [loading, setLoading]         = useState(false);
   const [total, setTotal]             = useState(0);
   const [done, setDone]               = useState(false);
@@ -484,13 +505,12 @@ export default function Radar() {
     setAuth(null);
   };
 
-  // ✅ يجيب البيانات من Supabase فقط — لا يلمس /api/scan أبداً
   const scan = useCallback(async () => {
     const now = Date.now();
     if (now - lastScanRef.current < COOLDOWN_MS) return;
     lastScanRef.current = now;
     setLoading(true);
-    setResults([]); setLeaders([]); setSpeculation([]);
+    setResults([]); setLeaders([]); setSpeculation([]); setEarlyWatch([]);
     setDone(false); setStatus(null); setScanError(null);
     try {
       const res = await fetch("/api/scan");
@@ -498,12 +518,11 @@ export default function Radar() {
       const data = await res.json();
       if (data.error) { setScanError(data.error); setStatus("error"); return; }
 
-      // scan.js يرجع results مباشرة مع أسعار حية
       const raw  = data.results ?? [];
       const lead = data.leaders     ?? raw.filter(s => s.type === "قيادي");
       const spec = data.speculation ?? raw.filter(s => s.type !== "قيادي");
+      const early = data.earlyWatch ?? raw.filter(s => s.early_watch);
 
-      // تحويل format scan → format الكارد
       const toCard = s => ({
         symbol:     s.symbol,
         price:      s.price || 0,
@@ -518,6 +537,10 @@ export default function Radar() {
         ema20:      s.ema20 || null,
         vwap:       s.vwap  || null,
         is_hot:     s.is_hot || false,
+        ma_signal:  s.ma_signal || null,
+        atr14:      s.atr14 || null,
+        early_watch: s.early_watch || false,
+        week_max_jump: s.week_max_jump ?? null,
         levels: s.levels || {
           t1: 0, t1Pct: 0, t2: 0, t2Pct: 0,
           t3: 0, t3Pct: 0, sl: 0, slPct: 0, risk: 0,
@@ -527,6 +550,7 @@ export default function Radar() {
       setResults(raw.map(toCard));
       setLeaders(lead.map(toCard));
       setSpeculation(spec.map(toCard));
+      setEarlyWatch(early.map(toCard));
       setTotal(raw.length);
       setLastUpdate(new Date());
 
@@ -547,7 +571,6 @@ export default function Radar() {
     }
   }, []);
 
-  // تحميل تلقائي عند الدخول
   useEffect(() => { if (auth) scan(); }, [auth]);
 
   useEffect(() => {
@@ -557,18 +580,21 @@ export default function Radar() {
   }, [autoRefresh, scan]);
 
   const filtered = useMemo(() => {
+    if (filter === "early")       return earlyWatch;
     if (filter === "leaders")     return leaders;
     if (filter === "speculation") return speculation;
     if (filter === "explosive")   return results.filter((r) => r.score >= 80);
     if (filter === "high")        return results.filter((r) => r.score >= 60 && r.score < 80);
     if (filter === "hot")         return results.filter((r) => r.is_hot);
     return results;
-  }, [results, leaders, speculation, filter]);
+  }, [results, leaders, speculation, earlyWatch, filter]);
 
-  const explosive = useMemo(() => results.filter((r) => r.score >= 80).length, [results]);
-  const hotCount  = useMemo(() => results.filter((r) => r.is_hot).length,      [results]);
-  const dotColor  = loading ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
+  const explosive   = useMemo(() => results.filter((r) => r.score >= 80).length, [results]);
+  const hotCount    = useMemo(() => results.filter((r) => r.is_hot).length,      [results]);
+  const earlyCount  = useMemo(() => earlyWatch.length, [earlyWatch]);
+  const dotColor    = loading ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
   const showSections = filter === "all" && leaders.length > 0 && speculation.length > 0;
+  const earlySymbols = useMemo(() => new Set(earlyWatch.map(s => s.symbol)), [earlyWatch]);
 
   if (!authChecked) return null;
   if (!auth) return (
@@ -605,10 +631,10 @@ export default function Radar() {
 
         <div style={S.statsRow}>
           {[
-            { label: t.scanRange, value: total || "—",  color: "#6366f1", bg: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)"  },
-            { label: "🚨 HOT",    value: hotCount,       color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.2)" },
-            { label: t.explosive, value: explosive,      color: "#ff6b35", bg: "rgba(255,107,53,0.1)",  border: "rgba(255,107,53,0.2)"  },
-            { label: t.all,       value: results.length, color: "#00d4aa", bg: "rgba(0,212,170,0.1)",   border: "rgba(0,212,170,0.2)"   },
+            { label: t.scanRange,    value: total || "—",  color: "#6366f1", bg: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)"  },
+            { label: t.sectionEarly, value: earlyCount,     color: "#34d399", bg: "rgba(52,211,153,0.1)",  border: "rgba(52,211,153,0.25)" },
+            { label: "🚨 HOT",       value: hotCount,       color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.2)" },
+            { label: t.explosive,    value: explosive,      color: "#ff6b35", bg: "rgba(255,107,53,0.1)",  border: "rgba(255,107,53,0.2)"  },
           ].map((s) => (
             <div key={s.label} style={S.statBox(s.bg, s.border)}>
               <div style={{ ...S.statNum(s.color), fontSize: typeof s.value === "string" ? 18 : 26 }}>{s.value}</div>
@@ -625,6 +651,7 @@ export default function Radar() {
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {[
                 { id: "all",         label: t.filterAll     },
+                ...(earlyCount > 0 ? [{ id: "early", label: t.earlyBadge }] : []),
                 { id: "leaders",     label: t.filterLeaders },
                 { id: "speculation", label: t.filterSpec    },
                 { id: "hot",         label: "🚨 HOT"        },
@@ -648,13 +675,20 @@ export default function Radar() {
         {loading && <SkeletonCards />}
         {(done || loading) && <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} t={t} />}
 
+        {/* 🔍 قسم الرصد المبكر — يظهر في الأعلى */}
+        {!loading && done && filter === "all" && earlyWatch.length > 0 && (
+          <CollapsibleSection title={t.sectionEarly} subtitle={t.sectionEarlySub} count={earlyWatch.length} color="#34d399" bg="rgba(52,211,153,0.08)" border="rgba(52,211,153,0.3)" t={t}>
+            {earlyWatch.map((r, i) => <Card key={"early-" + r.symbol} r={r} idx={i} t={t} isEarly={true} />)}
+          </CollapsibleSection>
+        )}
+
         {!loading && done && showSections && (
           <>
             <CollapsibleSection title={t.sectionLeaders} count={leaders.length} color="#818cf8" bg="rgba(129,140,248,0.08)" border="rgba(129,140,248,0.2)" t={t}>
-              {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} />)}
+              {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} />)}
             </CollapsibleSection>
             <CollapsibleSection title={t.sectionSpec} count={speculation.length} color="#f87171" bg="rgba(248,113,113,0.08)" border="rgba(248,113,113,0.2)" t={t}>
-              {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} />)}
+              {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} />)}
             </CollapsibleSection>
           </>
         )}
@@ -666,7 +700,7 @@ export default function Radar() {
               <span style={S.dividerText}>{filtered.length} {t.opportunities}</span>
               <div style={S.dividerLine(true)} />
             </div>
-            {filtered.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} />)}
+            {filtered.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={filter === "early" || earlySymbols.has(r.symbol)} />)}
           </>
         )}
 
@@ -691,6 +725,7 @@ export default function Radar() {
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
         button:hover:not(:disabled) { filter: brightness(1.1); }
         @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+        @keyframes earlyglow { 0%,100% { box-shadow: 0 0 0 rgba(52,211,153,0); } 50% { box-shadow: 0 0 12px rgba(52,211,153,0.4); } }
       `}</style>
     </div>
   );
