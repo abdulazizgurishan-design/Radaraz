@@ -342,9 +342,18 @@ async function fetchMACrossover(symbol) {
       maSignal = "تقاطع ذهبي 🌟";
     }
 
-    return { maBonus: Math.min(maBonus, 20), maSignal, bars };
+    // 🔍 حساب الهدوء الأسبوعي — أعلى ارتفاع يومي خلال آخر 7 شموع
+    // إذا السهم كان هادئاً (لم يقفز بحدة)، فهو مرشح للرصد المبكر
+    let weekMaxJump = 0;
+    const last7 = bars.slice(-8); // 7 أيام + اليوم المرجعي
+    for (let i = 1; i < last7.length - 1; i++) {  // نستثني شمعة اليوم نفسها
+      const jump = ((last7[i].c - last7[i-1].c) / last7[i-1].c) * 100;
+      if (jump > weekMaxJump) weekMaxJump = jump;
+    }
+
+    return { maBonus: Math.min(maBonus, 20), maSignal, bars, weekMaxJump: +weekMaxJump.toFixed(1) };
   } catch {
-    return { maBonus: 0, maSignal: null, bars: null };
+    return { maBonus: 0, maSignal: null, bars: null, weekMaxJump: 0 };
   }
 }
 
@@ -426,7 +435,7 @@ export default async function handler(req, res) {
     // 5.5 ⚡ تطبيق تقاطع المتوسطات (MA9 × MA21 + EMA) على المرشّحين فقط
     //     يرفع EP فقط — لا يستبعد أي سهم
     await Promise.all(top.map(async (s) => {
-      const { maBonus, maSignal, bars } = await fetchMACrossover(s.symbol);
+      const { maBonus, maSignal, bars, weekMaxJump } = await fetchMACrossover(s.symbol);
       if (maBonus > 0) {
         s.ep = Math.min(s.ep + maBonus, 99);  // يرفع EP بحد أقصى 99
         s.ma_signal = maSignal;
@@ -446,6 +455,22 @@ export default async function handler(req, res) {
       } else {
         s.levels_source = "atr_basic";  // fallback للأهداف التقريبية
       }
+
+      // 🔍 رصد مبكر — السهم الجاهز قبل الانفجار:
+      //   • ارتفاع يومي 3-10% (بداية مبكرة)
+      //   • EP ≥ 75 (جودة عالية)
+      //   • تأكيد فني صارم (تقاطع ذهبي أو EMA صاعد)
+      //   • هادئ أسبوعياً (لم يقفز >15% بأي يوم خلال الأسبوع)
+      const strongMA = s.ma_signal === "تقاطع ذهبي 🌟"
+                    || s.ma_signal === "صاعد قوي ⚡"
+                    || s.ma_signal === "EMA صاعد";
+      s.early_watch = (
+        s.changePct >= 3 && s.changePct <= 10 &&
+        s.ep >= 75 &&
+        strongMA &&
+        (weekMaxJump != null && weekMaxJump <= 15)
+      );
+      s.week_max_jump = weekMaxJump ?? null;
     }));
 
     // أعد الترتيب بعد رفع EP بالمتوسطات
@@ -476,6 +501,8 @@ export default async function handler(req, res) {
       vwap:       s.vwap,
       ma_signal:  s.ma_signal || null,
       ma_bonus:   s.ma_bonus || 0,
+      early_watch: s.early_watch || false,
+      week_max_jump: s.week_max_jump ?? null,
       levels:     s.levels,
       atr14:      s.levels?.atr14 || null,
       levels_source: s.levels_source || "atr_basic",
@@ -484,11 +511,13 @@ export default async function handler(req, res) {
     const results     = top.map(toCard);
     const leaders     = results.filter(s => s.type === "قيادي");
     const speculation = results.filter(s => s.type !== "قيادي");
+    const early       = results.filter(s => s.early_watch);  // 🔍 رصد مبكر
 
     return res.status(200).json({
       success:     true,
       total:       results.length,
       hot:         results.filter(s => s.is_hot).length,
+      early:       early.length,
       saved:       saveResult.saved || 0,
       saveResult,
       timing: {
@@ -500,6 +529,7 @@ export default async function handler(req, res) {
       results,
       leaders,
       speculation,
+      earlyWatch:  early,
     });
 
   } catch (error) {
