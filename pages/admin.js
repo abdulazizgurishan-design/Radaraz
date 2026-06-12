@@ -75,7 +75,7 @@ function buildTweet(signals, date, mode = "signals") {
     signals.slice(0, 8).forEach(s => {
       const hot = s.is_hot ? " 🚨" : "";
       const early = s.early_watch ? " 🔍" : "";
-      const chg = s.change_pct != null ? ` ${s.change_pct >= 0 ? "+" : ""}${parseFloat(s.change_pct).toFixed(1)}%${s.change_pct >= 0 ? "▲" : "▼"}` : "";
+      const chg = s.change_pct != null ? ` ${s.change_pct >= 0 ? "+" : ""}${Math.round(parseFloat(s.change_pct))}%${s.change_pct >= 0 ? "▲" : "▼"}` : "";
       const ma = s.ma_signal ? ` · ${s.ma_signal}` : "";
       lines.push(`📡 $${s.symbol}${hot}${early} (EP: ${s.ep || s.score}%)${chg}${ma}`);
       lines.push(`  دخل: $${(s.entry_price || 0).toFixed(2)}`);
@@ -199,7 +199,7 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
               </span>
               {s.change_pct != null && (
                 <span style={{ fontSize: 11, fontWeight: 700, color: (s.change_pct || 0) >= 0 ? "#34d399" : "#f87171", fontFamily: "monospace", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>
-                  {`${(s.change_pct || 0) >= 0 ? "▲ +" : "▼ "}${parseFloat(s.change_pct).toFixed(2)}%`}
+                  {`${(s.change_pct || 0) >= 0 ? "▲ +" : "▼ "}${Math.round(parseFloat(s.change_pct))}%`}
                 </span>
               )}
               {s.rvol != null && (
