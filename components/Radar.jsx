@@ -56,6 +56,10 @@ const T = {
     earlyBadge: "🔍 رصد مبكر",
     atr: "ATR",
     weekQuiet: "هدوء أسبوعي",
+    rsi: "RSI",
+    rsiOverbought: "إشباع شرائي",
+    rsiHealthy: "زخم صحي",
+    rsiNeutral: "محايد",
     earlyTooltip: "كل المؤشرات الفنية مطابقة + بداية ارتفاع + هدوء أسبوعي = فرصة قبل الانفجار",
     favorites: "⭐ المفضلة",
     addFav: "أضف للمفضلة",
@@ -119,6 +123,10 @@ const T = {
     earlyBadge: "🔍 Early",
     atr: "ATR",
     weekQuiet: "Weekly Quiet",
+    rsi: "RSI",
+    rsiOverbought: "Overbought",
+    rsiHealthy: "Healthy Momentum",
+    rsiNeutral: "Neutral",
     earlyTooltip: "All technicals aligned + early move + weekly quiet = opportunity before breakout",
     favorites: "⭐ Favorites",
     addFav: "Add to favorites",
@@ -261,6 +269,25 @@ function MABadge({ signal }) {
   );
 }
 
+// 📊 لون وحالة RSI
+function rsiInfo(rsi, t) {
+  if (rsi == null) return null;
+  if (rsi >= 72) return { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.3)", label: t.rsiOverbought };
+  if (rsi >= 50 && rsi <= 65) return { color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.3)", label: t.rsiHealthy };
+  return { color: "#94a3b8", bg: "rgba(148,163,184,0.1)", border: "rgba(148,163,184,0.25)", label: t.rsiNeutral };
+}
+
+// 📊 شارة RSI
+function RSIBadge({ rsi, t }) {
+  const info = rsiInfo(rsi, t);
+  if (!info) return null;
+  return (
+    <span style={{ fontSize: 9, padding: "3px 8px", borderRadius: 20, background: info.bg, color: info.color, fontWeight: 700, border: `1px solid ${info.border}` }}>
+      📊 RSI {rsi}
+    </span>
+  );
+}
+
 function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
   const [open, setOpen] = useState(false);
   const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
@@ -284,6 +311,10 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
       { label: "تغيّر",  value: formatPct(r.change_pct),                  color: r.change_pct >= 0 ? "#00d4aa" : "#ff4757" },
     ];
     if (r.atr14) base.push({ label: t.atr, value: "$" + (+r.atr14).toFixed(2), color: "#c084fc" });
+    if (r.rsi != null) {
+      const ri = rsiInfo(r.rsi, t);
+      base.push({ label: t.rsi, value: String(r.rsi), color: ri ? ri.color : "#94a3b8" });
+    }
     if (r.week_max_jump != null && isEarly) base.push({ label: t.weekQuiet, value: "▲" + (+r.week_max_jump).toFixed(1) + "%", color: "#34d399" });
     return base;
   }, [r, formatPct, t, isEarly]);
@@ -306,6 +337,7 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
           {isEarly && <EarlyBadge t={t} />}
           <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.signal}</span>
           {r.ma_signal && <MABadge signal={r.ma_signal} />}
+          {r.rsi != null && <RSIBadge rsi={r.rsi} t={t} />}
           <span style={S.tag(typeTag.bg, typeTag.color, typeTag.border)}>{typeTag.label}</span>
           {r.rvol && r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
           {r.is_hot && <span style={S.tag("rgba(248,113,113,0.15)", "#fca5a5", "rgba(248,113,113,0.3)")}>🚨 HOT</span>}
@@ -582,6 +614,7 @@ export default function Radar() {
         is_hot:     s.is_hot || false,
         ma_signal:  s.ma_signal || null,
         atr14:      s.atr14 || null,
+        rsi:        s.rsi ?? null,
         early_watch: s.early_watch || false,
         week_max_jump: s.week_max_jump ?? null,
         levels: s.levels || {
