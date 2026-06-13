@@ -4,14 +4,17 @@ const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 const BASE = "https://api.polygon.io";
 
-// إعادة محاولة تلقائية لأخطاء DNS/الشبكة المؤقتة (EBUSY, ECONNRESET...)
-async function fetchRetry(url, options = {}, retries = 3) {
+// السماح لـ Vercel بوقت تنفيذ أطول (حتى 60 ثانية)
+export const config = { maxDuration: 60 };
+
+// إعادة محاولة خفيفة لأخطاء DNS المؤقتة (مرة واحدة فقط — لتجنّب البطء)
+async function fetchRetry(url, options = {}, retries = 2) {
   for (let i = 0; i < retries; i++) {
     try {
       return await fetch(url, options);
     } catch (err) {
       if (i === retries - 1) throw err;
-      await new Promise(r => setTimeout(r, 500 * (i + 1)));  // انتظار متزايد
+      await new Promise(r => setTimeout(r, 300));
     }
   }
 }
@@ -59,7 +62,7 @@ export default async function handler(req, res) {
       try {
         const url = `${BASE}/v2/aggs/ticker/${sig.symbol}/range/1/day/${date}/${date}?apiKey=${POLYGON_KEY}`;
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 8000);  // 8s timeout لكل طلب
+        const timer = setTimeout(() => ctrl.abort(), 4000);  // 4s timeout لكل طلب (سرعة)
         const r2 = await fetch(url, { signal: ctrl.signal });
         clearTimeout(timer);
         const d = await r2.json();
