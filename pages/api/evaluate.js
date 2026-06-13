@@ -16,6 +16,13 @@ export default async function handler(req, res) {
   }
 
   try {
+    // تخطّي عطلة نهاية الأسبوع (السوق مغلق — لا بيانات)
+    const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const dow = etNow.getDay(); // 0=أحد 6=سبت
+    if (dow === 0 || dow === 6) {
+      return res.status(200).json({ success: true, message: "عطلة نهاية الأسبوع — لا تقييم", evaluated: 0 });
+    }
+
     // 1. جيب كل الإشارات المفتوحة
     const r = await fetch(
       `${SUPABASE_URL}/rest/v1/signals?status=eq.OPEN&select=*`,
@@ -39,7 +46,10 @@ export default async function handler(req, res) {
     const updates = await Promise.all(signals.map(async (sig) => {
       try {
         const url = `${BASE}/v2/aggs/ticker/${sig.symbol}/range/1/day/${date}/${date}?apiKey=${POLYGON_KEY}`;
-        const r2 = await fetch(url);
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 8000);  // 8s timeout لكل طلب
+        const r2 = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(timer);
         const d = await r2.json();
         const bar = d?.results?.[0];
         if (!bar) {
