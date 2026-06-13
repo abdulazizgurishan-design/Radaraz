@@ -318,6 +318,11 @@ export default function Admin() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
 
+  // 📱 حالة نقل الجهاز
+  const [resetKey,    setResetKey]    = useState("");
+  const [resetBusy,   setResetBusy]   = useState(false);
+  const [resetResult, setResetResult] = useState(null);
+
   const showToast = (msg, type = "ok") => {
     setToast({ msg, type });
     setTimeout(() => setToast({ msg: "", type: "" }), 4000);
@@ -374,6 +379,31 @@ export default function Admin() {
       showToast(`❌ ${err.message}`, "err");
     }
     setScanning(false);
+  };
+
+  // 📱 نقل المفتاح لجهاز جديد
+  const resetDevice = async () => {
+    if (!resetKey.trim()) { setToast({ msg: "أدخل المفتاح", type: "error" }); return; }
+    setResetBusy(true); setResetResult(null);
+    try {
+      const res = await fetch(`/api/reset-device?key=${encodeURIComponent(resetKey.trim())}&pass=${encodeURIComponent(pass)}`);
+      const d = await res.json();
+      if (d.success) {
+        setResetResult(d);
+        setResetKey("");
+        setToast({ msg: "تم تحرير المفتاح ✅", type: "success" });
+      } else if (d.reason === "not_found") {
+        setToast({ msg: "المفتاح غير موجود", type: "error" });
+      } else if (d.reason === "unauthorized") {
+        setToast({ msg: "غير مصرّح", type: "error" });
+      } else {
+        setToast({ msg: "خطأ: " + (d.reason || "غير معروف"), type: "error" });
+      }
+    } catch {
+      setToast({ msg: "خطأ في الاتصال", type: "error" });
+    } finally {
+      setResetBusy(false);
+    }
   };
 
   const copyText = (text, id) => {
@@ -482,6 +512,7 @@ export default function Admin() {
           {[
             { id: "signals", label: `📡 الإشارات${signals.length ? ` (${signals.length})` : ""}` },
             { id: "results", label: "📊 النتائج" },
+            { id: "subscribers", label: "👥 المشتركين" },
           ].map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
               padding: "12px 22px", background: "transparent", border: "none",
@@ -635,6 +666,61 @@ export default function Admin() {
                   <ResultCard key={s.id || s.symbol || i} s={s} copiedId={copiedId} onCopy={copyText} />
                 ))
             )}
+          </>
+        )}
+
+        {/* ════════ TAB: SUBSCRIBERS ════════ */}
+        {activeTab === "subscribers" && (
+          <>
+            <div style={{ maxWidth: 460, margin: "0 auto" }}>
+              {/* أداة نقل الجهاز */}
+              <div style={{ background: "linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.05))", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 18, padding: "24px 20px", marginBottom: 20 }}>
+                <div style={{ textAlign: "center", marginBottom: 18 }}>
+                  <div style={{ fontSize: 38, marginBottom: 8 }}>📱</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 4 }}>نقل المفتاح لجهاز جديد</div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", lineHeight: 1.6 }}>
+                    لو المشترك بدّل جواله، حرّر مفتاحه ليدخل من جهازه الجديد
+                  </div>
+                </div>
+
+                <input
+                  style={{ width: "100%", padding: "13px 16px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#fff", fontSize: 15, textAlign: "center", marginBottom: 12, outline: "none", boxSizing: "border-box", fontFamily: "monospace", letterSpacing: 1, direction: "ltr" }}
+                  type="text"
+                  placeholder="XXXX-XXXX-XXXX"
+                  value={resetKey}
+                  onChange={(e) => setResetKey(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => e.key === "Enter" && resetDevice()}
+                />
+                <button
+                  onClick={resetDevice}
+                  disabled={resetBusy}
+                  style={{ width: "100%", padding: 14, background: resetBusy ? "rgba(99,102,241,0.3)" : "linear-gradient(135deg,#6366f1,#8b5cf6)", border: "none", borderRadius: 12, color: "#fff", fontWeight: 800, fontSize: 15, cursor: resetBusy ? "not-allowed" : "pointer", fontFamily: "system-ui" }}
+                >
+                  {resetBusy ? "⟳ جاري التحرير..." : "🔓 حرّر المفتاح"}
+                </button>
+
+                {resetResult && (
+                  <div style={{ background: "rgba(0,212,170,0.1)", border: "1px solid rgba(0,212,170,0.3)", borderRadius: 12, padding: "16px", fontSize: 14, color: "#00d4aa", marginTop: 16, textAlign: "center" }}>
+                    ✓ تم التحرير بنجاح
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 6, direction: "ltr" }}>
+                      {resetResult.email}
+                    </div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 4 }}>
+                      مرات النقل: {resetResult.device_resets}
+                      {resetResult.device_resets >= 5 && " 🚩 (مرتفع — راقب)"}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* تنبيه أمني */}
+              <div style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 14, padding: "14px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.7 }}>
+                <div style={{ fontWeight: 700, color: "#fbbf24", marginBottom: 6 }}>🛡️ حماية المشاركة مفعّلة</div>
+                كل مفتاح مربوط بجهاز واحد. لو حاول أحد يستخدمه على جهاز ثاني، يُرفض تلقائياً.
+                <br /><br />
+                عداد "مرات النقل" يكشف المشاركة: نقل كثير = مشترك يشارك مفتاحه 🚩
+              </div>
+            </div>
           </>
         )}
 
