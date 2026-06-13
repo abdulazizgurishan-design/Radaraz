@@ -5,9 +5,11 @@ const CRON_SECRET = process.env.CRON_SECRET;
 const BASE = "https://api.polygon.io";
 
 export default async function handler(req, res) {
-  // حماية — يقبل من Vercel Cron أو من السيكريت
+  // حماية — يقبل من Vercel Cron أو السيكريت (header أو query للمجدول الخارجي)
   const isFromCron = req.headers['x-vercel-cron'] === 'true';
-  const isAuthorized = isFromCron || req.headers["x-cron-secret"] === CRON_SECRET;
+  const headerSecret = req.headers["x-cron-secret"];
+  const querySecret = req.query.secret;
+  const isAuthorized = isFromCron || headerSecret === CRON_SECRET || querySecret === CRON_SECRET;
 
   if (!isAuthorized) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -99,9 +101,9 @@ export default async function handler(req, res) {
 
     console.log(`✅ Updated ${updated} signals`);
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       success: true,
-      evaluated: updated, 
+      evaluated: updated,
       date,
       total_signals: signals.length,
     });
