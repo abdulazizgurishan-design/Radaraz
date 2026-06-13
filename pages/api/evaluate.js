@@ -1,5 +1,5 @@
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
-const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_URL = "https://ypxrrghhkjbeojzphdln.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 const BASE = "https://api.polygon.io";
@@ -120,6 +120,6 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error("💥 Error:", error.message);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message, cause: String(error.cause || "") });
   }
 }
