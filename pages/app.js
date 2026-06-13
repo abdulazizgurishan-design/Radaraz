@@ -14,17 +14,37 @@ const S = {
   error: { background: 'rgba(255,71,87,0.1)', border: '1px solid rgba(255,71,87,0.3)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#ff4757', marginBottom: 12 },
 };
 
-// 🔐 بصمة جهاز فريدة — تُحفظ مرة واحدة في جهاز المشترك
-function getDeviceId() {
+// 🔐 بصمة الجهاز — مبنية على خصائص الجهاز الفعلية
+// نفس الجهاز = نفس البصمة (حتى لو تغيّر المتصفح)
+// جهاز مختلف = بصمة مختلفة
+async function getDeviceId() {
   try {
-    let id = localStorage.getItem('radar_device_id');
-    if (!id) {
-      id = 'dev_' + Math.random().toString(36).slice(2) + '_' + Date.now().toString(36);
-      localStorage.setItem('radar_device_id', id);
-    }
-    return id;
+    const parts = [
+      screen.width + "x" + screen.height,          // دقة الشاشة
+      screen.colorDepth,                            // عمق الألوان
+      navigator.hardwareConcurrency || "",          // عدد الأنوية
+      navigator.platform || "",                     // المنصة (iPhone/Android...)
+      navigator.maxTouchPoints || "",               // نقاط اللمس
+      new Date().getTimezoneOffset(),               // المنطقة الزمنية
+      navigator.language || "",                     // اللغة
+    ];
+    const raw = parts.join("|");
+    // تحويل لبصمة ثابتة (hash)
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+    const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
+    return "dev_" + hash;
   } catch {
-    return 'dev_fallback';
+    // fallback: لو فشل التشفير، استخدم المعرّف المخزّن
+    try {
+      let id = localStorage.getItem("radar_device_id");
+      if (!id) {
+        id = "dev_" + Math.random().toString(36).slice(2) + "_" + Date.now().toString(36);
+        localStorage.setItem("radar_device_id", id);
+      }
+      return id;
+    } catch {
+      return "dev_fallback";
+    }
   }
 }
 
@@ -43,7 +63,7 @@ export default function App() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const device = getDeviceId();
+      const device = await getDeviceId();
       const res = await fetch(`/api/verify-key?key=${encodeURIComponent(k)}&device=${encodeURIComponent(device)}`);
       const data = await res.json();
       if (data.valid) {
