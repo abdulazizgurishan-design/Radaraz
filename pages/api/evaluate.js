@@ -4,6 +4,18 @@ const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 const BASE = "https://api.polygon.io";
 
+// إعادة محاولة تلقائية لأخطاء DNS/الشبكة المؤقتة (EBUSY, ECONNRESET...)
+async function fetchRetry(url, options = {}, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await new Promise(r => setTimeout(r, 500 * (i + 1)));  // انتظار متزايد
+    }
+  }
+}
+
 export default async function handler(req, res) {
   // حماية — يقبل من Vercel Cron أو السيكريت (header أو query للمجدول الخارجي)
   const isFromCron = req.headers['x-vercel-cron'] === 'true';
@@ -24,7 +36,7 @@ export default async function handler(req, res) {
     }
 
     // 1. جيب كل الإشارات المفتوحة
-    const r = await fetch(
+    const r = await fetchRetry(
       `${SUPABASE_URL}/rest/v1/signals?status=eq.OPEN&select=*`,
       {
         headers: {
@@ -97,7 +109,7 @@ export default async function handler(req, res) {
 
     for (const u of valid) {
       const { id, ...fields } = u;
-      const resp = await fetch(`${SUPABASE_URL}/rest/v1/signals?id=eq.${id}`, {
+      const resp = await fetchRetry(`${SUPABASE_URL}/rest/v1/signals?id=eq.${id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
