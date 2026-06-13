@@ -14,6 +14,20 @@ const S = {
   error: { background: 'rgba(255,71,87,0.1)', border: '1px solid rgba(255,71,87,0.3)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#ff4757', marginBottom: 12 },
 };
 
+// 🔐 بصمة جهاز فريدة — تُحفظ مرة واحدة في جهاز المشترك
+function getDeviceId() {
+  try {
+    let id = localStorage.getItem('radar_device_id');
+    if (!id) {
+      id = 'dev_' + Math.random().toString(36).slice(2) + '_' + Date.now().toString(36);
+      localStorage.setItem('radar_device_id', id);
+    }
+    return id;
+  } catch {
+    return 'dev_fallback';
+  }
+}
+
 export default function App() {
   const [key, setKey] = useState('');
   const [loading, setLoading] = useState(false);
@@ -29,7 +43,8 @@ export default function App() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/verify-key?key=${encodeURIComponent(k)}`);
+      const device = getDeviceId();
+      const res = await fetch(`/api/verify-key?key=${encodeURIComponent(k)}&device=${encodeURIComponent(device)}`);
       const data = await res.json();
       if (data.valid) {
         localStorage.setItem('radar_key', k);
@@ -39,9 +54,15 @@ export default function App() {
           localStorage.removeItem('radar_key');
           if (data.reason === 'expired') {
             setError('انتهت صلاحية المفتاح · Key has expired');
+          } else if (data.reason === 'device_mismatch') {
+            setError('هذا المفتاح مستخدم على جهاز آخر · This key is active on another device');
           } else {
             setError('المفتاح غير صحيح · Invalid key');
           }
+        } else if (data.reason === 'device_mismatch') {
+          // المفتاح المحفوظ صار على جهاز آخر → امسحه واطلب إعادة إدخال
+          localStorage.removeItem('radar_key');
+          setError('هذا المفتاح مستخدم على جهاز آخر · This key is active on another device');
         }
       }
     } catch {
