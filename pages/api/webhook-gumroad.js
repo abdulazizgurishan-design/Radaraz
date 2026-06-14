@@ -26,6 +26,8 @@ export default async function handler(req, res) {
     const body = await parseBody(req);
     const email = body.email;
     const productId = body.product_permalink;
+    // 🔗 كود الإحالة من Gumroad (إن استُخدم كود مسوّق)
+    const offerCode = (body.offer_code || '').trim().toUpperCase();
 
     if (!email) return res.status(400).json({ error: 'no email' });
 
@@ -56,11 +58,32 @@ export default async function handler(req, res) {
       'Content-Type': 'application/json',
     };
 
+    // 🔗 تحقّق: هل الكود المستخدم كود مسوّق مسجّل؟
+    let referral_code = null;
+    if (offerCode) {
+      try {
+        const affRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/affiliates?code=eq.${encodeURIComponent(offerCode)}&status=eq.assigned&select=code`,
+          { headers }
+        );
+        const affRows = await affRes.json();
+        if (Array.isArray(affRows) && affRows.length > 0) {
+          referral_code = offerCode;  // كود مسوّق صحيح → نربطه
+        }
+      } catch {
+        // لو فشل التحقق، نكمل بدون ربط (لا نوقف الاشتراك)
+      }
+    }
+
     const check = await fetch(
       `${SUPABASE_URL}/rest/v1/subscribers?email=eq.${encodeURIComponent(email)}&select=id`,
       { headers }
     );
     const existing = await check.json();
+
+    // الحقول المحفوظة (نضيف referral_code فقط إن وُجد كود مسوّق صحيح)
+    const subFields = { access_key, plan, expires_at, is_active: true };
+    if (referral_code) subFields.referral_code = referral_code;
 
     if (Array.isArray(existing) && existing.length > 0) {
       await fetch(
@@ -68,14 +91,14 @@ export default async function handler(req, res) {
         {
           method: 'PATCH',
           headers: { ...headers, Prefer: 'return=minimal' },
-          body: JSON.stringify({ access_key, plan, expires_at, is_active: true }),
+          body: JSON.stringify(subFields),
         }
       );
     } else {
       await fetch(`${SUPABASE_URL}/rest/v1/subscribers`, {
         method: 'POST',
         headers: { ...headers, Prefer: 'return=minimal' },
-        body: JSON.stringify({ email, access_key, plan, expires_at, is_active: true }),
+        body: JSON.stringify({ email, ...subFields }),
       });
     }
 
@@ -111,7 +134,7 @@ export default async function handler(req, res) {
       }),
     });
 
-    return res.status(200).json({ success: true });
+    return res.status(200).json({ success: true, referral_linked: !!referral_code });
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
