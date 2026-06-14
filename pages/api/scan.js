@@ -326,6 +326,39 @@ function calcSmartLevels(price, bars) {
   };
 }
 
+// ─── أهداف المضاربة اليومية (ATR أضيق — خروج سريع) ──────────────────
+// المضارب يدخل ويخرج نفس اليوم → أهداف قريبة (ATR×0.5/1.0/1.5)
+// مقابل الاستثمار (ATR×1/2/3 في calcSmartLevels)
+function calcScalpLevels(price, bars) {
+  const atr = calcATR14(bars) || price * 0.03;
+  const { supports } = calcSupportResistance(bars, price);
+
+  // أهداف قريبة للمضاربة السريعة
+  let t1 = price + atr * 0.5;
+  let t2 = price + atr * 1.0;
+  let t3 = price + atr * 1.5;
+
+  // حدود دنيا منطقية للمضاربة (هدف سريع واقعي)
+  t1 = Math.max(t1, price * 1.015);  // +1.5% أدنى
+  t2 = Math.max(t2, t1 * 1.02);
+  t3 = Math.max(t3, t2 * 1.02);
+
+  // وقف ضيق للمضاربة (ATR×1 أو دعم قريب) — حد أقصى -5%
+  const atrSL = price - atr * 1.0;
+  const supportSL = supports[0] ? supports[0] * 0.99 : atrSL;
+  const sl = Math.max(Math.min(atrSL, supportSL), price * 0.95);
+
+  const f2 = n => +n.toFixed(2);
+  const pct = n => +(((n - price) / price) * 100).toFixed(2);
+
+  return {
+    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
+    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
+    risk: f2(price - sl),
+    atr14: f2(atr),
+  };
+}
+
 // ─── جلب شموع يومية + حساب تقاطع المتوسطات (MA9 × MA21 + EMA) ─────
 // يرجع كائن { maBonus, maSignal, bars } — يرفع EP فقط، لا يستبعد
 async function fetchMACrossover(symbol) {
@@ -462,17 +495,28 @@ export default async function handler(req, res) {
       const levels = calcLevels(s);
       const is_hot = ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
 
-      // 🏆 تصنيف القيادي الاحترافي:
-      // القيادي الحقيقي = سعر مؤسسي + سيولة دولارية ضخمة + حركة غير جنونية
-      // (نتجنّب تصنيف السهم البيني الرخيص المنفجر كـ"قيادي" خطأً)
+      // 🎭 تصنيف أسلوب التداول (مضاربة يومية vs استثمار):
+      //   ⚡ مضاربة = ارتفاع لحظي قوي + زخم سريع (ادخل واخرج نفس اليوم)
+      //   📈 استثمار = اتجاه هادئ صاعد + سهم مؤسسي (امسك أيام-أسابيع)
       const dollarVolume = s.price * s.volume;       // السيولة الدولارية الفعلية
-      const isLeader =
-        s.price >= 20 &&                              // سعر مؤسسي (مو بيني)
-        dollarVolume >= 100_000_000 &&                // سيولة دولارية ≥ 100M
-        s.changePct <= 40;                            // حركة منطقية (مو مضاربة جنونية)
-      const type = isLeader ? "قيادي" : "مضاربة";
 
-      return { ...s, ep, levels, is_hot, type, dollarVolume,
+      // إشارة مضاربة: حركة لحظية قوية + حجم نسبي عالٍ
+      const isScalp =
+        s.changePct >= 5 &&           // ارتفاع لحظي ملموس
+        s.rvol >= 5;                  // حجم نسبي يؤكد الزخم الحي
+
+      // إشارة استثمار: سهم مؤسسي + حركة هادئة منطقية
+      const isInvest =
+        s.price >= 20 &&
+        dollarVolume >= 100_000_000 &&
+        s.changePct <= 15;            // حركة هادئة (مو انفجار مضاربي)
+
+      // الأولوية: لو الحركة لحظية قوية → مضاربة، وإلا لو مؤسسي هادئ → استثمار
+      // (الافتراضي مضاربة للأسهم النشطة المتحركة)
+      const trade_style = isScalp ? "مضاربة" : (isInvest ? "استثمار" : "مضاربة");
+      const type = trade_style;  // توافق مع الكود القديم
+
+      return { ...s, ep, levels, is_hot, type, trade_style, dollarVolume,
         signal: ep >= 80 ? "💥 انفجاري" : ep >= 60 ? "🔥 عالي" : "👀 مراقبة" };
     });
 
@@ -513,11 +557,14 @@ export default async function handler(req, res) {
       s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
       s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
 
-      // 🎯 أهداف ووقف ذكي (ATR14 + دعم/مقاومة + فيبوناتشي)
-      // يعيد استخدام نفس بيانات الشموع — صفر تكلفة إضافية
+      // 🎯 أهداف ووقف ذكي — حسب أسلوب التداول:
+      //   ⚡ مضاربة → أهداف قريبة (ATR×0.5/1/1.5) خروج سريع
+      //   📈 استثمار → أهداف أبعد (ATR×1/2/3) صبر أطول
       if (bars && bars.length >= 15) {
-        s.levels = calcSmartLevels(s.price, bars);
-        s.levels_source = "smart";
+        s.levels = s.trade_style === "مضاربة"
+          ? calcScalpLevels(s.price, bars)
+          : calcSmartLevels(s.price, bars);
+        s.levels_source = s.trade_style === "مضاربة" ? "scalp_atr" : "smart";
       } else {
         s.levels_source = "atr_basic";  // fallback للأهداف التقريبية
       }
