@@ -231,6 +231,32 @@ function Landing({ onApply }) {
         <button onClick={onApply} style={btnPrimary}>سجّل معنا كشريك ←</button>
       </section>
 
+      {/* تواصل معنا */}
+      <section style={{ marginTop: 48 }}>
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 11, letterSpacing: 3, color: C.iris, fontWeight: 700 }}>للاستفسارات</div>
+          <h2 style={{ fontSize: 20, fontWeight: 900, margin: '8px 0 0' }}>تواصل معنا</h2>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <a href="https://x.com/radarazpro?s=11&t=uRCEfRNAqftda3iYmqVEgg" target="_blank" rel="noopener noreferrer"
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+              background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: '18px 12px',
+              textDecoration: 'none', color: C.ink }}>
+            <span style={{ fontSize: 24, fontWeight: 900 }}>𝕏</span>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>حساب X</span>
+            <span style={{ fontSize: 11, color: C.mute, fontFamily: F.mono }} dir="ltr">@radarazpro</span>
+          </a>
+          <a href="https://t.me/radarAzpro" target="_blank" rel="noopener noreferrer"
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+              background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: '18px 12px',
+              textDecoration: 'none', color: C.ink }}>
+            <span style={{ fontSize: 24 }}>✈️</span>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>تليجرام</span>
+            <span style={{ fontSize: 11, color: C.mute, fontFamily: F.mono }} dir="ltr">@radarAzpro</span>
+          </a>
+        </div>
+      </section>
+
       <footer style={{ marginTop: 40, textAlign: 'center', fontSize: 11, color: 'rgba(138,148,166,0.5)' }}>
         Radaraz · رادار الأسهم الأمريكية
       </footer>
