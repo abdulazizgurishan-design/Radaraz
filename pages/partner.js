@@ -116,8 +116,20 @@ export default function Partner() {
 function Landing({ onApply }) {
   return (
     <>
+      {/* شريط علوي: دخول الشريك */}
+      <div style={{ display: 'flex', justifyContent: 'flex-start', paddingTop: 20 }}>
+        <a href="/partner/dashboard" style={{
+          display: 'inline-flex', alignItems: 'center', gap: 7,
+          background: 'rgba(99,102,241,0.1)', border: `1px solid rgba(99,102,241,0.25)`,
+          borderRadius: 22, padding: '8px 16px', textDecoration: 'none',
+          color: '#a5b4fc', fontSize: 12.5, fontWeight: 600,
+        }}>
+          🔑 دخول الشريك
+        </a>
+      </div>
+
       {/* الهيرو */}
-      <header style={{ paddingTop: 56, textAlign: 'center' }}>
+      <header style={{ paddingTop: 28, textAlign: 'center' }}>
         <RadarMark />
         <h1 style={{ fontSize: 30, fontWeight: 900, letterSpacing: -0.5, margin: '20px 0 8px' }}>
           رادار <span style={{ color: C.iris }}>Radaraz</span>
