@@ -673,7 +673,7 @@ export default function Radar() {
   const hotCount    = useMemo(() => results.filter((r) => r.is_hot).length,      [results]);
   const earlyCount  = useMemo(() => earlyWatch.length, [earlyWatch]);
   const dotColor    = loading ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
-  const showSections = filter === "all" && leaders.length > 0 && speculation.length > 0;
+  const showSections = filter === "all" && (leaders.length > 0 || speculation.length > 0);
   const earlySymbols = useMemo(() => new Set(earlyWatch.map(s => s.symbol)), [earlyWatch]);
 
   if (!authChecked) return null;
@@ -765,12 +765,16 @@ export default function Radar() {
 
         {!loading && done && showSections && (
           <>
-            <CollapsibleSection title={t.sectionLeaders} count={leaders.length} color="#818cf8" bg="rgba(129,140,248,0.08)" border="rgba(129,140,248,0.2)" t={t}>
-              {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
-            </CollapsibleSection>
-            <CollapsibleSection title={t.sectionSpec} count={speculation.length} color="#fbbf24" bg="rgba(251,191,36,0.08)" border="rgba(251,191,36,0.2)" t={t}>
-              {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
-            </CollapsibleSection>
+            {leaders.length > 0 && (
+              <CollapsibleSection title={t.sectionLeaders} count={leaders.length} color="#818cf8" bg="rgba(129,140,248,0.08)" border="rgba(129,140,248,0.2)" t={t}>
+                {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
+              </CollapsibleSection>
+            )}
+            {speculation.length > 0 && (
+              <CollapsibleSection title={t.sectionSpec} count={speculation.length} color="#fbbf24" bg="rgba(251,191,36,0.08)" border="rgba(251,191,36,0.2)" t={t}>
+                {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
+              </CollapsibleSection>
+            )}
           </>
         )}
 
