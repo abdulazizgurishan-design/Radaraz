@@ -15,8 +15,8 @@ const T = {
     scanning: "⟳  جاري المسح...",
     autoRefresh: "تحديث تلقائي كل دقيقة",
     filterAll: "الكل",
-    filterLeaders: "🏆 قيادي",
-    filterSpec: "💥 مضاربة",
+    filterLeaders: "📈 استثمار",
+    filterSpec: "⚡ مضاربة",
     opportunities: "فرصة",
     noOpps: "لا توجد فرص حالياً",
     marketClosed: "سيتم تحديث الإشارات بعد مسح الأدمن",
@@ -49,8 +49,8 @@ const T = {
     microCap: "🦐 Micro Cap",
     sectionEarly: "🔍 رصد مبكر",
     sectionEarlySub: "أسهم جاهزة قبل الانفجار",
-    sectionLeaders: "🏆 أسهم قيادية",
-    sectionSpec: "💥 مضاربة لحظية",
+    sectionLeaders: "📈 إشارات استثمارية",
+    sectionSpec: "⚡ مضاربة يومية",
     tapToExpand: "اضغط للعرض",
     tapToCollapse: "اضغط للإخفاء",
     earlyBadge: "🔍 رصد مبكر",
@@ -82,8 +82,8 @@ const T = {
     scanning: "⟳  Scanning...",
     autoRefresh: "Auto refresh every minute",
     filterAll: "All",
-    filterLeaders: "🏆 Leaders",
-    filterSpec: "💥 Speculation",
+    filterLeaders: "📈 Invest",
+    filterSpec: "⚡ Day Trade",
     opportunities: "opportunities",
     noOpps: "No opportunities found",
     marketClosed: "Signals will appear after admin scan",
@@ -116,8 +116,8 @@ const T = {
     microCap: "🦐 Micro Cap",
     sectionEarly: "🔍 Early Watch",
     sectionEarlySub: "Stocks ready before the breakout",
-    sectionLeaders: "🏆 Leadership Stocks",
-    sectionSpec: "💥 Speculation",
+    sectionLeaders: "📈 Investment Signals",
+    sectionSpec: "⚡ Day Trading",
     tapToExpand: "Tap to expand",
     tapToCollapse: "Tap to collapse",
     earlyBadge: "🔍 Early",
@@ -295,9 +295,9 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
   const scoreColor  = r.score >= 80 ? "#ff6b35" : r.score >= 60 ? "#ffd700" : "#00d4aa";
   const glowColor   = isEarly ? "rgba(52,211,153,0.2)" : r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
 
-  const typeTag = r.type === "قيادي"
-    ? { label: "🏆 قيادي",  color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
-    : { label: "💥 مضاربة", color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.25)" };
+  const typeTag = r.type === "استثمار"
+    ? { label: "📈 استثمار", color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
+    : { label: "⚡ مضاربة", color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.25)" };
 
   const wrapStyle = isEarly
     ? { ...S.cardWrap(open, glowColor), border: "1px solid rgba(52,211,153,0.4)", background: "linear-gradient(135deg,rgba(12,28,22,0.95),rgba(15,32,26,0.95))" }
@@ -594,8 +594,8 @@ export default function Radar() {
       if (data.error) { setScanError(data.error); setStatus("error"); return; }
 
       const raw  = data.results ?? [];
-      const lead = data.leaders     ?? raw.filter(s => s.type === "قيادي");
-      const spec = data.speculation ?? raw.filter(s => s.type !== "قيادي");
+      const lead = data.leaders     ?? raw.filter(s => s.type === "استثمار");
+      const spec = data.speculation ?? raw.filter(s => s.type !== "استثمار");
       const early = data.earlyWatch ?? raw.filter(s => s.early_watch);
 
       const toCard = s => ({
@@ -768,7 +768,7 @@ export default function Radar() {
             <CollapsibleSection title={t.sectionLeaders} count={leaders.length} color="#818cf8" bg="rgba(129,140,248,0.08)" border="rgba(129,140,248,0.2)" t={t}>
               {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
             </CollapsibleSection>
-            <CollapsibleSection title={t.sectionSpec} count={speculation.length} color="#f87171" bg="rgba(248,113,113,0.08)" border="rgba(248,113,113,0.2)" t={t}>
+            <CollapsibleSection title={t.sectionSpec} count={speculation.length} color="#fbbf24" bg="rgba(251,191,36,0.08)" border="rgba(251,191,36,0.2)" t={t}>
               {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
             </CollapsibleSection>
           </>
