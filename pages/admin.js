@@ -330,6 +330,11 @@ export default function Admin() {
   const [resetBusy,   setResetBusy]   = useState(false);
   const [resetResult, setResetResult] = useState(null);
 
+  // 🤝 حالة الشركاء
+  const [affiliates,  setAffiliates]  = useState([]);
+  const [affTotals,   setAffTotals]   = useState({});
+  const [affLoading,  setAffLoading]  = useState(false);
+
   const showToast = (msg, type = "ok") => {
     setToast({ msg, type });
     setTimeout(() => setToast({ msg: "", type: "" }), 4000);
@@ -346,6 +351,13 @@ export default function Admin() {
       fetchSignals();
     }
   }, [auth]);
+
+  // حمّل الشركاء عند فتح تبويبهم
+  useEffect(() => {
+    if (auth && activeTab === "affiliates" && affiliates.length === 0) {
+      loadAffiliates();
+    }
+  }, [auth, activeTab]);
 
   const fetchSignals = async () => {
     try {
@@ -410,6 +422,23 @@ export default function Admin() {
       setToast({ msg: "خطأ في الاتصال", type: "error" });
     } finally {
       setResetBusy(false);
+    }
+  };
+
+  // 🤝 تحميل الشركاء
+  const loadAffiliates = async () => {
+    setAffLoading(true);
+    try {
+      const res = await fetch(`/api/admin-affiliates?pass=${encodeURIComponent(pass)}`);
+      const d = await res.json();
+      if (d.success) {
+        setAffiliates(d.affiliates || []);
+        setAffTotals(d.totals || {});
+      }
+    } catch {
+      setToast({ msg: "تعذّر تحميل الشركاء", type: "error" });
+    } finally {
+      setAffLoading(false);
     }
   };
 
@@ -520,6 +549,7 @@ export default function Admin() {
             { id: "signals", label: `📡 الإشارات${signals.length ? ` (${signals.length})` : ""}` },
             { id: "results", label: "📊 النتائج" },
             { id: "subscribers", label: "👥 المشتركين" },
+            { id: "affiliates", label: "🤝 الشركاء" },
           ].map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
               padding: "12px 22px", background: "transparent", border: "none",
@@ -728,6 +758,92 @@ export default function Admin() {
                 عداد "مرات النقل" يكشف المشاركة: نقل كثير = مشترك يشارك مفتاحه 🚩
               </div>
             </div>
+          </>
+        )}
+
+        {/* ════════ TAB: AFFILIATES ════════ */}
+        {activeTab === "affiliates" && (
+          <>
+            {affLoading && <div style={{ textAlign: "center", color: "#334155", padding: 30 }}>جاري التحميل...</div>}
+
+            {!affLoading && (
+              <>
+                {/* ملخّص الإجماليات */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                  <div style={{ background: "rgba(99,102,241,.08)", border: "1px solid rgba(99,102,241,.2)", borderRadius: 14, padding: "14px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#818cf8" }}>{affTotals.affiliateCount || 0}</div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>شريك مسجّل</div>
+                  </div>
+                  <div style={{ background: "rgba(0,212,170,.08)", border: "1px solid rgba(0,212,170,.2)", borderRadius: 14, padding: "14px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#00d4aa" }}>{affTotals.totalActive || 0}</div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>مشترك عبر الإحالة</div>
+                  </div>
+                  <div style={{ background: "rgba(251,191,36,.08)", border: "1px solid rgba(251,191,36,.2)", borderRadius: 14, padding: "14px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: "#fbbf24", fontFamily: "monospace" }}>${affTotals.totalCommission || 0}</div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>إجمالي العمولات</div>
+                  </div>
+                  <div style={{ background: "rgba(0,212,170,.08)", border: "1px solid rgba(0,212,170,.2)", borderRadius: 14, padding: "14px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: "#00d4aa", fontFamily: "monospace" }}>${affTotals.netProfit || 0}</div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>صافي ربحك (تقديري)</div>
+                  </div>
+                </div>
+
+                <button onClick={loadAffiliates} style={{ ...S.btn("rgba(255,255,255,.06)"), marginBottom: 16, fontSize: 13 }}>
+                  🔄 تحديث
+                </button>
+
+                {/* قائمة الشركاء */}
+                {affiliates.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: 50, color: "#334155" }}>
+                    <div style={{ fontSize: 40, marginBottom: 12 }}>🤝</div>
+                    لا شركاء مسجّلون بعد
+                  </div>
+                ) : (
+                  affiliates.map((a, i) => (
+                    <div key={i} style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 14, padding: 16, marginBottom: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: 15, color: "#e2e8f0" }}>{a.name || "—"}</div>
+                          <div style={{ fontSize: 11, color: "#64748b", direction: "ltr", textAlign: "right" }}>{a.email}</div>
+                        </div>
+                        <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#00d4aa", background: "rgba(0,212,170,.1)", padding: "4px 10px", borderRadius: 8 }}>{a.code}</span>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                        <div style={{ flex: 1, background: "rgba(255,255,255,.04)", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: "#00d4aa" }}>{a.activeCount}</div>
+                          <div style={{ fontSize: 9, color: "#64748b" }}>نشط</div>
+                        </div>
+                        <div style={{ flex: 1, background: "rgba(255,255,255,.04)", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: "#fbbf24", fontFamily: "monospace" }}>${a.commission}</div>
+                          <div style={{ fontSize: 9, color: "#64748b" }}>مستحق</div>
+                        </div>
+                        <div style={{ flex: 1, background: "rgba(255,255,255,.04)", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: "#94a3b8" }}>{a.totalCount}</div>
+                          <div style={{ fontSize: 9, color: "#64748b" }}>إجمالي</div>
+                        </div>
+                      </div>
+
+                      {/* طريقة الدفع */}
+                      <div style={{ fontSize: 11, color: "#64748b", borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 10 }}>
+                        {a.payout_method ? (
+                          <div style={{ direction: "ltr", textAlign: "right" }}>
+                            <span style={{ color: "#a5b4fc", fontWeight: 700 }}>{a.payout_method}:</span> {a.payout_address || "—"}
+                          </div>
+                        ) : (
+                          <span style={{ color: "#64748b" }}>لم يحدّد طريقة دفع بعد</span>
+                        )}
+                        {a.telegram && <div style={{ direction: "ltr", textAlign: "right", marginTop: 4 }}>📱 {a.telegram}</div>}
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                <div style={{ background: "rgba(99,102,241,.06)", border: "1px solid rgba(99,102,241,.15)", borderRadius: 12, padding: "13px 15px", fontSize: 11.5, color: "#94a3b8", marginTop: 12, lineHeight: 1.7 }}>
+                  💡 نهاية كل شهر: راجع العمولة المستحقة لكل شريك وحوّلها بطريقة دفعه (USDT/PayPal).
+                </div>
+              </>
+            )}
           </>
         )}
 
