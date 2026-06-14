@@ -64,13 +64,20 @@ function buildTweet(signals, date, mode = "signals") {
     const st = signals.filter(s => s.stop_hit).length;
     const hit = signals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length;
     const rate = signals.length ? Math.round((hit / signals.length) * 100) : 0;
-    lines.push(`🎯 الأداء:`);
-    lines.push(`  ✅ T1: ${t1}  🎯 T2: ${t2}  🏆 T3: ${t3}  ❌ وقف: ${st}`);
-    lines.push(`  📊 نسبة النجاح: ${rate}% (${hit}/${signals.length})\n`);
-    signals.slice(0, 5).forEach(s => {
-      const r = getResult(s);
-      lines.push(`${r?.icon || "📡"} $${s.symbol} ${r ? r.label : ""} ${r?.pct != null ? (r.pct >= 0 ? `+${r.pct}%` : `${r.pct}%`) : ""}`);
+
+    // 🏆 أبرز الارتفاعات (أعلى max_gain) — الأقوى تسويقياً
+    const topGainers = [...signals]
+      .filter(s => (s.max_gain_pct || 0) > 0)
+      .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
+      .slice(0, 4);
+
+    lines.push(`🎯 أبرز ارتفاعات اليوم:\n`);
+    topGainers.forEach(s => {
+      const icon = s.type === "استثمار" ? "📈" : "⚡";
+      const g = (s.max_gain_pct || 0).toFixed(1);
+      lines.push(`${icon} $${s.symbol} ارتفع +${g}%`);
     });
+    lines.push(`\n✅ ${hit} إشارة ناجحة · نسبة نجاح ${rate}% 🔥`);
   } else {
     signals.slice(0, 8).forEach(s => {
       const hot = s.is_hot ? " 🚨" : "";
@@ -83,7 +90,7 @@ function buildTweet(signals, date, mode = "signals") {
       lines.push(`  🛑 وقف: $${(s.stop_loss || 0).toFixed(2)}\n`);
     });
   }
-  lines.push(`🔗 radaraz.com`);
+  lines.push(`\n🔗 radaraz.com`);
   return lines.join("\n");
 }
 
