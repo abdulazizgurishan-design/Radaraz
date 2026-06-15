@@ -237,7 +237,7 @@ const SkeletonCards = () => (
 
 function fmtPct(n) {
   if (n == null) return "";
-  return (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%";
+  return (n >= 0 ? "+" : "") + Math.round(+n) + "%";
 }
 
 // 🔍 شارة الرصد المبكر
@@ -291,13 +291,28 @@ function RSIBadge({ rsi, t }) {
 function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
   const [open, setOpen] = useState(false);
   const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
-  const formatPct   = useCallback((n) => (n >= 0 ? "+" : "") + (+n).toFixed(2) + "%", []);
+  const formatPct   = useCallback((n) => (n >= 0 ? "+" : "") + Math.round(+n) + "%", []);
   const scoreColor  = r.score >= 80 ? "#ff6b35" : r.score >= 60 ? "#ffd700" : "#00d4aa";
   const glowColor   = isEarly ? "rgba(52,211,153,0.2)" : r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
 
   const typeTag = r.type === "استثمار"
     ? { label: "📈 استثمار", color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
     : { label: "⚡ مضاربة", color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.25)" };
+
+  // 🕐 وقت الرصد + كم صارلها
+  const timeInfo = useMemo(() => {
+    if (!r.created_at) return null;
+    const d = new Date(r.created_at);
+    if (isNaN(d)) return null;
+    const clock = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Riyadh" });
+    const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+    let ago;
+    if (mins < 1) ago = "الآن";
+    else if (mins < 60) ago = `قبل ${mins} د`;
+    else { const h = Math.floor(mins / 60); ago = `قبل ${h} س`; }
+    const isNew = mins < 60;  // جديدة = آخر ساعة
+    return { clock, ago, isNew };
+  }, [r.created_at]);
 
   const wrapStyle = isEarly
     ? { ...S.cardWrap(open, glowColor), border: "1px solid rgba(52,211,153,0.4)", background: "linear-gradient(135deg,rgba(12,28,22,0.95),rgba(15,32,26,0.95))" }
@@ -334,6 +349,7 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
           {r.is_hot && <div style={{ fontSize: 9, color: "#fca5a5", marginTop: 2 }}>🚨 HOT</div>}
         </div>
         <div style={S.cardTags}>
+          {timeInfo?.isNew && <span style={S.tag("rgba(0,212,170,0.15)", "#00d4aa", "rgba(0,212,170,0.3)")}>🆕</span>}
           {isEarly && <EarlyBadge t={t} />}
           <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.signal}</span>
           {r.ma_signal && <MABadge signal={r.ma_signal} />}
@@ -345,13 +361,18 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
         <div style={{ textAlign: "right", minWidth: 80 }}>
           <div style={S.cardPrice}>{formatPrice(r.price)}</div>
           <div style={S.cardChange(r.change_pct >= 0)}>{formatPct(r.change_pct)}</div>
+          {timeInfo && (
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", marginTop: 3, direction: "ltr", textAlign: "right" }}>
+              🕐 {timeInfo.clock} · {timeInfo.ago}
+            </div>
+          )}
         </div>
         <div style={{ textAlign: "center", minWidth: 44 }}>
           <div style={S.cardScore(scoreColor)}>{r.score}</div>
           <ScoreBar score={r.score} />
         </div>
         <button
-          onClick={(e) => { e.stopPropagation(); onToggleFav && onToggleFav(r.symbol); }}
+          onClick={(e) => { e.stopPropagation(); onToggleFav && onToggleFav(r); }}
           title={isFav ? t.removeFav : t.addFav}
           style={{
             background: "transparent", border: "none", cursor: "pointer",
@@ -365,6 +386,29 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
       </div>
       {open && (
         <div style={S.detailWrap}>
+          {r.isFavSnapshot && r.favEntry && (
+            <div style={{ background: "rgba(255,215,0,0.06)", border: "1px solid rgba(255,215,0,0.25)", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: "#ffd700", fontWeight: 700 }}>⭐ صفقتك المحفوظة</span>
+                {r.favPL != null && (
+                  <span style={{ fontSize: 15, fontWeight: 900, fontFamily: "monospace", direction: "ltr",
+                    color: r.favPL >= 0 ? "#00d4aa" : "#ff4757" }}>
+                    {(r.favPL >= 0 ? "+" : "") + r.favPL.toFixed(1)}%
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "rgba(255,255,255,0.6)", direction: "ltr" }}>
+                <span>دخول: <strong style={{ color: "#60a5fa" }}>${(+r.favEntry).toFixed(2)}</strong></span>
+                <span>الآن: <strong style={{ color: "#e8edf6" }}>${(+r.livePrice).toFixed(2)}</strong></span>
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                {r.favT1 && <span style={{ fontSize: 9.5, padding: "3px 8px", borderRadius: 7, background: r.livePrice >= r.favT1 ? "rgba(0,212,170,0.2)" : "rgba(255,255,255,0.05)", color: r.livePrice >= r.favT1 ? "#00d4aa" : "#94a3b8", direction: "ltr" }}>T1 ${(+r.favT1).toFixed(2)}{r.livePrice >= r.favT1 ? " ✓" : ""}</span>}
+                {r.favT2 && <span style={{ fontSize: 9.5, padding: "3px 8px", borderRadius: 7, background: r.livePrice >= r.favT2 ? "rgba(0,212,170,0.2)" : "rgba(255,255,255,0.05)", color: r.livePrice >= r.favT2 ? "#00d4aa" : "#94a3b8", direction: "ltr" }}>T2 ${(+r.favT2).toFixed(2)}{r.livePrice >= r.favT2 ? " ✓" : ""}</span>}
+                {r.favT3 && <span style={{ fontSize: 9.5, padding: "3px 8px", borderRadius: 7, background: r.livePrice >= r.favT3 ? "rgba(0,212,170,0.2)" : "rgba(255,255,255,0.05)", color: r.livePrice >= r.favT3 ? "#00d4aa" : "#94a3b8", direction: "ltr" }}>T3 ${(+r.favT3).toFixed(2)}{r.livePrice >= r.favT3 ? " ✓" : ""}</span>}
+                {r.favSL && <span style={{ fontSize: 9.5, padding: "3px 8px", borderRadius: 7, background: r.livePrice <= r.favSL ? "rgba(255,71,87,0.2)" : "rgba(255,255,255,0.05)", color: r.livePrice <= r.favSL ? "#ff4757" : "#94a3b8", direction: "ltr" }}>وقف ${(+r.favSL).toFixed(2)}{r.livePrice <= r.favSL ? " ⚠" : ""}</span>}
+              </div>
+            </div>
+          )}
           {isEarly && (
             <div style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 11, color: "#34d399", lineHeight: 1.6 }}>
               💡 {t.earlyTooltip}
@@ -558,16 +602,43 @@ export default function Radar() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem("radar_favorites");
-      if (saved) setFavorites(JSON.parse(saved));
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // توافق مع الصيغة القديمة (نصوص) → نحوّلها لكائنات
+        const migrated = parsed.map((f) =>
+          typeof f === "string"
+            ? { symbol: f, entry: null, t1: null, t2: null, t3: null, sl: null, type: null, addedAt: null }
+            : f
+        );
+        setFavorites(migrated);
+      }
     } catch { /* ignore */ }
   }, []);
 
   // ⭐ إضافة/إزالة سهم من المفضلة + حفظ فوري
-  const toggleFav = useCallback((symbol) => {
+  // المفضلة: تخزّن لقطة (snapshot) مجمّدة وقت الإضافة
+  // البنية: { symbol, entry, t1, t2, t3, sl, type, addedAt }
+  const toggleFav = useCallback((row) => {
+    const symbol = typeof row === "string" ? row : row.symbol;
     setFavorites((prev) => {
-      const next = prev.includes(symbol)
-        ? prev.filter((s) => s !== symbol)
-        : [...prev, symbol];
+      const exists = prev.some((f) => f.symbol === symbol);
+      let next;
+      if (exists) {
+        next = prev.filter((f) => f.symbol !== symbol);
+      } else {
+        // جمّد اللقطة الحالية
+        const snap = {
+          symbol,
+          entry: row.price ?? null,
+          t1: row.levels?.t1 ?? null,
+          t2: row.levels?.t2 ?? null,
+          t3: row.levels?.t3 ?? null,
+          sl: row.levels?.sl ?? null,
+          type: row.type ?? null,
+          addedAt: new Date().toISOString(),
+        };
+        next = [...prev, snap];
+      }
       try { localStorage.setItem("radar_favorites", JSON.stringify(next)); } catch { /* ignore */ }
       return next;
     });
@@ -617,6 +688,7 @@ export default function Radar() {
         rsi:        s.rsi ?? null,
         early_watch: s.early_watch || false,
         week_max_jump: s.week_max_jump ?? null,
+        created_at: s.created_at || null,
         levels: s.levels || {
           t1: 0, t1Pct: 0, t2: 0, t2Pct: 0,
           t3: 0, t3Pct: 0, sl: 0, slPct: 0, risk: 0,
@@ -656,7 +728,26 @@ export default function Radar() {
   }, [autoRefresh, scan]);
 
   const filtered = useMemo(() => {
-    if (filter === "favorites")   return results.filter((r) => favorites.includes(r.symbol));
+    if (filter === "favorites") {
+      // ادمج اللقطة المجمّدة + السعر الحي الحالي
+      return favorites.map((fav) => {
+        const live = results.find((r) => r.symbol === fav.symbol);
+        const currentPrice = live?.price ?? fav.entry;
+        // ربح/خسارة من سعر الدخول المجمّد
+        const pl = (fav.entry && currentPrice) ? ((currentPrice - fav.entry) / fav.entry) * 100 : null;
+        return {
+          ...(live || {}),
+          symbol: fav.symbol,
+          isFavSnapshot: true,
+          favEntry: fav.entry,
+          favT1: fav.t1, favT2: fav.t2, favT3: fav.t3, favSL: fav.sl,
+          favAddedAt: fav.addedAt,
+          favType: fav.type,
+          livePrice: currentPrice,
+          favPL: pl,
+        };
+      });
+    }
     if (filter === "early")       return earlyWatch;
     if (filter === "leaders")     return leaders;
     if (filter === "speculation") return speculation;
@@ -666,8 +757,8 @@ export default function Radar() {
     return results;
   }, [results, leaders, speculation, earlyWatch, favorites, filter]);
 
-  const favSet      = useMemo(() => new Set(favorites), [favorites]);
-  const favCount    = useMemo(() => results.filter((r) => favorites.includes(r.symbol)).length, [results, favorites]);
+  const favSet      = useMemo(() => new Set(favorites.map((f) => f.symbol)), [favorites]);
+  const favCount    = useMemo(() => favorites.length, [favorites]);
 
   const explosive   = useMemo(() => results.filter((r) => r.score >= 80).length, [results]);
   const hotCount    = useMemo(() => results.filter((r) => r.is_hot).length,      [results]);
