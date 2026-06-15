@@ -359,8 +359,19 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
           {r.is_hot && <span style={S.tag("rgba(248,113,113,0.15)", "#fca5a5", "rgba(248,113,113,0.3)")}>🚨 HOT</span>}
         </div>
         <div style={{ textAlign: "right", minWidth: 80 }}>
-          <div style={S.cardPrice}>{formatPrice(r.price)}</div>
-          <div style={S.cardChange(r.change_pct >= 0)}>{formatPct(r.change_pct)}</div>
+          {r.isFavSnapshot && r.favEntry ? (
+            <>
+              <div style={S.cardPrice}>{formatPrice(r.favEntry)}</div>
+              <div style={{ ...S.cardChange(r.favPL >= 0), fontSize: 12, fontWeight: 700 }}>
+                {r.favPL != null ? (r.favPL >= 0 ? "+" : "") + r.favPL.toFixed(1) + "%" : "—"}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={S.cardPrice}>{formatPrice(r.price)}</div>
+              <div style={S.cardChange(r.change_pct >= 0)}>{formatPct(r.change_pct)}</div>
+            </>
+          )}
           {timeInfo && (
             <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", marginTop: 3, direction: "ltr", textAlign: "right" }}>
               🕐 {timeInfo.clock} · {timeInfo.ago}
