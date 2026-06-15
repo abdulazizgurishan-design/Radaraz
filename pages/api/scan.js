@@ -25,6 +25,8 @@ const FILTER = {
   MAX_PRICE:      500,
   MIN_VOLUME:     300_000,      // حجم يومي حقيقي
   MIN_CHANGE:     3,            // أقل تغيير % للاهتمام
+  MAX_CHANGE:     80,           // أقصى تغيير % (فوقه = مضاربة جنونية خطرة → استبعاد)
+  MAX_RVOL:       100,          // أقصى حجم نسبي منطقي (فوقه = بيانات مشبوهة/سهم نائم)
   MAX_RESULTS:    60,           // أقصى إشارات
   SAVE_MIN_EP:    50,           // الحد الأدنى للحفظ في Supabase
   LEADER_MCAP:    2_000_000_000,
@@ -470,9 +472,13 @@ export default async function handler(req, res) {
       }
       // ⚠️ زخم صاعد فقط — استبعاد الأسهم الهابطة (لا ارتداد)
       if (changePct < FILTER.MIN_CHANGE) continue;
+      // 🚫 استبعاد المضاربة الجنونية الخطرة (ارتفاع مستحيل = pump & dump)
+      if (changePct > FILTER.MAX_CHANGE) continue;
 
       const gapPct = (day.o && prevClose) ? ((day.o - prevClose) / prevClose) * 100 : 0;
-      const rvol = (prev.v && prev.v > 0) ? +(volume / prev.v).toFixed(1) : 0;
+      let rvol = (prev.v && prev.v > 0) ? +(volume / prev.v).toFixed(1) : 0;
+      // 🚫 RVOL مستحيل (سهم نائم/بيانات مشبوهة) → استبعاد
+      if (rvol > FILTER.MAX_RVOL) continue;
 
       candidates.push({
         symbol:    t.ticker,
@@ -569,20 +575,34 @@ export default async function handler(req, res) {
         s.levels_source = "atr_basic";  // fallback للأهداف التقريبية
       }
 
-      // 🔍 رصد مبكر — السهم الجاهز قبل الانفجار:
-      //   • ارتفاع يومي 3-10% (بداية مبكرة)
-      //   • EP ≥ 75 (جودة عالية)
-      //   • تأكيد فني صارم (تقاطع ذهبي أو EMA صاعد)
-      //   • هادئ أسبوعياً (لم يقفز >15% بأي يوم خلال الأسبوع)
+      // 🔍 رصد مبكر — اصطياد السهم في بداية حركته (قبل ما يطير):
+      //   منطق المضارب: ندخل مبكراً (2-15%) مع إشارات قوة، لا ننتظر القمة.
+      //   نستخدم نظام "نقاط" — أي إشارتين قويتين = رصد مبكر (مرونة أعلى).
       const strongMA = s.ma_signal === "تقاطع ذهبي 🌟"
                     || s.ma_signal === "صاعد قوي ⚡"
                     || s.ma_signal === "EMA صاعد";
-      s.early_watch = (
-        s.changePct >= 3 && s.changePct <= 10 &&
-        s.ep >= 75 &&
-        strongMA &&
-        (weekMaxJump != null && weekMaxJump <= 15)
-      );
+
+      // مؤشرات القوة المبكرة (كل واحد = نقطة)
+      let earlyScore = 0;
+      const earlyReasons = [];
+      // 1) في نطاق الدخول المبكر المثالي (2-15%)
+      const inEarlyZone = s.changePct >= 2 && s.changePct <= 15;
+      // 2) تأكيد فني صاعد
+      if (strongMA) { earlyScore++; earlyReasons.push("فني صاعد"); }
+      // 3) RSI في منطقة الزخم الصحي (50-68) — لا إشباع
+      if (s.rsi != null && s.rsi >= 50 && s.rsi <= 68) { earlyScore++; earlyReasons.push("زخم صحي"); }
+      // 4) حجم نسبي قوي لكن منطقي (تجميع/دخول) 3-30x
+      if (s.rvol != null && s.rvol >= 3 && s.rvol <= 30) { earlyScore++; earlyReasons.push("حجم متزايد"); }
+      // 5) جودة عالية (EP)
+      if (s.ep >= 65) { earlyScore++; earlyReasons.push("جودة عالية"); }
+      // 6) هادئ أسبوعياً (ما انفجر قبل — لسه في البداية)
+      const calmWeek = weekMaxJump != null && weekMaxJump <= 25;
+      if (calmWeek) { earlyScore++; earlyReasons.push("لم ينفجر بعد"); }
+
+      // رصد مبكر = في النطاق المبكر + نقطتين قوة على الأقل
+      s.early_watch = inEarlyZone && earlyScore >= 2;
+      s.early_score = earlyScore;
+      s.early_reasons = earlyReasons;
       s.week_max_jump = weekMaxJump ?? null;
     }));
 
