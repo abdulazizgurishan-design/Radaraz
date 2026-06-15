@@ -467,11 +467,12 @@ export default async function handler(req, res) {
       }
 
       // ── الأخبار: تمييز الكاتشي عن الوهمي ──
-      if (news.hasNews && news.ageH != null && news.ageH <= 48) {
+      const freshNews = news.hasNews && news.ageH != null && news.ageH <= 48;
+      if (freshNews) {
         s.ep = Math.min(99, s.ep + (news.sentiment === "positive" ? 6 : 3));
       }
-      // ارتفاع كبير بلا خبر = خطر تلاعب → خصم ثقة
-      if (s.changePct > 20 && !news.hasNews) s.ep = Math.max(0, s.ep - 8);
+      // ارتفاع كبير بدون خبر طازج = خطر تلاعب (pump) → خصم ثقة
+      if (s.changePct > 20 && !freshNews) s.ep = Math.max(0, s.ep - 8);
       s.news_age_h = news.ageH;
 
       // ── البوابة (gate) ──
@@ -484,10 +485,16 @@ export default async function handler(req, res) {
           && s.ep >= 70;
         if (!pass) s._drop = true;
       } else {
-        // $1 فأعلى: الحد الأدنى أن يكون في اتجاه صاعد (فوق MA21)
-        // إن غابت الشموع، نسمح فقط للجودة العالية (ep>=65)
-        if (tech) { if (!tech.priceAboveMA21) s._drop = true; }
-        else if (s.ep < 65) s._drop = true;
+        // $1 فأعلى:
+        if (tech) {
+          // عندنا بيانات → لازم اتجاه صاعد (فوق MA21)
+          if (!tech.priceAboveMA21) s._drop = true;
+        } else {
+          // لا بيانات فنية (سهم جديد/تاريخ قصير) → ما نثق إلا بالمبكر
+          s.ep = Math.min(s.ep, 72);                 // سقف بدون تأكيد
+          if (s.changePct > 15) s._drop = true;      // ممتد + غير مؤكد = خطر pump
+          else if (s.ep < 60) s._drop = true;
+        }
       }
 
       // إعادة تقييم HOT + الإشارة
