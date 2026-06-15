@@ -206,7 +206,7 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
               </span>
               {s.change_pct != null && (
                 <span style={{ fontSize: 11, fontWeight: 700, color: (s.change_pct || 0) >= 0 ? "#34d399" : "#f87171", fontFamily: "monospace", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>
-                  {`${(s.change_pct || 0) >= 0 ? "▲ +" : "▼ "}${Math.round(parseFloat(s.change_pct))}%`}
+                  {((s.change_pct || 0) >= 0 ? "+" : "") + Math.round(parseFloat(s.change_pct)) + "% " + ((s.change_pct || 0) >= 0 ? "▲" : "▼")}
                 </span>
               )}
               {s.rvol != null && (
