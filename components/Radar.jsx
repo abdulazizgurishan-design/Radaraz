@@ -334,11 +334,14 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
     return base;
   }, [r, formatPct, t, isEarly]);
 
-  const tpLevels = useMemo(() => [
-    { n: 1, value: r.levels.t1, pct: r.levels.t1Pct, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)",  border: "rgba(96,165,250,0.2)"  },
-    { n: 2, value: r.levels.t2, pct: r.levels.t2Pct, label: "TP2", color: "#34d399", bg: "rgba(52,211,153,0.08)",  border: "rgba(52,211,153,0.2)"  },
-    { n: 3, value: r.levels.t3, pct: r.levels.t3Pct, label: "TP3", color: "#fbbf24", bg: "rgba(251,191,36,0.08)",  border: "rgba(251,191,36,0.2)"  },
-  ], [r]);
+  const tpLevels = useMemo(() => {
+    const L = r.levels || {};
+    return [
+      { n: 1, value: L.t1, pct: L.t1Pct, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)",  border: "rgba(96,165,250,0.2)"  },
+      { n: 2, value: L.t2, pct: L.t2Pct, label: "TP2", color: "#34d399", bg: "rgba(52,211,153,0.08)",  border: "rgba(52,211,153,0.2)"  },
+      { n: 3, value: L.t3, pct: L.t3Pct, label: "TP3", color: "#fbbf24", bg: "rgba(251,191,36,0.08)",  border: "rgba(251,191,36,0.2)"  },
+    ];
+  }, [r]);
 
   return (
     <div style={wrapStyle}>
@@ -410,7 +413,7 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "rgba(255,255,255,0.6)", direction: "ltr" }}>
                 <span>دخول: <strong style={{ color: "#60a5fa" }}>${(+r.favEntry).toFixed(2)}</strong></span>
-                <span>الآن: <strong style={{ color: "#e8edf6" }}>${(+r.livePrice).toFixed(2)}</strong></span>
+                <span>الآن: <strong style={{ color: "#e8edf6" }}>${(+(r.livePrice ?? r.favEntry)).toFixed(2)}</strong></span>
               </div>
               <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                 {r.favT1 && <span style={{ fontSize: 9.5, padding: "3px 8px", borderRadius: 7, background: r.livePrice >= r.favT1 ? "rgba(0,212,170,0.2)" : "rgba(255,255,255,0.05)", color: r.livePrice >= r.favT1 ? "#00d4aa" : "#94a3b8", direction: "ltr" }}>T1 ${(+r.favT1).toFixed(2)}{r.livePrice >= r.favT1 ? " ✓" : ""}</span>}
@@ -436,10 +439,10 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
           <div style={S.slBox}>
             <div style={{ fontSize: 10, color: "#ff6b81", fontWeight: 600, marginBottom: 8 }}>{t.stopLoss}</div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 22, fontWeight: 700, color: "#ff4757", fontFamily: "monospace" }}>{formatPrice(r.levels.sl)}</span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: "#ff4757", fontFamily: "monospace" }}>{formatPrice((r.levels || {}).sl)}</span>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 14, color: "#ff6b81", fontWeight: 600 }}>{fmtPct(r.levels.slPct)}</div>
-                <div style={{ fontSize: 9, color: "rgba(255,107,129,0.5)" }}>{t.risk}: {formatPrice(r.levels.risk)}</div>
+                <div style={{ fontSize: 14, color: "#ff6b81", fontWeight: 600 }}>{fmtPct((r.levels || {}).slPct)}</div>
+                <div style={{ fontSize: 9, color: "rgba(255,107,129,0.5)" }}>{t.risk}: {formatPrice((r.levels || {}).risk)}</div>
               </div>
             </div>
           </div>
@@ -743,12 +746,21 @@ export default function Radar() {
       // ادمج اللقطة المجمّدة + السعر الحي الحالي
       return favorites.map((fav) => {
         const live = results.find((r) => r.symbol === fav.symbol);
-        const currentPrice = live?.price ?? fav.entry;
+        const currentPrice = live?.price ?? fav.entry ?? 0;
         // ربح/خسارة من سعر الدخول المجمّد
         const pl = (fav.entry && currentPrice) ? ((currentPrice - fav.entry) / fav.entry) * 100 : null;
+        // أهداف آمنة: من الحي إن وُجد، وإلا من اللقطة المجمّدة — يمنع تعطّل الصفحة لو السهم مو في نتائج المسح
+        const safeLevels = live?.levels || {
+          t1: fav.t1 ?? 0, t1Pct: 0, t2: fav.t2 ?? 0, t2Pct: 0,
+          t3: fav.t3 ?? 0, t3Pct: 0, sl: fav.sl ?? 0, slPct: 0, risk: 0,
+        };
         return {
           ...(live || {}),
           symbol: fav.symbol,
+          price: live?.price ?? fav.entry ?? 0,
+          change_pct: live?.change_pct ?? 0,
+          score: live?.score ?? 0,
+          levels: safeLevels,
           isFavSnapshot: true,
           favEntry: fav.entry,
           favT1: fav.t1, favT2: fav.t2, favT3: fav.t3, favSL: fav.sl,
