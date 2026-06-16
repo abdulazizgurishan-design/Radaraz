@@ -349,22 +349,33 @@ async function fetchNews(symbol) {
   } catch { clearTimeout(id); return { ageH: null, sentiment: null, hasNews: false }; }
 }
 
-// ════════════════ الحفظ في Supabase (نفس المخطط — لم يتغيّر) ════════
+// ════════════════ الحفظ في Supabase (UPSERT — يمنع التكرار) ════════
+// المفتاح الفريد: (symbol, signal_date).
+// ignore-duplicates: أول رصد للسهم في اليوم يُحفظ ويثبت (سعر الدخول/الأهداف/الوقت)،
+// والمسحات اللاحقة لنفس السهم في نفس اليوم تُتجاهل — صفر تكرار + تجميد عند أول إشارة.
 async function saveSignals(signals) {
   if (!SUPABASE_URL || !SUPABASE_KEY || !signals.length) return { saved: 0, skipped: true };
+  // تاريخ الإشارة بتوقيت السوق (ET) — ثابت لكل صفوف هذا المسح
+  const sigDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }))
+    .toISOString().split("T")[0];
+  const nowISO = new Date().toISOString();
   const rows = signals.map(s => ({
-    symbol: s.symbol, type: s.type, entry_price: s.price, change_pct: s.changePct,
+    symbol: s.symbol, signal_date: sigDate, type: s.type, entry_price: s.price, change_pct: s.changePct,
     volume: Math.round(s.volume), rvol: s.rvol, ep: s.ep, score: s.ep, is_hot: s.is_hot,
     target1: s.levels.t1, target2: s.levels.t2, target3: s.levels.t3, stop_loss: s.levels.sl,
     status: "OPEN", ma_signal: s.ma_signal || null, rsi: s.rsi ?? null,
     atr14: s.levels?.atr14 ?? null, early_watch: s.early_watch || false,
     is_target: s.is_target || false, news_age_h: s.news_age_h ?? null,
-    created_at: new Date().toISOString(),
+    created_at: nowISO,   // وقت أول رصد — يثبت (يُكتب مرة واحدة عند أول إدخال)
   }));
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/signals`, {
+    // on_conflict على (symbol, signal_date) + ignore-duplicates = أول رصد يثبت، التكرار يُتجاهل
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/signals?on_conflict=symbol,signal_date`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Prefer: "return=minimal" },
+      headers: {
+        "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
+        Prefer: "resolution=ignore-duplicates,return=minimal",
+      },
       body: JSON.stringify(rows),
     });
     return { saved: res.ok ? rows.length : 0, status: res.status };
