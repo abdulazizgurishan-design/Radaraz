@@ -32,7 +32,7 @@ const FILTER = {
   MAX_PRICE:      500,
   MIN_VOLUME:     300_000,
   MIN_CHANGE:     3,
-  MAX_CHANGE:     80,
+  MAX_CHANGE:     40,            // فوق 40% = دخول متأخر/pump → استبعاد نهائي
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
   HEAVY_LIMIT:    30,            // عدد الأسهم للتحليل العميق (التزامن محكوم بالدفعات)
@@ -475,6 +475,12 @@ export default async function handler(req, res) {
       if (s.changePct > 20 && !freshNews) s.ep = Math.max(0, s.ep - 8);
       s.news_age_h = news.ageH;
 
+      // 📉 خصم الامتداد التدرّجي: كل ما ارتفع السهم فوق 12% قلّ سكوره
+      //   (نفضّل الدخول المبكر — السهم اللي صعد كثير = دخول متأخر)
+      if (s.changePct > 12) {
+        s.ep = Math.max(0, s.ep - Math.round((s.changePct - 12) * 0.7));
+      }
+
       // ── البوابة (gate) ──
       if (s.price < FILTER.STRICT_PRICE) {
         // غربال صارم لأقل من $1: لازم كل الشروط
@@ -530,7 +536,8 @@ export default async function handler(req, res) {
         : { mult: 60, span: "minute", days: 30, limit: 600 };
       const otherBars = await fetchAggs(s.symbol, other.mult, other.span, other.days, other.limit);
       const otherTech = computeTech(otherBars);
-      if (otherTech && otherTech.aligned) {
+      // النخبة: التقاء كامل على الفريم الأساسي + اتجاه صاعد على الفريم الآخر (فوق MA21)
+      if (otherTech && otherTech.priceAboveMA21) {
         s.is_target = true;
         s.signal = "🎯 الهدف";
         s.ep = Math.max(s.ep, 90);
