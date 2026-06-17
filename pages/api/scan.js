@@ -251,16 +251,20 @@ function findPivots(bars, w = 2) {
 }
 
 function computeStructureLevels(price, bars) {
-  if (!bars || bars.length < 20 || !price) return null;
+  if (!bars || bars.length < 12 || !price) return null;
   const recent = bars.slice(-60);
   const { highs, lows } = findPivots(recent, 2);
-  if (!highs.length || !lows.length) return null;
+  // ملاحظة: لا نخرج لو ما فيه pivots — نعتمد على الحد الأدنى/الأقصى الأخير كبديل
+  // (الأسهم الصاعدة بقوة غالباً بلا قيعان/قمم تأرجح واضحة)
 
-  // الدعم = أعلى قاع تأرجح تحت السعر (ارتكاز صاعد) | المقاومة = أدنى قمة تأرجح فوق السعر
+  // الدعم = أعلى قاع تأرجح تحت السعر | المقاومة = أدنى قمة تأرجح فوق السعر
+  // البديل (بلا pivots) = حدود آخر 12 شمعة فقط — يبقي البنية قريبة وواقعية
+  const recLows  = recent.slice(-12).map(b => b.l);
+  const recHighs = recent.slice(-12).map(b => b.h);
   const lowsBelow  = lows.filter(l => l < price);
   const highsAbove = highs.filter(h => h > price);
-  const support    = lowsBelow.length  ? Math.max(...lowsBelow)  : Math.min(...recent.map(b => b.l));
-  const resistance = highsAbove.length ? Math.min(...highsAbove) : Math.max(...recent.map(b => b.h));
+  const support    = lowsBelow.length  ? Math.max(...lowsBelow)  : Math.min(...recLows);
+  const resistance = highsAbove.length ? Math.min(...highsAbove) : Math.max(...recHighs);
 
   const swingHigh = Math.max(resistance, ...recent.map(b => b.h));
   const swingLow  = support;
