@@ -1,5 +1,13 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 
+// حقن حركة نبض اللمبة مرة واحدة (آمن مع SSR)
+if (typeof document !== "undefined" && !document.getElementById("az-kf")) {
+  const _el = document.createElement("style");
+  _el.id = "az-kf";
+  _el.textContent = "@keyframes azpulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.5),0 0 8px rgba(52,211,153,.9)}50%{box-shadow:0 0 0 6px rgba(52,211,153,0),0 0 14px rgba(52,211,153,1)}}";
+  document.head.appendChild(_el);
+}
+
 const T = {
   ar: {
     title: "رادار",
@@ -288,8 +296,92 @@ function RSIBadge({ rsi, t }) {
   );
 }
 
+// ════ بنية السوق (AI-Az) ════
+function entryReady(r) {
+  const st = r && r.structure;
+  if (!st || !r.price) return false;
+  const near = Math.abs(r.price - st.entry) / r.price <= 0.012;        // ضمن 1.2% من الدخول
+  const valid = typeof st.flag === "string" && st.flag.indexOf("صحيح") >= 0;
+  const confirmed = r.price >= st.confirm;
+  return near && valid && confirmed;
+}
+
+function azSummary(r) {
+  const st = r.structure;
+  if (!st) return "";
+  const parts = [];
+  if (st.trend) parts.push(st.trend);
+  if (st.flag) parts.push(st.flag);
+  if (st.rr != null) parts.push("R:R " + st.rr);
+  let action;
+  if (entryReady(r)) action = "السعر في منطقة الدخول الآن — جاهزة ✅";
+  else if (r.price > st.entry) action = "انتظر ارتداداً لمنطقة الدخول $" + (+st.entry).toFixed(2);
+  else action = "راقب التأكيد فوق $" + (+st.confirm).toFixed(2);
+  return parts.join(" • ") + " — " + action;
+}
+
+const AZ_LEVELS = [
+  { k: "peak",       n: "🟥 منطقة بيع محتمل (قصوى)", c: "#f59e0b" },
+  { k: "liquidity",  n: "🟧 منطقة بيع محتمل",        c: "#fb923c" },
+  { k: "t3",         n: "🎯 هدف ثالث",               c: "#4ade80" },
+  { k: "t2",         n: "🎯 هدف ثانٍ",               c: "#34d399" },
+  { k: "t1",         n: "🌟 هدف مؤكد",              c: "#2dd4bf" },
+  { k: "resistance", n: "🚧 مقاومة",                 c: "#eab308" },
+  { k: "__now__" },
+  { k: "confirm",    n: "✅ تأكيد الاتجاه",           c: "#22d3ee" },
+  { k: "entry",      n: "📥 منطقة الدخول",           c: "#3b82f6" },
+  { k: "support",    n: "⚖️ ارتكاز — ممنوع الكسر",   c: "#818cf8" },
+  { k: "stop",       n: "🔴 إيقاف الخسارة",          c: "#f43f5e" },
+];
+
+function StructureMap({ r }) {
+  const st = r.structure;
+  if (!st) return (
+    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "10px 0" }}>
+      لا تتوفر بيانات بنية كافية لهذا السهم.
+    </div>
+  );
+  const pc = (v) => { const x = ((v - r.price) / r.price) * 100; return (x >= 0 ? "+" : "") + x.toFixed(2) + "%"; };
+  return (
+    <div>
+      <div style={{ fontSize: 12, lineHeight: 1.7, color: "#cdd6ea", background: "rgba(124,140,255,0.07)", borderRight: "3px solid #7c8cff", borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
+        <strong style={{ color: "#2dd4bf" }}>AI-Az:</strong> {azSummary(r)}
+      </div>
+      <div>
+        {AZ_LEVELS.map((L) => {
+          if (L.k === "__now__") return (
+            <div key="now" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 8, margin: "5px 0", borderRadius: 10, background: "linear-gradient(90deg,rgba(234,240,251,0.13),rgba(234,240,251,0.03))", border: "1px solid rgba(234,240,251,0.32)", boxShadow: "0 0 16px rgba(120,180,255,0.1)" }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: "#fff" }}>▸ السعر الحالي</span>
+              <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 800, color: "#fff" }}>${(+r.price).toFixed(2)}</span>
+            </div>
+          );
+          const v = st[L.k];
+          if (v == null) return null;
+          const isEntry = L.k === "entry";
+          return (
+            <div key={L.k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 8px", margin: "2px 0", borderRadius: 9, outline: isEntry ? "1px dashed rgba(59,130,246,0.5)" : "none", outlineOffset: -1 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: L.c, boxShadow: "0 0 7px " + L.c, flex: "none" }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: L.c }}>{L.n}</span>
+              </span>
+              <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#e8edf6" }}>${(+v).toFixed(2)}</span>
+                <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{pc(v)}</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.42)", marginTop: 10, lineHeight: 1.65, borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 9 }}>
+        الارتكاز ممنوع كسره — تحته يُلغى السيناريو. مناطق البيع المحتمل = جنِّ الأرباح تدريجياً.
+      </div>
+    </div>
+  );
+}
+
 function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
   const [open, setOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
   const formatPct   = useCallback((n) => (n >= 0 ? "+" : "") + Math.round(+n) + "%", []);
   const scoreColor  = r.score >= 80 ? "#ff6b35" : r.score >= 60 ? "#ffd700" : "#00d4aa";
@@ -318,6 +410,9 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
     ? { ...S.cardWrap(open, glowColor), border: "1px solid rgba(52,211,153,0.4)", background: "linear-gradient(135deg,rgba(12,28,22,0.95),rgba(15,32,26,0.95))" }
     : S.cardWrap(open, glowColor);
 
+  const ready = entryReady(r);  // 🟢 السعر مثالي للدخول الآن
+  const finalWrap = ready ? { ...wrapStyle, border: "1px solid rgba(52,211,153,0.5)", boxShadow: "0 0 22px rgba(52,211,153,0.22)" } : wrapStyle;
+
   const metrics = useMemo(() => {
     const base = [
       { label: "EP",     value: r.score ? r.score + "%" : "—",           color: "#a78bfa" },
@@ -344,12 +439,18 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
   }, [r]);
 
   return (
-    <div style={wrapStyle}>
+    <div style={finalWrap}>
       <div style={S.cardHeader} onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && setOpen((o) => !o)}>
         <span style={S.cardIdx}>{String(idx + 1).padStart(2, "0")}</span>
         <div style={{ minWidth: 64 }}>
           <div style={S.cardSymbol}>{r.symbol}</div>
-          {r.is_hot && <div style={{ fontSize: 9, color: "#fca5a5", marginTop: 2 }}>🚨 HOT</div>}
+          {ready && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 3, fontSize: 9, fontWeight: 800, color: "#34d399" }}>
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#34d399", animation: "azpulse 1.4s infinite", display: "inline-block" }} />
+              دخول ممتاز
+            </span>
+          )}
+          {!ready && r.is_hot && <div style={{ fontSize: 9, color: "#fca5a5", marginTop: 2 }}>🚨 HOT</div>}
         </div>
         <div style={S.cardTags}>
           {timeInfo?.isNew && <span style={S.tag("rgba(0,212,170,0.15)", "#00d4aa", "rgba(0,212,170,0.3)")}>🆕</span>}
@@ -358,6 +459,10 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
           {r.ma_signal && <MABadge signal={r.ma_signal} />}
           {r.rsi != null && <RSIBadge rsi={r.rsi} t={t} />}
           <span style={S.tag(typeTag.bg, typeTag.color, typeTag.border)}>{typeTag.label}</span>
+          {r.is_target && <span style={S.tag("rgba(251,191,36,0.13)", "#fbbf24", "rgba(251,191,36,0.4)")}>🎯 الهدف</span>}
+          {r.structure && typeof r.structure.flag === "string" && r.structure.flag.indexOf("صحيح") >= 0 && (
+            <span style={S.tag("rgba(45,212,191,0.13)", "#2dd4bf", "rgba(45,212,191,0.4)")}>{r.structure.flag}</span>
+          )}
           {r.rvol && r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
           {r.is_hot && <span style={S.tag("rgba(248,113,113,0.15)", "#fca5a5", "rgba(248,113,113,0.3)")}>🚨 HOT</span>}
         </div>
@@ -454,6 +559,19 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
                 <div style={S.tpPct(tp.color)}>{fmtPct(tp.pct)}</div>
               </div>
             ))}
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <button onClick={(e) => { e.stopPropagation(); setAiOpen((o) => !o); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "linear-gradient(90deg,rgba(124,140,255,0.16),rgba(45,212,191,0.14))", border: "1px solid rgba(124,140,255,0.32)", borderRadius: 12, padding: 11, color: "#dbe2ff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+              🤖 تحليل فني AI-Az
+              <span style={{ marginInlineStart: "auto", fontSize: 11, color: "rgba(255,255,255,0.4)", transform: aiOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▼</span>
+            </button>
+            {aiOpen && (
+              <div style={{ marginTop: 11, background: "rgba(6,10,20,0.6)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 4, display: "flex", alignItems: "center", gap: 7 }}>🗺️ خريطة الصفقة — بنية السوق</div>
+                <StructureMap r={r} />
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -649,6 +767,7 @@ export default function Radar() {
           t3: row.levels?.t3 ?? null,
           sl: row.levels?.sl ?? null,
           type: row.type ?? null,
+          structure: row.structure ?? null,
           addedAt: new Date().toISOString(),
         };
         next = [...prev, snap];
@@ -761,6 +880,7 @@ export default function Radar() {
           change_pct: live?.change_pct ?? 0,
           score: live?.score ?? 0,
           levels: safeLevels,
+          structure: live?.structure ?? fav.structure ?? null,
           isFavSnapshot: true,
           favEntry: fav.entry,
           favT1: fav.t1, favT2: fav.t2, favT3: fav.t3, favSL: fav.sl,
