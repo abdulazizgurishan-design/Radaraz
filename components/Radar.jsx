@@ -826,6 +826,9 @@ export default function Radar() {
           t1: 0, t1Pct: 0, t2: 0, t2Pct: 0,
           t3: 0, t3Pct: 0, sl: 0, slPct: 0, risk: 0,
         },
+        structure:  s.structure || null,   // 🆕 خريطة الصفقة (كانت تُحذف هنا)
+        is_target:  s.is_target || false,   // 🆕 شارة الهدف
+        news_age_h: s.news_age_h ?? null,
       });
 
       setResults(raw.map(toCard));
