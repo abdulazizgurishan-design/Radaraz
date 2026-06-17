@@ -24,7 +24,7 @@ export const config = { maxDuration: 60 };
 
 const POLYGON_KEY  = process.env.POLYGON_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
 
 // ─── إعدادات الفلترة ───────────────────────────────────────────────
 const FILTER = {
@@ -38,6 +38,23 @@ const FILTER = {
   HEAVY_LIMIT:    30,            // عدد الأسهم للتحليل العميق (التزامن محكوم بالدفعات)
   SAVE_MIN_EP:    60,            // رفعناه من 50 → 60 (جودة أعلى للحفظ والبوت)
   STRICT_PRICE:   1.00,          // تحت هذا السعر = غربال صارم
+};
+
+// ─── مزج البنية (Swing) في الاختيار — كله قابل للضبط ───────────────
+// الهدف: نعرض دخولات صحيحة، لا كل سهم مرتفع.
+const STRUCT = {
+  MIN_RR:        1.5,   // أدنى عائد/مخاطرة بنيوي ليُعدّ "دخول صحيح"
+  MAX_POS:       0.66,  // أقصى موضع داخل المدى (0=دعم،1=مقاومة) ليُعدّ دخولاً مبكراً
+  BONUS_VALID:   7,     // مكافأة الدخول الصحيح (يرفعه للأعلى)
+  BONUS_OK:      2,     // مكافأة المقبول
+  PENALTY_LATE:  6,     // خصم الملاحقة/غير المؤكد (يُنزّله)
+  PENALTY_BADRR: 4,     // خصم إضافي لـ R:R < 1
+  // إسقاط الملاحقة الواضحة فقط: سهم ارتفع كثير + دخوله سيء
+  DROP_LATE:     true,  // فعّل/عطّل الإسقاط
+  DROP_CHANGE:   10,    // لا نُسقط إلا إذا ارتفع أكثر من هذا
+  DROP_POS:      0.80,  // + قريب من القمة (دخول متأخر)
+  // 💎 حارس الجوهرة: لا نعرض سهماً هابطاً بلا تأكيد ارتداد
+  STRICT_GEMS:   true,  // اعرض فقط: مؤكد صاعد أو ارتداد واضح
 };
 
 // ════════════════ أدوات المؤشرات ════════════════
@@ -212,6 +229,80 @@ function calcLevels(s) {
     t1Pct: +(((t1 - price) / price) * 100).toFixed(2), t2Pct: +(((t2 - price) / price) * 100).toFixed(2),
     t3Pct: +(((t3 - price) / price) * 100).toFixed(2), slPct: +(((sl - price) / price) * 100).toFixed(2),
     risk: +(price - sl).toFixed(2),
+  };
+}
+
+// ════════════════ محرّك مستويات البنية (Swing + Fibonacci) ════════════════
+// أسلوب "الصندوق الذهبي": ارتكاز/دخول/تأكيد/وقف/مقاومة + أهداف فيبوناتشي تصاعدية.
+// إضافي بالكامل — لا يلمس s.levels (ATR). يُرفق كـ s.structure.
+function findPivots(bars, w = 2) {
+  const highs = [], lows = [];
+  for (let i = w; i < bars.length - w; i++) {
+    let isHigh = true, isLow = true;
+    for (let j = i - w; j <= i + w; j++) {
+      if (j === i) continue;
+      if (bars[j].h >= bars[i].h) isHigh = false;
+      if (bars[j].l <= bars[i].l) isLow = false;
+    }
+    if (isHigh) highs.push(bars[i].h);
+    if (isLow)  lows.push(bars[i].l);
+  }
+  return { highs, lows };
+}
+
+function computeStructureLevels(price, bars) {
+  if (!bars || bars.length < 20 || !price) return null;
+  const recent = bars.slice(-60);
+  const { highs, lows } = findPivots(recent, 2);
+  if (!highs.length || !lows.length) return null;
+
+  // الدعم = أعلى قاع تأرجح تحت السعر (ارتكاز صاعد) | المقاومة = أدنى قمة تأرجح فوق السعر
+  const lowsBelow  = lows.filter(l => l < price);
+  const highsAbove = highs.filter(h => h > price);
+  const support    = lowsBelow.length  ? Math.max(...lowsBelow)  : Math.min(...recent.map(b => b.l));
+  const resistance = highsAbove.length ? Math.min(...highsAbove) : Math.max(...recent.map(b => b.h));
+
+  const swingHigh = Math.max(resistance, ...recent.map(b => b.h));
+  const swingLow  = support;
+  const range = Math.max(swingHigh - swingLow, price * 0.005);
+
+  // تأكيد الاتجاه = أعلى قمة تأرجح كُسرت (تحت/عند السعر)
+  const highsBelow = highs.filter(h => h <= price * 1.001);
+  const confirm = highsBelow.length ? Math.max(...highsBelow) : support + range * 0.5;
+  const trendUp = price >= confirm;
+
+  // دخول عند الارتداد (38.2% من الساق الصاعدة) + وقف تحت الارتكاز
+  // الوقف = نسبة من مدى التأرجح (يتأقلم مع تذبذب كل سهم بدل نسبة ثابتة)
+  const buffer = Math.max(range * 0.10, price * 0.0005);
+  const entry = support + (price - support) * 0.382;
+  const stop  = support - buffer;
+  const riskEntry = entry - stop;
+
+  // أهداف فيبوناتشي تصاعدية (مضمونة الترتيب وفوق السعر)
+  let t1   = (resistance > price * 1.005) ? resistance : swingHigh + range * 0.272;
+  t1 = Math.max(t1, price * 1.005);
+  let t2   = Math.max(swingHigh + range * 0.272, t1 * 1.003);   // 1.272
+  let t3   = Math.max(swingHigh + range * 0.618, t2 * 1.003);   // 1.618
+  let liq  = Math.max(swingHigh + range * 1.0,   t3 * 1.003);   // 2.0  — تفريغ سيولة
+  let peak = Math.max(swingHigh + range * 1.618, liq * 1.003);  // 2.618 — القمة
+
+  const f2 = n => +Number(n).toFixed(2);
+  const pct = n => +(((n - price) / price) * 100).toFixed(2);
+  const rr = riskEntry > 0 ? +(((t1 - entry) / riskEntry).toFixed(2)) : null;
+
+  return {
+    trend: trendUp ? "صاعد مؤكد ✅" : "ينتظر تأكيد ⏳",
+    support: f2(support),       supportPct: pct(support),
+    entry: f2(entry),           entryPct: pct(entry),
+    confirm: f2(confirm),       confirmPct: pct(confirm),
+    stop: f2(stop),             stopPct: pct(stop),
+    resistance: f2(resistance), resistancePct: pct(resistance),
+    t1: f2(t1),   t1Pct: pct(t1),
+    t2: f2(t2),   t2Pct: pct(t2),
+    t3: f2(t3),   t3Pct: pct(t3),
+    liquidity: f2(liq),  liquidityPct: pct(liq),
+    peak: f2(peak),      peakPct: pct(peak),
+    rr,
   };
 }
 
@@ -471,6 +562,7 @@ export default async function handler(req, res) {
         if (tech.bars && tech.bars.length >= 15) {
           s.levels = s.trade_style === "مضاربة" ? calcScalpLevels(s.price, tech.bars) : calcSmartLevels(s.price, tech.bars);
           s.levels_source = s.trade_style === "مضاربة" ? "scalp_60m" : "smart_daily";
+          s.structure = computeStructureLevels(s.price, tech.bars);   // 🆕 مستويات البنية (إضافية)
         } else s.levels_source = "atr_basic";
         s.week_max_jump = tech.recentMaxJump;
       } else {
@@ -490,6 +582,45 @@ export default async function handler(req, res) {
       //   (نفضّل الدخول المبكر — السهم اللي صعد كثير = دخول متأخر)
       if (s.changePct > 12) {
         s.ep = Math.max(0, s.ep - Math.round((s.changePct - 12) * 0.7));
+      }
+
+      // 🔀 مزج البنية: نرفع الدخول الصحيح ونُنزّل/نُسقط الملاحقة
+      //   (دخول صحيح = اتجاه مؤكد + R:R جيد + ما زال قريب من الدعم + فيه مجال للهدف)
+      if (s.structure) {
+        const st = s.structure;
+        const band = st.resistance - st.support;
+        const pos = band > 0 ? (s.price - st.support) / band : 1;   // 0=عند الدعم .. 1=عند المقاومة
+        const confirmed = s.price >= st.confirm;
+        const rrOk = st.rr != null && st.rr >= STRUCT.MIN_RR;
+        const room = st.resistance > s.price * 1.01;
+        const fresh = pos <= STRUCT.MAX_POS;
+
+        let adj = 0, flag;
+        if (confirmed && rrOk && room && fresh) { adj = STRUCT.BONUS_VALID; flag = "دخول صحيح ✅"; }
+        else if (confirmed && (rrOk || fresh))  { adj = STRUCT.BONUS_OK;    flag = "مقبول"; }
+        else                                    { adj = -STRUCT.PENALTY_LATE; flag = "ملاحقة/غير مؤكد ⚠️"; }
+        if (st.rr != null && st.rr < 1) adj -= STRUCT.PENALTY_BADRR;
+
+        s.ep = Math.max(0, Math.min(99, s.ep + adj));
+        st.flag = flag;
+        st.posInBand = +pos.toFixed(2);
+
+        // إسقاط الملاحقة الواضحة فقط: ارتفع كثير + قريب من القمة (دخول متأخر سيء)
+        if (STRUCT.DROP_LATE && s.changePct > STRUCT.DROP_CHANGE && pos > STRUCT.DROP_POS) s._drop = true;
+
+        // 💎 حارس الجوهرة: هابط + بلا تأكيد ارتداد → لا يظهر
+        if (STRUCT.STRICT_GEMS && tech.bars && tech.bars.length >= 3) {
+          const lc = tech.bars.slice(-3).map(b => b.c);
+          const fallingNow = lc[2] < lc[1] && lc[1] < lc[0];           // إغلاقان متتاليان أدنى
+          const confirmedUp = s.price >= st.confirm && tech.priceAboveMA21
+                              && (tech.macd ? tech.macd.bullish : true);
+          const lastBar = tech.bars[tech.bars.length - 1];
+          const reversalBar = lastBar && lastBar.c > lastBar.o;        // شمعة ارتداد خضراء
+          if (fallingNow && !confirmedUp && !reversalBar) {
+            s._drop = true;
+            st.flag = "هابط بلا تأكيد ⛔";
+          }
+        }
       }
 
       // ── البوابة (gate) ──
@@ -558,9 +689,18 @@ export default async function handler(req, res) {
 
     // 5.7) تطبيق الإسقاط (البوابة)
     let survivors = top.filter(s => !s._drop);
+    // الفرز مبنيّ على البنية: 🎯 نخبة → دخول صحيح → رصد مبكر → مقبول → زخم فقط → EP
+    const tier = s => {
+      if (s.is_target) return 5;                                          // نخبة (التقاء متعدّد الفريمات)
+      if (s.structure && s.structure.flag === "دخول صحيح ✅") return 4;   // دخول بنيوي صحيح
+      if (s.early_watch) return 3;                                        // رصد مبكر
+      if (s.structure && s.structure.flag === "مقبول") return 2;          // بنية مقبولة
+      if (s.is_hot) return 1;                                             // زخم فقط (أدنى)
+      return 0;
+    };
     survivors.sort((a, b) => {
-      if (!!b.is_target !== !!a.is_target) return b.is_target ? 1 : -1;
-      if (b.is_hot !== a.is_hot) return b.is_hot ? 1 : -1;
+      const ta = tier(a), tb = tier(b);
+      if (tb !== ta) return tb - ta;
       if (b.ep !== a.ep) return b.ep - a.ep;
       return b.rvol - a.rvol;
     });
@@ -580,6 +720,7 @@ export default async function handler(req, res) {
       week_max_jump: s.week_max_jump ?? null, levels: s.levels, atr14: s.levels?.atr14 || null,
       levels_source: s.levels_source || "atr_basic", is_target: s.is_target || false,
       news_age_h: s.news_age_h ?? null,
+      structure: s.structure || null,   // 🆕 مستويات البنية (Swing + فيبوناتشي)
     });
 
     const results     = survivors.map(toCard);
