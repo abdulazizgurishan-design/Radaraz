@@ -461,6 +461,7 @@ async function saveSignals(signals) {
     status: "OPEN", ma_signal: s.ma_signal || null, rsi: s.rsi ?? null,
     atr14: s.levels?.atr14 ?? null, early_watch: s.early_watch || false,
     is_target: s.is_target || false, news_age_h: s.news_age_h ?? null,
+    structure: s.structure || null,   // 🆕 خريطة البنية كاملة (للبوت) — يتطلب عمود jsonb
     created_at: nowISO,   // وقت أول رصد — يثبت (يُكتب مرة واحدة عند أول إدخال)
   }));
   try {
