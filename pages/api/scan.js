@@ -197,19 +197,26 @@ function calcSmartLevels(price, bars) {
 function calcScalpLevels(price, bars) {
   const atr = calcATR14(bars) || price * 0.03;
   const { supports } = calcSupportResistance(bars, price);
+  const atrPct = atr / price;                       // تقلّب السهم النسبي
 
-  // الوقف أولاً: ATR×0.8 أو دعم قريب، بحد أقصى -4%
+  // الوقف: ATR×0.8 أو تحت دعم قريب (الأبعد = مساحة تنفّس)
   const atrSL = price - atr * 0.8;
   const supportSL = supports[0] ? supports[0] * 0.992 : atrSL;
-  const sl = Math.max(Math.min(atrSL, supportSL), price * 0.96);
+  let sl = Math.min(atrSL, supportSL);
+
+  // 🔧 سقف الخسارة يتكيّف مع التقلّب: هادئ ~4% ، متقلّب حتى 10%
+  //    (يمنع خنق وقف الأسهم المتقلّبة مثل البنسات عند -4% ثابتة)
+  const maxLossPct = Math.min(Math.max(0.04, atrPct), 0.10);
+  sl = Math.max(sl, price * (1 - maxLossPct));
   const risk = price - sl;
 
-  // أهداف قريبة واقعية — لكن نضمن R:R ≥ 1.3 على T1 (ربط الهدف بالمخاطرة)
+  // أهداف قريبة واقعية — نضمن R:R ≥ 1.3 على T1 (ربط الهدف بالمخاطرة)
   let t1 = Math.max(price + atr * 0.6, price + risk * 1.3, price * 1.015);
   let t2 = Math.max(price + atr * 1.1, t1 + risk * 0.8, t1 * 1.02);
   let t3 = Math.max(price + atr * 1.7, t2 + risk * 0.8, t2 * 1.02);
 
-  const f2 = n => +n.toFixed(2), pct = n => +(((n - price) / price) * 100).toFixed(2);
+  const dec = price < 1 ? 3 : 2;                    // دقّة أعلى للأسهم تحت $1
+  const f2 = n => +n.toFixed(dec), pct = n => +(((n - price) / price) * 100).toFixed(2);
   return {
     t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
     t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
