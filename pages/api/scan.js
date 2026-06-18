@@ -546,7 +546,7 @@ export default async function handler(req, res) {
 
     // 5.5) التحليل الفني متعدّد الفريمات + الأخبار + البوابة + الهدف
     //      على دفعات من 8 (≈16 طلب متزامن فقط بدل 70) — أمان من timeout
-    await inBatches(top, 12, async (s) => {
+    await inBatches(top, 20, async (s) => {
       const fr = frameFor(s.trade_style);
       const [bars, news] = await Promise.all([
         fetchAggs(s.symbol, fr.mult, fr.span, fr.days, fr.limit),
@@ -684,7 +684,7 @@ export default async function handler(req, res) {
 
     // 5.6) تأكيد الهدف على الفريم الآخر (للمرشحين النهائيين فقط) — على دفعات
     const finalists = top.filter(s => s._primaryConfluence);
-    await inBatches(finalists, 8, async (s) => {
+    await inBatches(finalists, 12, async (s) => {
       const other = s.trade_style === "مضاربة"
         ? { mult: 1, span: "day", days: 140, limit: 200 }
         : { mult: 60, span: "minute", days: 30, limit: 600 };
