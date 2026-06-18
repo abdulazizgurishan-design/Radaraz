@@ -546,7 +546,7 @@ export default async function handler(req, res) {
 
     // 5.5) التحليل الفني متعدّد الفريمات + الأخبار + البوابة + الهدف
     //      على دفعات من 8 (≈16 طلب متزامن فقط بدل 70) — أمان من timeout
-    await inBatches(top, 20, async (s) => {
+    await inBatches(top, 24, async (s) => {
       const fr = frameFor(s.trade_style);
       const [bars, news] = await Promise.all([
         fetchAggs(s.symbol, fr.mult, fr.span, fr.days, fr.limit),
@@ -722,6 +722,21 @@ export default async function handler(req, res) {
     if (!isSubscriber) {
       const toSave = survivors.filter(s => s.ep >= FILTER.SAVE_MIN_EP);
       saveResult = await saveSignals(toSave);
+    }
+
+    // 🪶 رد خفيف للكرون فقط (cron-job.org يرفض الردود الكبيرة) — عدّ فقط بدون المصفوفات
+    //    الواجهة تنادي /api/scan بدون light=1 فتاخذ الرد الكامل.
+    if (req.query.light === "1") {
+      return res.status(200).json({
+        success: true, light: true,
+        total: survivors.length,
+        hot:    survivors.filter(s => s.is_hot).length,
+        target: survivors.filter(s => s.is_target).length,
+        early:  survivors.filter(s => s.early_watch).length,
+        saved:  saveResult.saved || 0, saveResult,
+        timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
+        market_scanned: allTickers.length, after_filter: candidates.length,
+      });
     }
 
     // 7) تجهيز الرد (نفس شكل الواجهة تماماً)
