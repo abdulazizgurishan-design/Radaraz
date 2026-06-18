@@ -35,7 +35,7 @@ const FILTER = {
   MAX_CHANGE:     40,            // فوق 40% = دخول متأخر/pump → استبعاد نهائي
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
-  HEAVY_LIMIT:    30,            // عدد الأسهم للتحليل العميق (التزامن محكوم بالدفعات)
+  HEAVY_LIMIT:    80,            // رُفع 30→80: نحلّل أعمق لمرشحين أكثر (كان يرمي 95% منهم)
   SAVE_MIN_EP:    60,            // رفعناه من 50 → 60 (جودة أعلى للحفظ والبوت)
   STRICT_PRICE:   1.00,          // تحت هذا السعر = غربال صارم
 };
@@ -546,7 +546,7 @@ export default async function handler(req, res) {
 
     // 5.5) التحليل الفني متعدّد الفريمات + الأخبار + البوابة + الهدف
     //      على دفعات من 8 (≈16 طلب متزامن فقط بدل 70) — أمان من timeout
-    await inBatches(top, 8, async (s) => {
+    await inBatches(top, 12, async (s) => {
       const fr = frameFor(s.trade_style);
       const [bars, news] = await Promise.all([
         fetchAggs(s.symbol, fr.mult, fr.span, fr.days, fr.limit),
