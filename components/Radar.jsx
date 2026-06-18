@@ -300,10 +300,12 @@ function RSIBadge({ rsi, t }) {
 function entryReady(r) {
   const st = r && r.structure;
   if (!st || !r.price) return false;
-  const near = Math.abs(r.price - st.entry) / r.price <= 0.012;        // ضمن 1.2% من الدخول
-  const valid = typeof st.flag === "string" && st.flag.indexOf("صحيح") >= 0;
-  const confirmed = r.price >= st.confirm;
-  return near && valid && confirmed;
+  // دخول مناسب = السعر داخل نطاق الشراء: فوق الارتكاز (لم يُكسر)
+  // وحتى مستوى التأكيد تقريباً (لم يجرِ بعيداً) + عائد/مخاطرة مجزٍ
+  const aboveSupport = r.price > st.support;
+  const notRunYet    = r.price <= st.confirm * 1.01;
+  const goodRR       = st.rr != null && st.rr >= 1.2;
+  return aboveSupport && notRunYet && goodRR;
 }
 
 function azSummary(r) {
@@ -447,7 +449,7 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
           {ready && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 3, fontSize: 9, fontWeight: 800, color: "#34d399" }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#34d399", animation: "azpulse 1.4s infinite", display: "inline-block" }} />
-              دخول ممتاز
+              دخول مناسب
             </span>
           )}
           {!ready && r.is_hot && <div style={{ fontSize: 9, color: "#fca5a5", marginTop: 2 }}>🚨 HOT</div>}
@@ -568,7 +570,7 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
             </button>
             {aiOpen && (
               <div style={{ marginTop: 11, background: "rgba(6,10,20,0.6)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 4, display: "flex", alignItems: "center", gap: 7 }}>🗺️ خريطة الصفقة — بنية السوق</div>
+                <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 4, display: "flex", alignItems: "center", gap: 7 }}>🗺️ خريطة السوق — تفاصيل شاملة</div>
                 <StructureMap r={r} />
               </div>
             )}
