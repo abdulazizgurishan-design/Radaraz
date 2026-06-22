@@ -239,6 +239,8 @@ const SMART_STOP = {
   SMART_CAP:      0.15,   //          أقصى 15%
   SMART_ATR_K:    1.3,
   MIN_RR:         1.3,    // R:R مضمون على T1
+  SCALP_T1_CAP:   0.30,   // مضاربة: أقصى بُعد للهدف الأول ليُؤخذ من البنية (وإلا أهداف واقعية)
+  SMART_T1_CAP:   0.60,   // استثمار: نفس الفكرة بسقف أوسع
 };
 
 function applyStructureLevels(price, levels, structure, tradeStyle) {
@@ -265,15 +267,33 @@ function applyStructureLevels(price, levels, structure, tradeStyle) {
   const risk = price - sl;
   if (risk <= 0) return levels;
 
-  // 4) الأهداف واقعية قريبة المدى (ATR + مخاطرة) — لا نأخذ امتداد البنية الكامل
-  //    (البنية قد تُظهر مقاومة بعيدة جداً بعد انهيار = أهداف خيالية للمضاربة).
-  //    الخريطة (s.structure) تظل تعرض تلك المستويات للسياق فقط.
-  const k1 = isScalp ? 0.6 : 1.0;
-  const k2 = isScalp ? 1.1 : 2.0;
-  const k3 = isScalp ? 1.7 : 3.0;
-  let t1 = Math.max(price + atr * k1, price + risk * SMART_STOP.MIN_RR, price * 1.015);
-  let t2 = Math.max(price + atr * k2, t1 + risk * 0.8, t1 * 1.02);
-  let t3 = Math.max(price + atr * k3, t2 + risk * 0.8, t2 * 1.02);
+  // 4) الأهداف "قابلة للتحقق": على مستويات البنية الحقيقية (المقاومة ثم القمم التالية)
+  //    لأن السعر يميل للتوقّف/الارتداد عندها → احتمال لمسها أعلى.
+  //    لكن لو الهدف الأول بعيد جداً (سهم منهار، مقاومة قديمة) نبقى على أهداف ATR الواقعية.
+  const t1Cap = isScalp ? SMART_STOP.SCALP_T1_CAP : SMART_STOP.SMART_T1_CAP;
+
+  // مستويات البنية فوق السعر، تصاعدياً، بلا تكرار متقارب
+  const cand = [structure.resistance, structure.t1, structure.t2, structure.t3]
+    .filter(x => typeof x === "number" && x > price * 1.012)
+    .sort((a, b) => a - b);
+  const ups = [];
+  for (const v of cand) if (!ups.length || v > ups[ups.length - 1] * 1.015) ups.push(v);
+
+  let t1, t2, t3;
+  if (ups.length >= 1 && (ups[0] - price) / price <= t1Cap) {
+    // ✅ أهداف من البنية: TP1 = المقاومة، TP2 = القمة التالية، TP3 = التي تليها
+    t1 = ups[0];
+    t2 = ups[1] || (t1 + risk);
+    t3 = ups[2] || (t2 + Math.max(t2 - t1, risk));
+  } else {
+    // أهداف ضخمة جداً → نبقى على الواقعية (ATR + مخاطرة)
+    const k1 = isScalp ? 0.6 : 1.0;
+    const k2 = isScalp ? 1.1 : 2.0;
+    const k3 = isScalp ? 1.7 : 3.0;
+    t1 = Math.max(price + atr * k1, price + risk * SMART_STOP.MIN_RR, price * 1.015);
+    t2 = Math.max(price + atr * k2, t1 + risk * 0.8, t1 * 1.02);
+    t3 = Math.max(price + atr * k3, t2 + risk * 0.8, t2 * 1.02);
+  }
 
   const dec = price < 1 ? 3 : 2;
   const f = n => +n.toFixed(dec), pc = n => +(((n - price) / price) * 100).toFixed(2);
