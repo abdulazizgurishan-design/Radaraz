@@ -711,6 +711,7 @@ export default function Radar() {
   const [lastUpdate, setLastUpdate]   = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [scanError, setScanError]     = useState(null);
+  const [refreshing, setRefreshing]   = useState(false);   // 🆕 تحديث حيّ بالخلفية (لا يحجب الشاشة)
 
   const lastScanRef  = useRef(0);
   const autoTimerRef = useRef(null);
@@ -786,13 +787,19 @@ export default function Radar() {
     setAuth(null);
   };
 
-  const scan = useCallback(async () => {
+  const scan = useCallback(async (opts = {}) => {
+    const background = opts && opts.background === true;   // 🆕 تحديث بالخلفية بدون تفريغ الشاشة
     const now = Date.now();
     if (now - lastScanRef.current < COOLDOWN_MS) return;
     lastScanRef.current = now;
-    setLoading(true);
-    setResults([]); setLeaders([]); setSpeculation([]); setEarlyWatch([]);
-    setDone(false); setStatus(null); setScanError(null);
+    if (background) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+      setResults([]); setLeaders([]); setSpeculation([]); setEarlyWatch([]);
+      setDone(false); setStatus(null);
+    }
+    setScanError(null);
     try {
       const res = await fetch("/api/scan");
       if (!res.ok) { setScanError(`HTTP ${res.status}`); setStatus("error"); return; }
@@ -853,14 +860,60 @@ export default function Radar() {
       setStatus("error");
     } finally {
       setLoading(false);
+      setRefreshing(false);
       setDone(true);
     }
   }, []);
 
-  useEffect(() => { if (auth) scan(); }, [auth]);
+  // 🆕 تحميل فوري من Supabase (الفرص المحفوظة) — يظهر خلال أقل من ثانية
+  const loadCached = useCallback(async () => {
+    try {
+      const res = await fetch("/api/latest");
+      if (!res.ok) return;
+      const data = await res.json();
+      const rows = data.results ?? [];
+      if (!rows.length) return;
+      const cardFromRow = (s) => ({
+        symbol:     s.symbol,
+        price:      s.entry_price || 0,
+        change_pct: s.change_pct || 0,
+        score:      s.score || s.ep || 0,
+        signal:     (s.score || 0) >= 80 ? "💥 انفجاري" : "🔥 عالي",
+        type:       s.type || "مضاربة",
+        volume:     s.volume || 0,
+        rvol:       s.rvol || null,
+        marketCap:  null, ema9: null, ema20: null, vwap: null, week_max_jump: null,
+        is_hot:     s.is_hot || false,
+        ma_signal:  s.ma_signal || null,
+        atr14:      s.atr14 || null,
+        rsi:        s.rsi ?? null,
+        early_watch: s.early_watch || false,
+        created_at: s.created_at || null,
+        levels: {
+          t1: s.target1 || 0, t1Pct: s.entry_price ? (s.target1 - s.entry_price) / s.entry_price * 100 : 0,
+          t2: s.target2 || 0, t2Pct: s.entry_price ? (s.target2 - s.entry_price) / s.entry_price * 100 : 0,
+          t3: s.target3 || 0, t3Pct: s.entry_price ? (s.target3 - s.entry_price) / s.entry_price * 100 : 0,
+          sl: s.stop_loss || 0, slPct: s.entry_price ? (s.stop_loss - s.entry_price) / s.entry_price * 100 : 0,
+          risk: 0,
+        },
+        structure:  s.structure || null,
+        is_target:  s.is_target || false,
+        news_age_h: s.news_age_h ?? null,
+      });
+      const cards = rows.map(cardFromRow);
+      setResults(cards);
+      setLeaders(cards.filter(s => s.type === "استثمار"));
+      setSpeculation(cards.filter(s => s.type !== "استثمار"));
+      setEarlyWatch(cards.filter(s => s.early_watch));
+      setTotal(cards.length);
+      setDone(true);
+    } catch { /* تجاهل — المسح الحيّ سيملأ البيانات */ }
+  }, []);
+
+  useEffect(() => { if (auth) loadCached().finally(() => scan({ background: true })); }, [auth]);
 
   useEffect(() => {
-    if (autoRefresh) { autoTimerRef.current = setInterval(scan, 60_000); }
+    if (autoRefresh) { autoTimerRef.current = setInterval(() => scan({ background: true }), 60_000); }
     else             { clearInterval(autoTimerRef.current); }
     return () => clearInterval(autoTimerRef.current);
   }, [autoRefresh, scan]);
@@ -911,7 +964,7 @@ export default function Radar() {
   const explosive   = useMemo(() => results.filter((r) => r.score >= 80).length, [results]);
   const hotCount    = useMemo(() => results.filter((r) => r.is_hot).length,      [results]);
   const earlyCount  = useMemo(() => earlyWatch.length, [earlyWatch]);
-  const dotColor    = loading ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
+  const dotColor    = (loading || refreshing) ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
   const showSections = filter === "all" && (leaders.length > 0 || speculation.length > 0);
   const earlySymbols = useMemo(() => new Set(earlyWatch.map(s => s.symbol)), [earlyWatch]);
 
@@ -963,8 +1016,8 @@ export default function Radar() {
         </div>
 
         <div style={S.actionRow}>
-          <button onClick={scan} disabled={loading} style={S.scanBtn(loading)}>
-            {loading ? t.scanning : t.scanBtn}
+          <button onClick={() => scan({ background: true })} disabled={loading || refreshing} style={S.scanBtn(loading || refreshing)}>
+            {(loading || refreshing) ? t.scanning : t.scanBtn}
           </button>
           {results.length > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
