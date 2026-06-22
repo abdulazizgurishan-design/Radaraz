@@ -32,7 +32,7 @@ const T = {
     risk: "مخاطرة",
     volume: "حجم",
     footer1: "RADAR AZ PRO",
-    footer2: "ليست نصيحة استثمارية · +1000 سهم · EP Model + RVOL + 📰 أخبار لحظية 🚀",
+    footer2: "ليست نصيحة استثمارية · +1000 سهم · خريطة بنية السوق + وقف ذكي + أهداف فيبوناتشي · EP Model · RVOL · تحليل AI-Az · 📰 أخبار لحظية 🚀",
     loginTitle: "أدخل مفتاح الاشتراك للوصول للرادار",
     loginBtn: "🔓 دخول",
     loginLoading: "⟳ جاري التحقق...",
@@ -99,7 +99,7 @@ const T = {
     risk: "Risk",
     volume: "Volume",
     footer1: "RADAR AZ PRO",
-    footer2: "Not investment advice · 1000+ stocks · EP Model + RVOL + 📰 Live News 🚀",
+    footer2: "Not investment advice · 1000+ stocks · Market structure map + smart stops + Fibonacci targets · EP Model · RVOL · AI-Az analysis · 📰 Live news 🚀",
     loginTitle: "Enter your subscription key to access the radar",
     loginBtn: "🔓 Login",
     loginLoading: "⟳ Verifying...",
@@ -910,7 +910,10 @@ export default function Radar() {
     } catch { /* تجاهل — المسح الحيّ سيملأ البيانات */ }
   }, []);
 
-  useEffect(() => { if (auth) loadCached().finally(() => scan({ background: true })); }, [auth]);
+  useEffect(() => {
+    if (!auth) return;
+    loadCached().finally(() => scan({ background: true }));   // عرض فوري من الكاش ثم مسح حيّ دائماً
+  }, [auth]);
 
   useEffect(() => {
     if (autoRefresh) { autoTimerRef.current = setInterval(() => scan({ background: true }), 60_000); }
