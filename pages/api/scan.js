@@ -1,1137 +1,859 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+// pages/api/scan.js — STANDALONE EDITION v3 (Multi-Timeframe + MACD + News + Target)
+// ═══════════════════════════════════════════════════════════════════
+//  مسح مستقل تماماً — صفر اعتماد على جداول أخرى
+//  ─────────────────────────────────────────────────────────────────
+//  ترقيات هذا الإصدار:
+//   ✅ المتوسطات/RSI/ATR/MACD حسب نوع الصفقة:
+//        ⚡ مضاربة → فريم 60 دقيقة (سريع، يناسب اليوم)
+//        📈 استثمار → فريم يومي (يناسب المستثمر)
+//   ✅ إضافة MA50 + MACD(12,26,9) لتأكيد الاتجاه
+//   ✅ المتوسطات صارت "بوابة" (gate) لا مجرد بونص
+//   ✅ غربال صارم للأسهم أقل من $1
+//   ✅ طبقة الأخبار اللحظية (Polygon News) — تفصل الكاتشي عن الوهمي
+//   ✅ شارة 🎯 "الهدف" — التقاء كامل على الفريمين (نخبة)
+//   ✅ أهداف واقعية (مضاربة على ATR 60د = أضيق وأقرب للتحقق)
+//   ✅ إصلاح bug قسم الاستثمار (كان يستخدم "قيادي" بدل "استثمار")
+//
+//  ⚠️ ملاحظة توافق: شكل الرد للواجهة لم يتغيّر (نفس الحقول والأقسام).
+//     شارة "الهدف" تُعرض عبر حقل signal الموجود أصلاً — لا تعديل واجهة.
+//  ⚠️ هذا الإصدار يحفظ عمودين جديدين (is_target, news_age_h) — لازم تضيفهما
+//     في جدول signals أولاً (SQL في الأسفل) قبل الرفع، وإلا يفشل الحفظ.
+// ═══════════════════════════════════════════════════════════════════
 
-// حقن حركة نبض اللمبة مرة واحدة (آمن مع SSR)
-if (typeof document !== "undefined" && !document.getElementById("az-kf")) {
-  const _el = document.createElement("style");
-  _el.id = "az-kf";
-  _el.textContent = "@keyframes azpulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.5),0 0 8px rgba(52,211,153,.9)}50%{box-shadow:0 0 0 6px rgba(52,211,153,0),0 0 14px rgba(52,211,153,1)}}";
-  document.head.appendChild(_el);
+export const config = { maxDuration: 60 };
+
+const POLYGON_KEY  = process.env.POLYGON_API_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
+
+// ─── إعدادات الفلترة ───────────────────────────────────────────────
+const FILTER = {
+  MIN_PRICE:      0.30,
+  MAX_PRICE:      500,
+  MIN_VOLUME:     300_000,
+  MIN_CHANGE:     3,
+  MAX_CHANGE:     40,            // فوق 40% = دخول متأخر/pump → استبعاد نهائي
+  MAX_RVOL:       100,
+  MAX_RESULTS:    60,
+  HEAVY_LIMIT:    70,            // خطة Hobby: حد 10ث — خُفّض 120→70 ليخلص تحت 8ث بأمان
+  SAVE_MIN_EP:    60,            // رفعناه من 50 → 60 (جودة أعلى للحفظ والبوت)
+  STRICT_PRICE:   1.00,          // تحت هذا السعر = غربال صارم
+};
+
+// ─── مزج البنية (Swing) في الاختيار — كله قابل للضبط ───────────────
+// الهدف: نعرض دخولات صحيحة، لا كل سهم مرتفع.
+const STRUCT = {
+  MIN_RR:        1.5,   // أدنى عائد/مخاطرة بنيوي ليُعدّ "دخول صحيح"
+  MAX_POS:       0.66,  // أقصى موضع داخل المدى (0=دعم،1=مقاومة) ليُعدّ دخولاً مبكراً
+  BONUS_VALID:   7,     // مكافأة الدخول الصحيح (يرفعه للأعلى)
+  BONUS_OK:      2,     // مكافأة المقبول
+  PENALTY_LATE:  6,     // خصم الملاحقة/غير المؤكد (يُنزّله)
+  PENALTY_BADRR: 4,     // خصم إضافي لـ R:R < 1
+  // إسقاط الملاحقة الواضحة فقط: سهم ارتفع كثير + دخوله سيء
+  DROP_LATE:     true,  // فعّل/عطّل الإسقاط
+  DROP_CHANGE:   10,    // لا نُسقط إلا إذا ارتفع أكثر من هذا
+  DROP_POS:      0.80,  // + قريب من القمة (دخول متأخر)
+  // 💎 حارس الجوهرة: لا نعرض سهماً هابطاً بلا تأكيد ارتداد
+  STRICT_GEMS:   true,  // اعرض فقط: مؤكد صاعد أو ارتداد واضح
+};
+
+// ════════════════ أدوات المؤشرات ════════════════
+
+function calcEMA(prices, period) {
+  if (!prices || prices.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < prices.length; i++) ema = prices[i] * k + ema * (1 - k);
+  return ema;
 }
 
-const T = {
-  ar: {
-    title: "رادار",
-    subtitle: "الالتزام بوقف الخسارة يخفف المخاطرة",
-    trial: "🕐 تجربة مجانية",
-    subscribed: "✅ مشترك",
-    logout: "خروج",
-    scanRange: "إشارات اليوم",
-    explosive: "💥 انفجاري",
-    high: "🔥 عالي",
-    all: "✅ الكل",
-    scanBtn: "📡  مسح السوق الفوري",
-    scanning: "⟳  جاري المسح...",
-    autoRefresh: "تحديث تلقائي كل دقيقة",
-    filterAll: "الكل",
-    filterLeaders: "📈 استثمار",
-    filterSpec: "⚡ مضاربة",
-    opportunities: "فرصة",
-    noOpps: "لا توجد فرص حالياً",
-    marketClosed: "سيتم تحديث الإشارات بعد مسح الأدمن",
-    stopLoss: "🛑 وقف الخسارة",
-    risk: "مخاطرة",
-    volume: "حجم",
-    footer1: "RADAR AZ PRO",
-    footer2: "ليست نصيحة استثمارية · مسح أكثر من 10,000 سهم · تحليل فني عميق · أهداف ووقف ذكية حسب تصنيف السهم · زخم الكميات + أخبار لحظية 🚀",
-    loginTitle: "أدخل مفتاح الاشتراك للوصول للرادار",
-    loginBtn: "🔓 دخول",
-    loginLoading: "⟳ جاري التحقق...",
-    loginError: "المفتاح غير صحيح — تحقق من المفتاح وحاول مجدداً",
-    loginConnError: "خطأ في الاتصال — حاول مجدداً",
-    expired: "⏰ انتهى اشتراكك — جدد للوصول الكامل",
-    renewLink: "جدد الاشتراك ←",
-    noKey: "ليس لديك مفتاح؟",
-    freeTrial: "جرّب مجاناً 24 ساعة ←",
-    bannerError: "خطأ في الاتصال",
-    bannerErrorSub: "تعذر جلب الإشارات",
-    bannerClosed: "لا توجد إشارات حالياً",
-    bannerClosedSub: "سيتم تحديث الإشارات بعد مسح الأدمن",
-    bannerPre: "Pre-Market نشط",
-    bannerPreSub: "أفضل النتائج بعد 4:30م",
-    bannerOk: "متصل — أسعار حية",
-    bannerOkSub: "Polygon API يعمل بشكل طبيعي",
-    lastUpdate: "آخر تحديث",
-    largeCap: "🐋 Large Cap",
-    midCap: "🦈 Mid Cap",
-    smallCap: "🐟 Small Cap",
-    microCap: "🦐 Micro Cap",
-    sectionEarly: "🔍 رصد مبكر",
-    sectionEarlySub: "أسهم جاهزة قبل الانفجار",
-    sectionLeaders: "📈 إشارات استثمارية",
-    sectionSpec: "⚡ مضاربة يومية",
-    tapToExpand: "اضغط للعرض",
-    tapToCollapse: "اضغط للإخفاء",
-    earlyBadge: "🔍 رصد مبكر",
-    atr: "ATR",
-    weekQuiet: "هدوء أسبوعي",
-    rsi: "RSI",
-    rsiOverbought: "إشباع شرائي",
-    rsiHealthy: "زخم صحي",
-    rsiNeutral: "محايد",
-    earlyTooltip: "كل المؤشرات الفنية مطابقة + بداية ارتفاع + هدوء أسبوعي = فرصة قبل الانفجار",
-    favorites: "⭐ المفضلة",
-    addFav: "أضف للمفضلة",
-    removeFav: "إزالة من المفضلة",
-    noFavs: "لا توجد أسهم في المفضلة",
-    noFavsSub: "اضغط ⭐ على أي سهم لحفظه في مفضلتك الخاصة",
-    favPrivate: "مفضلتك خاصة بك — محفوظة في جهازك فقط",
-  },
-  en: {
-    title: "Radar",
-    subtitle: "Stop loss reduces risk",
-    trial: "🕐 Free Trial",
-    subscribed: "✅ Subscribed",
-    logout: "Logout",
-    scanRange: "Today's Signals",
-    explosive: "💥 Explosive",
-    high: "🔥 High",
-    all: "✅ All",
-    scanBtn: "📡  Start Live Market Scan",
-    scanning: "⟳  Scanning...",
-    autoRefresh: "Auto refresh every minute",
-    filterAll: "All",
-    filterLeaders: "📈 Invest",
-    filterSpec: "⚡ Day Trade",
-    opportunities: "opportunities",
-    noOpps: "No opportunities found",
-    marketClosed: "Signals will appear after admin scan",
-    stopLoss: "🛑 Stop Loss",
-    risk: "Risk",
-    volume: "Volume",
-    footer1: "RADAR AZ PRO",
-    footer2: "Not investment advice · Scans 10,000+ stocks · Deep technical analysis · Smart targets & stops by stock profile · Volume momentum + live news 🚀",
-    loginTitle: "Enter your subscription key to access the radar",
-    loginBtn: "🔓 Login",
-    loginLoading: "⟳ Verifying...",
-    loginError: "Invalid key — please check your key and try again",
-    loginConnError: "Connection error — please try again",
-    expired: "⏰ Your subscription has expired — renew for full access",
-    renewLink: "Renew subscription →",
-    noKey: "Don't have a key?",
-    freeTrial: "Try free for 24 hours →",
-    bannerError: "Connection Error",
-    bannerErrorSub: "Failed to load signals",
-    bannerClosed: "No signals yet",
-    bannerClosedSub: "Signals will appear after admin scan",
-    bannerPre: "Pre-Market Active",
-    bannerPreSub: "Best results after 9:30 AM ET",
-    bannerOk: "Connected — Live Prices",
-    bannerOkSub: "Polygon API working normally",
-    lastUpdate: "Last update",
-    largeCap: "🐋 Large Cap",
-    midCap: "🦈 Mid Cap",
-    smallCap: "🐟 Small Cap",
-    microCap: "🦐 Micro Cap",
-    sectionEarly: "🔍 Early Watch",
-    sectionEarlySub: "Stocks ready before the breakout",
-    sectionLeaders: "📈 Investment Signals",
-    sectionSpec: "⚡ Day Trading",
-    tapToExpand: "Tap to expand",
-    tapToCollapse: "Tap to collapse",
-    earlyBadge: "🔍 Early",
-    atr: "ATR",
-    weekQuiet: "Weekly Quiet",
-    rsi: "RSI",
-    rsiOverbought: "Overbought",
-    rsiHealthy: "Healthy Momentum",
-    rsiNeutral: "Neutral",
-    earlyTooltip: "All technicals aligned + early move + weekly quiet = opportunity before breakout",
-    favorites: "⭐ Favorites",
-    addFav: "Add to favorites",
-    removeFav: "Remove from favorites",
-    noFavs: "No favorite stocks yet",
-    noFavsSub: "Tap ⭐ on any stock to save it to your private list",
-    favPrivate: "Your favorites are private — saved on your device only",
+// سلسلة EMA كاملة (نحتاجها للماكد)
+function emaSeries(values, period) {
+  if (!values || values.length < period) return [];
+  const k = 2 / (period + 1);
+  const out = new Array(period - 1).fill(null);
+  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  out.push(ema);
+  for (let i = period; i < values.length; i++) {
+    ema = values[i] * k + ema * (1 - k);
+    out.push(ema);
   }
-};
-
-const S = {
-  root: { minHeight: "100vh", background: "#080c18", fontFamily: "system-ui", color: "#fff", position: "relative", overflow: "hidden" },
-  bgWrap: { position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none" },
-  bgCircle: { position: "absolute", top: "10%", left: "50%", transform: "translateX(-50%)", width: 600, height: 600, background: "radial-gradient(circle,rgba(99,102,241,0.06) 0%,transparent 70%)", borderRadius: "50%" },
-  bgGrid: { position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.015) 1px,transparent 1px)", backgroundSize: "50px 50px" },
-  container: { position: "relative", zIndex: 1, maxWidth: 920, margin: "0 auto", padding: "24px 16px" },
-  header: { textAlign: "center", marginBottom: 32, paddingBottom: 24, borderBottom: "1px solid rgba(255,255,255,0.06)" },
-  headerRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 },
-  dot: (color) => ({ width: 10, height: 10, borderRadius: "50%", background: color, boxShadow: `0 0 16px ${color}`, transition: "background 0.3s, box-shadow 0.3s" }),
-  title: { margin: 0, fontSize: 28, fontWeight: 900, letterSpacing: 2, color: "#fff" },
-  titleAccent: { background: "linear-gradient(135deg,#6366f1,#8b5cf6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
-  badge: { fontSize: 10, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", borderRadius: 4, padding: "3px 8px", color: "#fff", fontWeight: 700, letterSpacing: 1 },
-  subtitle: { margin: 0, fontSize: 12, color: "rgba(255,255,255,0.35)", letterSpacing: 1 },
-  langBtn: { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "5px 12px", color: "rgba(255,255,255,0.6)", fontSize: 12, cursor: "pointer", fontFamily: "system-ui", marginTop: 8 },
-  statsRow: { display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" },
-  statBox: (bg, border) => ({ flex: 1, minWidth: 80, background: bg, border: `1px solid ${border}`, borderRadius: 14, padding: "14px 16px", textAlign: "center" }),
-  statNum: (color) => ({ fontSize: 26, fontWeight: 900, color, fontFamily: "monospace", lineHeight: 1 }),
-  statLabel: (color) => ({ fontSize: 9, color, opacity: 0.7, marginTop: 4 }),
-  actionRow: { display: "flex", gap: 10, marginBottom: 8, flexWrap: "wrap", alignItems: "center" },
-  scanBtn: (loading) => ({ flex: 1, background: loading ? "rgba(255,255,255,0.05)" : "linear-gradient(135deg,#6366f1,#8b5cf6)", border: loading ? "1px solid rgba(255,255,255,0.1)" : "none", borderRadius: 14, padding: "14px 28px", color: loading ? "rgba(255,255,255,0.3)" : "#fff", fontWeight: 800, fontSize: 14, cursor: loading ? "not-allowed" : "pointer", letterSpacing: 1, transition: "all 0.2s", boxShadow: loading ? "none" : "0 8px 32px rgba(99,102,241,0.4)" }),
-  filterBtn: (active) => ({ background: active ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.05)", border: `1px solid ${active ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.08)"}`, borderRadius: 10, padding: "10px 14px", color: active ? "#a5b4fc" : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.2s" }),
-  autoRow: { display: "flex", alignItems: "center", gap: 8, marginBottom: 12, justifyContent: "flex-end" },
-  autoLabel: { fontSize: 10, color: "rgba(255,255,255,0.3)" },
-  toggleBtn: (active) => ({ width: 36, height: 20, borderRadius: 10, background: active ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "rgba(255,255,255,0.1)", border: "none", cursor: "pointer", position: "relative", transition: "background 0.3s", flexShrink: 0 }),
-  toggleThumb: (active) => ({ position: "absolute", top: 2, left: active ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.3s" }),
-  progressBar: { height: 2, background: "rgba(255,255,255,0.05)", borderRadius: 2, marginBottom: 16, overflow: "hidden" },
-  progressFill: { height: "100%", width: "65%", background: "linear-gradient(90deg,#6366f1,#8b5cf6)", borderRadius: 2 },
-  banner: (bg, border) => ({ background: bg, border: `1px solid ${border}`, borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }),
-  bannerTitle: (color) => ({ fontSize: 12, color, fontWeight: 700 }),
-  bannerSub: (color) => ({ fontSize: 10, color }),
-  dividerRow: { display: "flex", alignItems: "center", gap: 10, marginBottom: 16 },
-  dividerLine: (flip) => ({ height: 1, flex: 1, background: flip ? "linear-gradient(90deg,rgba(255,255,255,0.08),transparent)" : "linear-gradient(90deg,transparent,rgba(255,255,255,0.08))" }),
-  dividerText: { fontSize: 11, color: "rgba(255,255,255,0.25)", letterSpacing: 1 },
-  sectionHeader: (bg, border, color, open) => ({ background: bg, border: `1px solid ${border}`, borderRadius: open ? "14px 14px 0 0" : 14, padding: "14px 18px", marginBottom: 0, marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none", transition: "border-radius 0.2s" }),
-  sectionTitle: (color) => ({ fontSize: 14, fontWeight: 800, color, letterSpacing: 1 }),
-  sectionCount: (color, bg) => ({ fontSize: 13, fontWeight: 800, color, background: bg, borderRadius: 20, padding: "2px 10px", fontFamily: "monospace" }),
-  sectionChevron: (open) => ({ fontSize: 10, color: "rgba(255,255,255,0.4)", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s", display: "inline-block", marginRight: 8 }),
-  sectionBody: (open) => ({ overflow: "hidden", maxHeight: open ? "9999px" : 0, transition: "max-height 0.3s ease", border: open ? "1px solid rgba(255,255,255,0.07)" : "none", borderTop: "none", borderRadius: "0 0 14px 14px", padding: open ? "10px 0 0 0" : 0, marginBottom: open ? 12 : 0 }),
-  emptyBox: { textAlign: "center", padding: "64px 20px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 20 },
-  footer: { marginTop: 32, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.04)", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, textAlign: "center" },
-  cardWrap: (open, glowColor) => ({ background: "linear-gradient(135deg,rgba(15,20,35,0.95),rgba(20,28,48,0.95))", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, marginBottom: 10, overflow: "hidden", transition: "box-shadow 0.3s", boxShadow: open ? `0 8px 32px ${glowColor}` : "0 2px 8px rgba(0,0,0,0.3)" }),
-  cardHeader: { padding: "16px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
-  cardIdx: { fontSize: 10, color: "rgba(255,255,255,0.2)", minWidth: 22, fontFamily: "monospace" },
-  cardSymbol: { fontSize: 17, fontWeight: 700, color: "#fff", letterSpacing: 1, fontFamily: "monospace" },
-  cardTags: { display: "flex", gap: 5, flexWrap: "wrap", flex: 1 },
-  tag: (bg, color, border) => ({ fontSize: 9, padding: "3px 8px", borderRadius: 20, background: bg, color, fontWeight: 600, border: `1px solid ${border}` }),
-  cardPrice: { fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "monospace" },
-  cardChange: (up) => ({ fontSize: 12, color: up ? "#00d4aa" : "#ff4757", fontWeight: 600 }),
-  cardScore: (color) => ({ fontSize: 20, fontWeight: 800, color, fontFamily: "monospace", lineHeight: 1 }),
-  chevron: (open) => ({ color: "rgba(255,255,255,0.2)", fontSize: 10, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s", display: "inline-block" }),
-  detailWrap: { borderTop: "1px solid rgba(255,255,255,0.06)", padding: "16px 18px" },
-  metricsRow: { display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" },
-  metricBox: { flex: 1, minWidth: 60, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 10, padding: "8px 10px" },
-  metricLabel: { fontSize: 8, color: "rgba(255,255,255,0.3)", marginBottom: 3 },
-  metricValue: (color) => ({ fontSize: 13, color, fontWeight: 700, fontFamily: "monospace" }),
-  slBox: { background: "linear-gradient(135deg,rgba(255,71,87,0.1),rgba(255,71,87,0.05))", border: "1px solid rgba(255,71,87,0.2)", borderRadius: 12, padding: "14px 16px", marginBottom: 10 },
-  tpGrid: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 },
-  tpBox: (bg, border) => ({ background: bg, border: `1px solid ${border}`, borderRadius: 12, padding: 12 }),
-  tpLabel: (color) => ({ fontSize: 9, color, fontWeight: 600, marginBottom: 4 }),
-  tpValue: (color) => ({ fontSize: 15, fontWeight: 700, color, fontFamily: "monospace" }),
-  tpPct: (color) => ({ fontSize: 11, color, fontWeight: 600, marginTop: 3, opacity: 0.85 }),
-  skeletonCard: { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, marginBottom: 10, padding: 18, display: "flex", gap: 12, alignItems: "center" },
-  skeletonBlock: (w, h) => ({ background: "rgba(255,255,255,0.08)", borderRadius: 6, width: w, height: h, flexShrink: 0, animation: "pulse 1.5s ease-in-out infinite" }),
-  loginWrap: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, position: "relative", zIndex: 1 },
-  loginBox: { background: "linear-gradient(135deg,rgba(15,20,35,0.98),rgba(20,28,48,0.98))", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 24, padding: "40px 32px", maxWidth: 420, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.6)", textAlign: "center" },
-  loginInput: { width: "100%", padding: "14px 16px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#fff", fontSize: 15, fontFamily: "monospace", letterSpacing: 2, textAlign: "center", marginBottom: 12, outline: "none", boxSizing: "border-box" },
-  loginBtn: (loading) => ({ width: "100%", padding: "14px", background: loading ? "rgba(99,102,241,0.3)" : "linear-gradient(135deg,#6366f1,#8b5cf6)", border: "none", borderRadius: 12, color: "#fff", fontWeight: 800, fontSize: 15, cursor: loading ? "not-allowed" : "pointer", fontFamily: "system-ui", letterSpacing: 1, transition: "all 0.2s", boxShadow: loading ? "none" : "0 8px 24px rgba(99,102,241,0.4)" }),
-  loginError: { background: "rgba(255,71,87,0.1)", border: "1px solid rgba(255,71,87,0.3)", borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "#ff4757", marginBottom: 12 },
-  loginExpired: { background: "rgba(255,215,0,0.08)", border: "1px solid rgba(255,215,0,0.2)", borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "#ffd700", marginBottom: 12 },
-  logoutBtn: { background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "6px 12px", color: "rgba(255,255,255,0.3)", fontSize: 11, cursor: "pointer", fontFamily: "system-ui" },
-};
-
-const ScoreBar = ({ score }) => {
-  const color = score >= 80 ? "#ff6b35" : score >= 60 ? "#ffd700" : "#00d4aa";
-  return (
-    <div style={{ position: "relative", height: 3, background: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden", marginTop: 6 }}>
-      <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${score}%`, background: color, borderRadius: 3, boxShadow: `0 0 8px ${color}`, transition: "width 0.6s ease" }} />
-    </div>
-  );
-};
-
-const SkeletonCards = () => (
-  <>
-    {[1, 2, 3].map((k) => (
-      <div key={k} style={S.skeletonCard}>
-        <div style={S.skeletonBlock(22, 14)} />
-        <div style={S.skeletonBlock(64, 36)} />
-        <div style={{ flex: 1, display: "flex", gap: 6 }}>
-          <div style={S.skeletonBlock(60, 20)} />
-          <div style={S.skeletonBlock(50, 20)} />
-        </div>
-        <div style={S.skeletonBlock(80, 36)} />
-        <div style={S.skeletonBlock(44, 36)} />
-      </div>
-    ))}
-  </>
-);
-
-function fmtPct(n) {
-  if (n == null) return "";
-  return (n >= 0 ? "+" : "") + Math.round(+n) + "%";
+  return out;
 }
 
-// 🔍 شارة الرصد المبكر
-function EarlyBadge({ t }) {
-  return (
-    <span style={{
-      fontSize: 9, padding: "3px 9px", borderRadius: 20,
-      background: "linear-gradient(135deg,rgba(16,185,129,0.25),rgba(5,150,105,0.18))",
-      color: "#34d399", fontWeight: 800, border: "1px solid rgba(52,211,153,0.5)",
-      letterSpacing: 0.5, animation: "earlyglow 2s ease-in-out infinite",
-    }}>{t.earlyBadge}</span>
-  );
+function calcSMA(prices, period) {
+  if (!prices || prices.length < period) return null;
+  const slice = prices.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / period;
 }
 
-// 📈 شارة المتوسطات
-function MABadge({ signal, lang }) {
-  if (!signal) return null;
-  const map = {
-    "تقاطع ذهبي 🌟": { color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.3)" },
-    "صاعد قوي ⚡":   { color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.3)" },
-    "EMA صاعد":      { color: "#60a5fa", bg: "rgba(96,165,250,0.12)", border: "rgba(96,165,250,0.3)" },
-    "صاعد":          { color: "#94a3b8", bg: "rgba(148,163,184,0.1)", border: "rgba(148,163,184,0.25)" },
+// ATR14 بتمهيد Wilder (مطابق TradingView)
+function calcATR14(bars) {
+  if (!bars || bars.length < 15) return null;
+  const trs = [];
+  for (let i = 1; i < bars.length; i++) {
+    const h = bars[i].h, l = bars[i].l, pc = bars[i - 1].c;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  if (trs.length < 14) return null;
+  let atr = trs.slice(0, 14).reduce((a, b) => a + b, 0) / 14;
+  for (let i = 14; i < trs.length; i++) atr = (atr * 13 + trs[i]) / 14;
+  return atr;
+}
+
+// RSI14 بتمهيد Wilder
+function calcRSI14(bars) {
+  if (!bars || bars.length < 15) return null;
+  const closes = bars.map(b => b.c);
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= 14; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / 14, avgLoss = losses / 14;
+  for (let i = 15; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    avgGain = (avgGain * 13 + (diff >= 0 ? diff : 0)) / 14;
+    avgLoss = (avgLoss * 13 + (diff < 0 ? -diff : 0)) / 14;
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+// MACD(12,26,9) — يرجع حالة الاتجاه
+function calcMACD(closes) {
+  if (!closes || closes.length < 35) return null;
+  const ema12 = emaSeries(closes, 12);
+  const ema26 = emaSeries(closes, 26);
+  const macdLine = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (ema12[i] == null || ema26[i] == null) continue;
+    macdLine.push(ema12[i] - ema26[i]);
+  }
+  if (macdLine.length < 10) return null;
+  const sig = emaSeries(macdLine, 9);
+  const macdLast = macdLine[macdLine.length - 1];
+  const sigLast  = sig[sig.length - 1];
+  if (macdLast == null || sigLast == null) return null;
+  const hist = macdLast - sigLast;
+  const macdPrev = macdLine[macdLine.length - 2];
+  const sigPrev  = sig[sig.length - 2];
+  const histPrev = (macdPrev != null && sigPrev != null) ? macdPrev - sigPrev : null;
+  return {
+    bullish: macdLast > sigLast && hist > 0,
+    rising:  histPrev != null ? hist > histPrev : false,
   };
-  const enMap = { "تقاطع ذهبي 🌟": "Golden cross 🌟", "صاعد قوي ⚡": "Strong up ⚡", "EMA صاعد": "EMA rising", "صاعد": "Up" };
-  const c = map[signal] || map["صاعد"];
-  const label = lang === "en" ? (enMap[signal] || signal) : signal;
-  return (
-    <span style={{ fontSize: 9, padding: "3px 8px", borderRadius: 20, background: c.bg, color: c.color, fontWeight: 700, border: `1px solid ${c.border}` }}>
-      📈 {label}
-    </span>
-  );
 }
 
-// 📊 لون وحالة RSI
-function rsiInfo(rsi, t) {
-  if (rsi == null) return null;
-  if (rsi >= 72) return { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.3)", label: t.rsiOverbought };
-  if (rsi >= 50 && rsi <= 65) return { color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.3)", label: t.rsiHealthy };
-  return { color: "#94a3b8", bg: "rgba(148,163,184,0.1)", border: "rgba(148,163,184,0.25)", label: t.rsiNeutral };
+function calcSupportResistance(bars, price) {
+  if (!bars || bars.length < 10) return { resistances: [], supports: [] };
+  const recent = bars.slice(-20);
+  const resistances = [...new Set(recent.map(b => b.h))].filter(h => h > price).sort((a, b) => a - b);
+  const supports    = [...new Set(recent.map(b => b.l))].filter(l => l < price).sort((a, b) => b - a);
+  return { resistances, supports };
 }
 
-// 📊 شارة RSI
-function RSIBadge({ rsi, t }) {
-  const info = rsiInfo(rsi, t);
-  if (!info) return null;
-  return (
-    <span style={{ fontSize: 9, padding: "3px 8px", borderRadius: 20, background: info.bg, color: info.color, fontWeight: 700, border: `1px solid ${info.border}` }}>
-      📊 RSI {rsi}
-    </span>
-  );
+function calcFibTargets(bars, price) {
+  if (!bars || bars.length < 10) return [];
+  const recent = bars.slice(-20);
+  const swingLow  = Math.min(...recent.map(b => b.l));
+  const swingHigh = Math.max(...recent.map(b => b.h));
+  const range = swingHigh - swingLow;
+  if (range <= 0) return [];
+  return [swingHigh + range * 0.272, swingHigh + range * 0.618, swingHigh + range * 1.0].filter(f => f > price);
 }
 
-// ════ بنية السوق (AI-Az) ════
-function entryReady(r) {
-  const st = r && r.structure;
-  if (!st || !r.price) return false;
-  // دخول مناسب = السعر داخل نطاق الشراء: فوق الارتكاز (لم يُكسر)
-  // وحتى مستوى التأكيد تقريباً (لم يجرِ بعيداً) + عائد/مخاطرة مجزٍ
-  const aboveSupport = r.price > st.support;
-  const notRunYet    = r.price <= st.confirm * 1.01;
-  const goodRR       = st.rr != null && st.rr >= 1.2;
-  return aboveSupport && notRunYet && goodRR;
+// ─── أهداف الاستثمار (ATR أوسع — صبر) ─────────────────────────────
+function calcSmartLevels(price, bars) {
+  const atr = calcATR14(bars) || price * 0.05;
+  const { resistances, supports } = calcSupportResistance(bars, price);
+  const fibs = calcFibTargets(bars, price);
+
+  // الوقف أولاً
+  const atrSL = price - atr * 1.5;
+  const supportSL = supports[0] ? supports[0] * 0.985 : atrSL;
+  const sl = Math.max(Math.min(atrSL, supportSL), price * 0.88);
+  const risk = price - sl;
+
+  const atrT1 = price + atr * 1.0, atrT2 = price + atr * 2.0, atrT3 = price + atr * 3.0;
+  let t1 = resistances[0] && resistances[0] < atrT1 * 1.3 ? Math.min(resistances[0], atrT1 * 1.3) : atrT1;
+  t1 = Math.max(t1, price * 1.03, price + risk * 1.0);  // T1 لا يقل عن 1:1
+  let t2 = resistances[1] && resistances[1] > t1 ? Math.max(atrT2, Math.min(resistances[1], atrT2 * 1.2)) : atrT2;
+  t2 = Math.max(t2, t1 * 1.04);
+  let t3 = fibs[1] && fibs[1] > t2 ? Math.max(atrT3, Math.min(fibs[1], atrT3 * 1.3)) : atrT3;
+  t3 = Math.max(t3, t2 * 1.05);
+
+  const f2 = n => +n.toFixed(2), pct = n => +(((n - price) / price) * 100).toFixed(2);
+  return {
+    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
+    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
+    risk: f2(price - sl), atr14: f2(atr),
+  };
 }
 
-const AZ_TR = {
-  "صاعد مؤكد ✅": "Confirmed uptrend ✅",
-  "ينتظر تأكيد ⏳": "Awaiting confirmation ⏳",
-  "دخول صحيح ✅": "Valid entry ✅",
-  "مقبول": "Acceptable",
-  "ملاحقة/غير مؤكد ⚠️": "Chasing / unconfirmed ⚠️",
-  "هابط بلا تأكيد ⛔": "Downtrend — unconfirmed ⛔",
+// ─── أهداف المضاربة (ATR 60د = أضيق وأقرب للتحقق) ─────────────────
+// + إصلاح R:R: تضييق الوقف حتى لا تكون المخاطرة ضعف الهدف
+function calcScalpLevels(price, bars) {
+  const atr = calcATR14(bars) || price * 0.03;
+  const { supports } = calcSupportResistance(bars, price);
+  const atrPct = atr / price;                       // تقلّب السهم النسبي
+
+  // الوقف: ATR×0.8 أو تحت دعم قريب (الأبعد = مساحة تنفّس)
+  const atrSL = price - atr * 0.8;
+  const supportSL = supports[0] ? supports[0] * 0.992 : atrSL;
+  let sl = Math.min(atrSL, supportSL);
+
+  // 🔧 سقف الخسارة يتكيّف مع التقلّب: هادئ ~4% ، متقلّب حتى 10%
+  //    (يمنع خنق وقف الأسهم المتقلّبة مثل البنسات عند -4% ثابتة)
+  const maxLossPct = Math.min(Math.max(0.04, atrPct), 0.10);
+  sl = Math.max(sl, price * (1 - maxLossPct));
+  const risk = price - sl;
+
+  // أهداف قريبة واقعية — نضمن R:R ≥ 1.3 على T1 (ربط الهدف بالمخاطرة)
+  let t1 = Math.max(price + atr * 0.6, price + risk * 1.3, price * 1.015);
+  let t2 = Math.max(price + atr * 1.1, t1 + risk * 0.8, t1 * 1.02);
+  let t3 = Math.max(price + atr * 1.7, t2 + risk * 0.8, t2 * 1.02);
+
+  const dec = price < 1 ? 3 : 2;                    // دقّة أعلى للأسهم تحت $1
+  const f2 = n => +n.toFixed(dec), pct = n => +(((n - price) / price) * 100).toFixed(2);
+  return {
+    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
+    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
+    risk: f2(price - sl), atr14: f2(atr),
+  };
+}
+
+// ─── الوقف/الأهداف الذكية من البنية ──────────────────────────────
+// تجعل الوقف يجلس تحت الارتكاز/الدعم البنيوي الحقيقي بدل نسبة ثابتة،
+// مع حارسين: (1) لا يكون أضيق من نطاق الضجيج (ATR) فيُضرب بسهولة،
+//            (2) لا يتجاوز سقف خسارة معقول حسب التقلّب والنوع.
+const SMART_STOP = {
+  ENABLED: true,
+  NOISE_ATR_MULT: 1.2,    // أقل مسافة للوقف = ATR×1.2 تحت السعر
+  NOISE_MIN_PCT:  0.04,   // أو 4% (الأكبر) — يمنع الوقف القريب جداً
+  SCALP_FLOOR:    0.05,   // مضاربة: أدنى سقف خسارة 5%
+  SCALP_CAP:      0.13,   //          أقصى سقف خسارة 13%
+  SCALP_ATR_K:    1.2,    //          معامل التقلّب
+  SMART_FLOOR:    0.06,   // استثمار: أدنى 6%
+  SMART_CAP:      0.15,   //          أقصى 15%
+  SMART_ATR_K:    1.3,
+  MIN_RR:         1.3,    // R:R مضمون على T1
+  SCALP_T1_CAP:   0.30,   // مضاربة: أقصى بُعد للهدف الأول ليُؤخذ من البنية (وإلا أهداف واقعية)
+  SMART_T1_CAP:   0.60,   // استثمار: نفس الفكرة بسقف أوسع
 };
-const azTr = (s, lang) => (lang === "en" ? (AZ_TR[s] || s) : s);
 
-function azSummary(r, lang) {
-  const st = r.structure;
-  if (!st) return "";
-  const parts = [];
-  if (st.trend) parts.push(azTr(st.trend, lang));
-  if (st.flag) parts.push(azTr(st.flag, lang));
-  if (st.rr != null) parts.push("R:R " + st.rr);
-  let action;
-  if (entryReady(r)) action = lang === "en" ? "Price in entry zone now — ready ✅" : "السعر في منطقة الدخول الآن — جاهزة ✅";
-  else if (r.price > st.entry) action = lang === "en" ? ("Wait for a pullback to the entry zone $" + (+st.entry).toFixed(2)) : ("انتظر ارتداداً لمنطقة الدخول $" + (+st.entry).toFixed(2));
-  else action = lang === "en" ? ("Watch for confirmation above $" + (+st.confirm).toFixed(2)) : ("راقب التأكيد فوق $" + (+st.confirm).toFixed(2));
-  return parts.join(" • ") + " — " + action;
-}
+function applyStructureLevels(price, levels, structure, tradeStyle) {
+  if (!SMART_STOP.ENABLED || !structure) return levels;
+  if (!structure.support || !structure.stop || structure.stop >= price) return levels;
 
-const AZ_LEVELS = [
-  { k: "peak",       n: "🟥 منطقة بيع محتمل (قصوى)", en: "🟥 Sell zone (max)",       c: "#f59e0b" },
-  { k: "liquidity",  n: "🟧 منطقة بيع محتمل",        en: "🟧 Sell zone",             c: "#fb923c" },
-  { k: "t3",         n: "🎯 هدف ثالث",               en: "🎯 Target 3",              c: "#4ade80" },
-  { k: "t2",         n: "🎯 هدف ثانٍ",               en: "🎯 Target 2",              c: "#34d399" },
-  { k: "t1",         n: "🌟 هدف مؤكد",              en: "🌟 Confirmed target",      c: "#2dd4bf" },
-  { k: "resistance", n: "🚧 مقاومة",                 en: "🚧 Resistance",            c: "#eab308" },
-  { k: "__now__" },
-  { k: "confirm",    n: "✅ تأكيد الاتجاه",           en: "✅ Trend confirmation",    c: "#22d3ee" },
-  { k: "entry",      n: "📥 منطقة الدخول",           en: "📥 Entry zone",            c: "#3b82f6" },
-  { k: "support",    n: "⚖️ ارتكاز — ممنوع الكسر",   en: "⚖️ Pivot — do not break",  c: "#818cf8" },
-  { k: "stop",       n: "🔴 إيقاف الخسارة",          en: "🔴 Stop loss",             c: "#f43f5e" },
-];
+  const atr = levels?.atr14 || price * 0.03;
+  const atrPct = atr / price;
+  const isScalp = tradeStyle === "مضاربة";
 
-function StructureMap({ r, lang }) {
-  const en = lang === "en";
-  const st = r.structure;
-  if (!st) return (
-    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "10px 0" }}>
-      {en ? "Not enough structure data for this stock." : "لا تتوفر بيانات بنية كافية لهذا السهم."}
-    </div>
-  );
-  const pc = (v) => { const x = ((v - r.price) / r.price) * 100; return (x >= 0 ? "+" : "") + x.toFixed(2) + "%"; };
-  return (
-    <div>
-      <div style={{ fontSize: 12, lineHeight: 1.7, color: "#cdd6ea", background: "rgba(124,140,255,0.07)", borderRight: "3px solid #7c8cff", borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
-        <strong style={{ color: "#2dd4bf" }}>AI-Az:</strong> {azSummary(r, lang)}
-      </div>
-      <div>
-        {AZ_LEVELS.map((L) => {
-          if (L.k === "__now__") return (
-            <div key="now" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 8, margin: "5px 0", borderRadius: 10, background: "linear-gradient(90deg,rgba(234,240,251,0.13),rgba(234,240,251,0.03))", border: "1px solid rgba(234,240,251,0.32)", boxShadow: "0 0 16px rgba(120,180,255,0.1)" }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: "#fff" }}>{en ? "▸ Current price" : "▸ السعر الحالي"}</span>
-              <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 800, color: "#fff" }}>${(+r.price).toFixed(2)}</span>
-            </div>
-          );
-          const v = st[L.k];
-          if (v == null) return null;
-          const isEntry = L.k === "entry";
-          return (
-            <div key={L.k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 8px", margin: "2px 0", borderRadius: 9, outline: isEntry ? "1px dashed rgba(59,130,246,0.5)" : "none", outlineOffset: -1 }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: L.c, boxShadow: "0 0 7px " + L.c, flex: "none" }} />
-                <span style={{ fontSize: 12, fontWeight: 600, color: L.c }}>{en ? L.en : L.n}</span>
-              </span>
-              <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#e8edf6" }}>${(+v).toFixed(2)}</span>
-                <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{pc(v)}</span>
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.42)", marginTop: 10, lineHeight: 1.65, borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 9 }}>
-        {en
-          ? "The pivot must not break — below it the setup is void. Sell zones = take profits gradually."
-          : "الارتكاز ممنوع كسره — تحته يُلغى السيناريو. مناطق البيع المحتمل = جنِّ الأرباح تدريجياً."}
-      </div>
-    </div>
-  );
-}
+  // 1) الوقف الذكي = تحت الارتكاز/الدعم البنيوي
+  let sl = structure.stop;
 
-function Card({ r, idx, t, lang, isEarly, isFav, onToggleFav }) {
-  const en = lang === "en";
-  const [open, setOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
-  const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
-  const formatPct   = useCallback((n) => (n >= 0 ? "+" : "") + Math.round(+n) + "%", []);
-  const scoreColor  = r.score >= 80 ? "#ff6b35" : r.score >= 60 ? "#ffd700" : "#00d4aa";
-  const glowColor   = isEarly ? "rgba(52,211,153,0.2)" : r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
+  // 2) لا يكون أقرب من نطاق الضجيج (ATR) — مساحة تنفّس ضد الاهتزاز
+  const noiseSL = price - Math.max(atr * SMART_STOP.NOISE_ATR_MULT, price * SMART_STOP.NOISE_MIN_PCT);
+  sl = Math.min(sl, noiseSL);   // الأبعد (سعر أقل) = أصعب أن يُضرب
 
-  const typeTag = r.type === "استثمار"
-    ? { label: en ? "📈 Investment" : "📈 استثمار", color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
-    : { label: en ? "⚡ Speculation" : "⚡ مضاربة", color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.25)" };
+  // 3) سقف الخسارة حسب التقلّب والنوع — لا تكون المخاطرة جنونية
+  const floor = isScalp ? SMART_STOP.SCALP_FLOOR : SMART_STOP.SMART_FLOOR;
+  const cap   = isScalp ? SMART_STOP.SCALP_CAP   : SMART_STOP.SMART_CAP;
+  const atrK  = isScalp ? SMART_STOP.SCALP_ATR_K : SMART_STOP.SMART_ATR_K;
+  const maxLossPct = Math.min(Math.max(floor, atrPct * atrK), cap);
+  sl = Math.max(sl, price * (1 - maxLossPct));   // لا يتجاوز السقف
+  const risk = price - sl;
+  if (risk <= 0) return levels;
 
-  // 🕐 وقت الرصد + كم صارلها
-  const timeInfo = useMemo(() => {
-    if (!r.created_at) return null;
-    const d = new Date(r.created_at);
-    if (isNaN(d)) return null;
-    const clock = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Riyadh" });
-    const mins = Math.floor((Date.now() - d.getTime()) / 60000);
-    let ago;
-    if (mins < 1) ago = "الآن";
-    else if (mins < 60) ago = `قبل ${mins} د`;
-    else { const h = Math.floor(mins / 60); ago = `قبل ${h} س`; }
-    const isNew = mins < 60;  // جديدة = آخر ساعة
-    return { clock, ago, isNew };
-  }, [r.created_at]);
+  // 4) الأهداف "قابلة للتحقق": على مستويات البنية الحقيقية (المقاومة ثم القمم التالية)
+  //    لأن السعر يميل للتوقّف/الارتداد عندها → احتمال لمسها أعلى.
+  //    لكن لو الهدف الأول بعيد جداً (سهم منهار، مقاومة قديمة) نبقى على أهداف ATR الواقعية.
+  const t1Cap = isScalp ? SMART_STOP.SCALP_T1_CAP : SMART_STOP.SMART_T1_CAP;
 
-  const wrapStyle = isEarly
-    ? { ...S.cardWrap(open, glowColor), border: "1px solid rgba(52,211,153,0.4)", background: "linear-gradient(135deg,rgba(12,28,22,0.95),rgba(15,32,26,0.95))" }
-    : S.cardWrap(open, glowColor);
+  // مستويات البنية فوق السعر، تصاعدياً، بلا تكرار متقارب
+  const cand = [structure.resistance, structure.t1, structure.t2, structure.t3]
+    .filter(x => typeof x === "number" && x > price * 1.012)
+    .sort((a, b) => a - b);
+  const ups = [];
+  for (const v of cand) if (!ups.length || v > ups[ups.length - 1] * 1.015) ups.push(v);
 
-  const ready = entryReady(r);  // 🟢 السعر مثالي للدخول الآن
-  const finalWrap = ready ? { ...wrapStyle, border: "1px solid rgba(52,211,153,0.5)", boxShadow: "0 0 22px rgba(52,211,153,0.22)" } : wrapStyle;
+  let t1, t2, t3;
+  if (ups.length >= 1 && (ups[0] - price) / price <= t1Cap) {
+    // ✅ أهداف من البنية: TP1 = المقاومة، TP2 = القمة التالية، TP3 = التي تليها
+    t1 = ups[0];
+    t2 = ups[1] || (t1 + risk);
+    t3 = ups[2] || (t2 + Math.max(t2 - t1, risk));
+  } else {
+    // أهداف ضخمة جداً → نبقى على الواقعية (ATR + مخاطرة)
+    const k1 = isScalp ? 0.6 : 1.0;
+    const k2 = isScalp ? 1.1 : 2.0;
+    const k3 = isScalp ? 1.7 : 3.0;
+    t1 = Math.max(price + atr * k1, price + risk * SMART_STOP.MIN_RR, price * 1.015);
+    t2 = Math.max(price + atr * k2, t1 + risk * 0.8, t1 * 1.02);
+    t3 = Math.max(price + atr * k3, t2 + risk * 0.8, t2 * 1.02);
+  }
 
-  const metrics = useMemo(() => {
-    const base = [
-      { label: "EP",     value: r.score ? r.score + "%" : "—",           color: "#a78bfa" },
-      { label: "RVOL",   value: r.rvol  ? r.rvol.toFixed(1) + "x" : "—", color: "#fb923c" },
-      { label: t.volume, value: ((r.volume || 0) / 1e6).toFixed(1) + "M", color: "#34d399" },
-      { label: "تغيّر",  value: formatPct(r.change_pct),                  color: r.change_pct >= 0 ? "#00d4aa" : "#ff4757" },
-    ];
-    if (r.atr14) base.push({ label: t.atr, value: "$" + (+r.atr14).toFixed(2), color: "#c084fc" });
-    if (r.rsi != null) {
-      const ri = rsiInfo(r.rsi, t);
-      base.push({ label: t.rsi, value: String(r.rsi), color: ri ? ri.color : "#94a3b8" });
-    }
-    if (r.week_max_jump != null && isEarly) base.push({ label: t.weekQuiet, value: "▲" + (+r.week_max_jump).toFixed(1) + "%", color: "#34d399" });
-    return base;
-  }, [r, formatPct, t, isEarly]);
-
-  const tpLevels = useMemo(() => {
-    const L = r.levels || {};
-    return [
-      { n: 1, value: L.t1, pct: L.t1Pct, label: "TP1", color: "#60a5fa", bg: "rgba(96,165,250,0.08)",  border: "rgba(96,165,250,0.2)"  },
-      { n: 2, value: L.t2, pct: L.t2Pct, label: "TP2", color: "#34d399", bg: "rgba(52,211,153,0.08)",  border: "rgba(52,211,153,0.2)"  },
-      { n: 3, value: L.t3, pct: L.t3Pct, label: "TP3", color: "#fbbf24", bg: "rgba(251,191,36,0.08)",  border: "rgba(251,191,36,0.2)"  },
-    ];
-  }, [r]);
-
-  return (
-    <div style={finalWrap}>
-      <div style={S.cardHeader} onClick={() => setOpen((o) => !o)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && setOpen((o) => !o)}>
-        <span style={S.cardIdx}>{String(idx + 1).padStart(2, "0")}</span>
-        <div style={{ minWidth: 64 }}>
-          <div style={S.cardSymbol}>{r.symbol}</div>
-          {ready && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 3, fontSize: 9, fontWeight: 800, color: "#34d399" }}>
-              <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#34d399", animation: "azpulse 1.4s infinite", display: "inline-block" }} />
-              {en ? "Good entry" : "دخول مناسب"}
-            </span>
-          )}
-          {!ready && r.is_hot && <div style={{ fontSize: 9, color: "#fca5a5", marginTop: 2 }}>🚨 HOT</div>}
-        </div>
-        <div style={S.cardTags}>
-          {timeInfo?.isNew && <span style={S.tag("rgba(0,212,170,0.15)", "#00d4aa", "rgba(0,212,170,0.3)")}>🆕</span>}
-          {isEarly && <EarlyBadge t={t} />}
-          <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.signal}</span>
-          {r.ma_signal && <MABadge signal={r.ma_signal} lang={lang} />}
-          {r.rsi != null && <RSIBadge rsi={r.rsi} t={t} />}
-          <span style={S.tag(typeTag.bg, typeTag.color, typeTag.border)}>{typeTag.label}</span>
-          {r.is_target && <span style={S.tag("rgba(251,191,36,0.13)", "#fbbf24", "rgba(251,191,36,0.4)")}>🎯 الهدف</span>}
-          {r.structure && typeof r.structure.flag === "string" && r.structure.flag.indexOf("صحيح") >= 0 && (
-            <span style={S.tag("rgba(45,212,191,0.13)", "#2dd4bf", "rgba(45,212,191,0.4)")}>{azTr(r.structure.flag, lang)}</span>
-          )}
-          {r.rvol && r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
-          {r.is_hot && <span style={S.tag("rgba(248,113,113,0.15)", "#fca5a5", "rgba(248,113,113,0.3)")}>🚨 HOT</span>}
-        </div>
-        <div style={{ textAlign: "right", minWidth: 80 }}>
-          {r.isFavSnapshot && r.favEntry ? (
-            <>
-              <div style={S.cardPrice}>{formatPrice(r.favEntry)}</div>
-              <div style={{ ...S.cardChange(r.favPL >= 0), fontSize: 12, fontWeight: 700 }}>
-                {r.favPL != null ? (r.favPL >= 0 ? "+" : "") + r.favPL.toFixed(1) + "%" : "—"}
-              </div>
-            </>
-          ) : (
-            <>
-              <div style={S.cardPrice}>{formatPrice(r.price)}</div>
-              <div style={S.cardChange(r.change_pct >= 0)}>{formatPct(r.change_pct)}</div>
-            </>
-          )}
-          {timeInfo && (
-            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", marginTop: 3, direction: "ltr", textAlign: "right" }}>
-              🕐 {timeInfo.clock} · {timeInfo.ago}
-            </div>
-          )}
-        </div>
-        <div style={{ textAlign: "center", minWidth: 44 }}>
-          <div style={S.cardScore(scoreColor)}>{r.score}</div>
-          <ScoreBar score={r.score} />
-        </div>
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleFav && onToggleFav(r); }}
-          title={isFav ? t.removeFav : t.addFav}
-          style={{
-            background: "transparent", border: "none", cursor: "pointer",
-            fontSize: 18, padding: "2px 4px", lineHeight: 1,
-            color: isFav ? "#ffd700" : "rgba(255,255,255,0.25)",
-            transition: "color 0.2s, transform 0.15s",
-            filter: isFav ? "drop-shadow(0 0 6px rgba(255,215,0,0.5))" : "none",
-          }}
-        >{isFav ? "⭐" : "☆"}</button>
-        <span style={S.chevron(open)}>▼</span>
-      </div>
-      {open && (
-        <div style={S.detailWrap}>
-          {r.isFavSnapshot && r.favEntry && (
-            <div style={{ background: "rgba(255,215,0,0.06)", border: "1px solid rgba(255,215,0,0.25)", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: 11, color: "#ffd700", fontWeight: 700 }}>⭐ صفقتك المحفوظة</span>
-                {r.favPL != null && (
-                  <span style={{ fontSize: 15, fontWeight: 900, fontFamily: "monospace", direction: "ltr",
-                    color: r.favPL >= 0 ? "#00d4aa" : "#ff4757" }}>
-                    {(r.favPL >= 0 ? "+" : "") + r.favPL.toFixed(1)}%
-                  </span>
-                )}
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "rgba(255,255,255,0.6)", direction: "ltr" }}>
-                <span>دخول: <strong style={{ color: "#60a5fa" }}>${(+r.favEntry).toFixed(2)}</strong></span>
-                <span>الآن: <strong style={{ color: "#e8edf6" }}>${(+(r.livePrice ?? r.favEntry)).toFixed(2)}</strong></span>
-              </div>
-              <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                {r.favT1 && <span style={{ fontSize: 9.5, padding: "3px 8px", borderRadius: 7, background: r.livePrice >= r.favT1 ? "rgba(0,212,170,0.2)" : "rgba(255,255,255,0.05)", color: r.livePrice >= r.favT1 ? "#00d4aa" : "#94a3b8", direction: "ltr" }}>T1 ${(+r.favT1).toFixed(2)}{r.livePrice >= r.favT1 ? " ✓" : ""}</span>}
-                {r.favT2 && <span style={{ fontSize: 9.5, padding: "3px 8px", borderRadius: 7, background: r.livePrice >= r.favT2 ? "rgba(0,212,170,0.2)" : "rgba(255,255,255,0.05)", color: r.livePrice >= r.favT2 ? "#00d4aa" : "#94a3b8", direction: "ltr" }}>T2 ${(+r.favT2).toFixed(2)}{r.livePrice >= r.favT2 ? " ✓" : ""}</span>}
-                {r.favT3 && <span style={{ fontSize: 9.5, padding: "3px 8px", borderRadius: 7, background: r.livePrice >= r.favT3 ? "rgba(0,212,170,0.2)" : "rgba(255,255,255,0.05)", color: r.livePrice >= r.favT3 ? "#00d4aa" : "#94a3b8", direction: "ltr" }}>T3 ${(+r.favT3).toFixed(2)}{r.livePrice >= r.favT3 ? " ✓" : ""}</span>}
-                {r.favSL && <span style={{ fontSize: 9.5, padding: "3px 8px", borderRadius: 7, background: r.livePrice <= r.favSL ? "rgba(255,71,87,0.2)" : "rgba(255,255,255,0.05)", color: r.livePrice <= r.favSL ? "#ff4757" : "#94a3b8", direction: "ltr" }}>وقف ${(+r.favSL).toFixed(2)}{r.livePrice <= r.favSL ? " ⚠" : ""}</span>}
-              </div>
-            </div>
-          )}
-          {isEarly && (
-            <div style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 11, color: "#34d399", lineHeight: 1.6 }}>
-              💡 {t.earlyTooltip}
-            </div>
-          )}
-          <div style={S.metricsRow}>
-            {metrics.map((m) => (
-              <div key={m.label} style={S.metricBox}>
-                <div style={S.metricLabel}>{m.label}</div>
-                <div style={S.metricValue(m.color)}>{m.value}</div>
-              </div>
-            ))}
-          </div>
-          <div style={S.slBox}>
-            <div style={{ fontSize: 10, color: "#ff6b81", fontWeight: 600, marginBottom: 8 }}>{t.stopLoss}</div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 22, fontWeight: 700, color: "#ff4757", fontFamily: "monospace" }}>{formatPrice((r.levels || {}).sl)}</span>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 14, color: "#ff6b81", fontWeight: 600 }}>{fmtPct((r.levels || {}).slPct)}</div>
-                <div style={{ fontSize: 9, color: "rgba(255,107,129,0.5)" }}>{t.risk}: {formatPrice((r.levels || {}).risk)}</div>
-              </div>
-            </div>
-          </div>
-          <div style={S.tpGrid}>
-            {tpLevels.map((tp) => (
-              <div key={tp.n} style={S.tpBox(tp.bg, tp.border)}>
-                <div style={S.tpLabel(tp.color)}>{tp.label}</div>
-                <div style={S.tpValue(tp.color)}>{formatPrice(tp.value)}</div>
-                <div style={S.tpPct(tp.color)}>{fmtPct(tp.pct)}</div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ marginTop: 14 }}>
-            <button onClick={(e) => { e.stopPropagation(); setAiOpen((o) => !o); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "linear-gradient(90deg,rgba(124,140,255,0.16),rgba(45,212,191,0.14))", border: "1px solid rgba(124,140,255,0.32)", borderRadius: 12, padding: 11, color: "#dbe2ff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
-              {en ? "🤖 AI-Az Technical Analysis" : "🤖 تحليل فني AI-Az"}
-              <span style={{ marginInlineStart: "auto", fontSize: 11, color: "rgba(255,255,255,0.4)", transform: aiOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▼</span>
-            </button>
-            {aiOpen && (
-              <div style={{ marginTop: 11, background: "rgba(6,10,20,0.6)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 4, display: "flex", alignItems: "center", gap: 7 }}>{en ? "🗺️ Market Map — full details" : "🗺️ خريطة السوق — تفاصيل شاملة"}</div>
-                <StructureMap r={r} lang={lang} />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CollapsibleSection({ title, subtitle, count, color, bg, border, children, t, defaultOpen = true }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div style={{ marginTop: 8, marginBottom: 4 }}>
-      <div style={S.sectionHeader(bg, border, color, open)} onClick={() => setOpen(o => !o)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && setOpen(o => !o)}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={S.sectionChevron(open)}>▼</span>
-          <div>
-            <span style={S.sectionTitle(color)}>{title}</span>
-            {subtitle && <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>{subtitle}</div>}
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{open ? t.tapToCollapse : t.tapToExpand}</span>
-          <span style={S.sectionCount(color, bg + "aa")}>{count}</span>
-        </div>
-      </div>
-      <div style={S.sectionBody(open)}>{children}</div>
-    </div>
-  );
-}
-
-function StatusBanner({ status, lastUpdate, scanError, t }) {
-  if (!status) return null;
-  const configs = {
-    error:     { bg: "rgba(255,71,87,0.1)",    border: "rgba(255,71,87,0.3)",   icon: "🔴", titleColor: "#ff4757", subColor: "rgba(255,71,87,0.7)",   title: t.bannerError,  sub: t.bannerErrorSub  },
-    closed:    { bg: "rgba(255,215,0,0.08)",   border: "rgba(255,215,0,0.2)",   icon: "🟡", titleColor: "#ffd700", subColor: "rgba(255,215,0,0.7)",   title: t.bannerClosed, sub: t.bannerClosedSub },
-    premarket: { bg: "rgba(100,200,255,0.08)", border: "rgba(100,200,255,0.2)", icon: "🔵", titleColor: "#64c8ff", subColor: "rgba(100,200,255,0.7)", title: t.bannerPre,    sub: t.bannerPreSub    },
-    ok:        { bg: "rgba(0,212,170,0.08)",   border: "rgba(0,212,170,0.2)",   icon: "🟢", titleColor: "#00d4aa", subColor: "rgba(0,212,170,0.7)",  title: t.bannerOk,     sub: t.bannerOkSub     },
+  const dec = price < 1 ? 3 : 2;
+  const f = n => +n.toFixed(dec), pc = n => +(((n - price) / price) * 100).toFixed(2);
+  return {
+    ...levels,
+    t1: f(t1), t2: f(t2), t3: f(t3), sl: f(sl),
+    t1Pct: pc(t1), t2Pct: pc(t2), t3Pct: pc(t3), slPct: pc(sl),
+    risk: f(risk), atr14: levels?.atr14 ?? f(atr),
+    smart_structure: true,
   };
-  const cfg = configs[status];
-  if (!cfg) return null;
-  return (
-    <div style={S.banner(cfg.bg, cfg.border)}>
-      <span style={{ fontSize: 16 }}>{cfg.icon}</span>
-      <div style={{ flex: 1 }}>
-        <div style={S.bannerTitle(cfg.titleColor)}>{cfg.title}</div>
-        <div style={S.bannerSub(cfg.subColor)}>{status === "error" && scanError ? scanError : cfg.sub}</div>
-      </div>
-      {status === "ok" && lastUpdate && (
-        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{t.lastUpdate}: {lastUpdate.toLocaleTimeString()}</div>
-      )}
-    </div>
-  );
 }
 
-function LoginScreen({ onLogin, t, lang, setLang }) {
-  const [key, setKey]         = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState(null);
-  const [expired, setExpired] = useState(false);
-
-  const handleLogin = async () => {
-    if (!key.trim()) return;
-    setLoading(true); setError(null); setExpired(false);
-    try {
-      const res  = await fetch(`/api/verify-key?key=${key.trim()}`);
-      const data = await res.json();
-      if (data.valid) {
-        localStorage.setItem("radar_key",     key.trim());
-        localStorage.setItem("radar_plan",    data.plan);
-        localStorage.setItem("radar_expires", data.expires_at);
-        onLogin({ key: key.trim(), plan: data.plan, expires_at: data.expires_at });
-      } else if (data.reason === "expired") {
-        setExpired(true);
-      } else {
-        setError(t.loginError);
-      }
-    } catch {
-      setError(t.loginConnError);
-    } finally {
-      setLoading(false);
-    }
+// أهداف تقريبية (fallback عند غياب الشموع)
+function calcLevels(s) {
+  const price = s.price;
+  const tr  = Math.max(s.high - s.low, Math.abs(s.high - s.prevClose), Math.abs(s.low - s.prevClose));
+  const atr = Math.max(tr, price * 0.02);
+  const t1 = +(price + atr * 0.5).toFixed(2), t2 = +(price + atr * 1.0).toFixed(2), t3 = +(price + atr * 1.8).toFixed(2);
+  const sl = +Math.max(price - atr * 0.8, price * 0.92).toFixed(2);
+  return {
+    t1, t2, t3, sl,
+    t1Pct: +(((t1 - price) / price) * 100).toFixed(2), t2Pct: +(((t2 - price) / price) * 100).toFixed(2),
+    t3Pct: +(((t3 - price) / price) * 100).toFixed(2), slPct: +(((sl - price) / price) * 100).toFixed(2),
+    risk: +(price - sl).toFixed(2),
   };
-
-  return (
-    <div style={S.loginWrap}>
-      <div style={S.loginBox}>
-        <div style={{ textAlign: "right", marginBottom: 8 }}>
-          <button style={S.langBtn} onClick={() => setLang(lang === "ar" ? "en" : "ar")}>
-            {lang === "ar" ? "🇺🇸 English" : "🇸🇦 عربي"}
-          </button>
-        </div>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>📡</div>
-        <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: 3, marginBottom: 8 }}>
-          RADAR <span style={S.titleAccent}>AZ</span>
-        </div>
-        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", marginBottom: 32, lineHeight: 1.6 }}>{t.loginTitle}</div>
-        {error   && <div style={S.loginError}>{error}</div>}
-        {expired && (
-          <div style={S.loginExpired}>
-            {t.expired}
-            <div style={{ marginTop: 8 }}><a href="https://radaraz.com" style={{ color: "#ffd700", fontSize: 12 }}>{t.renewLink}</a></div>
-          </div>
-        )}
-        <input style={S.loginInput} placeholder="XXXX-XXXX-XXXX-XXXX" value={key}
-          onChange={(e) => setKey(e.target.value.toUpperCase())}
-          onKeyDown={(e) => e.key === "Enter" && handleLogin()} maxLength={19} dir="ltr" />
-        <button style={S.loginBtn(loading)} onClick={handleLogin} disabled={loading}>
-          {loading ? t.loginLoading : t.loginBtn}
-        </button>
-        <div style={{ marginTop: 24, padding: "16px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)" }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 8 }}>{t.noKey}</div>
-          <a href="/trial" style={{ fontSize: 12, color: "#6366f1" }}>{t.freeTrial}</a>
-        </div>
-      </div>
-    </div>
-  );
 }
 
-export default function Radar() {
-  const [lang, setLang]               = useState("ar");
-  const t = T[lang];
-  const isRtl = lang === "ar";
-
-  const [auth, setAuth]               = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [results, setResults]         = useState([]);
-  const [leaders, setLeaders]         = useState([]);
-  const [speculation, setSpeculation] = useState([]);
-  const [earlyWatch, setEarlyWatch]   = useState([]);
-  const [favorites, setFavorites]     = useState([]);
-  const [loading, setLoading]         = useState(false);
-  const [total, setTotal]             = useState(0);
-  const [done, setDone]               = useState(false);
-  const [filter, setFilter]           = useState("all");
-  const [status, setStatus]           = useState(null);
-  const [lastUpdate, setLastUpdate]   = useState(null);
-  const [autoRefresh, setAutoRefresh] = useState(false);
-  const [scanError, setScanError]     = useState(null);
-  const [refreshing, setRefreshing]   = useState(false);   // 🆕 تحديث حيّ بالخلفية (لا يحجب الشاشة)
-
-  const lastScanRef  = useRef(0);
-  const autoTimerRef = useRef(null);
-  const COOLDOWN_MS  = 10_000;
-
-  useEffect(() => {
-    const savedKey     = localStorage.getItem("radar_key");
-    const savedExpires = localStorage.getItem("radar_expires");
-    const savedPlan    = localStorage.getItem("radar_plan");
-    if (savedKey && savedExpires) {
-      if (new Date() < new Date(savedExpires)) {
-        setAuth({ key: savedKey, plan: savedPlan, expires_at: savedExpires });
-      } else {
-        localStorage.removeItem("radar_key");
-        localStorage.removeItem("radar_plan");
-        localStorage.removeItem("radar_expires");
-      }
+// ════════════════ محرّك مستويات البنية (Swing + Fibonacci) ════════════════
+// أسلوب "الصندوق الذهبي": ارتكاز/دخول/تأكيد/وقف/مقاومة + أهداف فيبوناتشي تصاعدية.
+// إضافي بالكامل — لا يلمس s.levels (ATR). يُرفق كـ s.structure.
+function findPivots(bars, w = 2) {
+  const highs = [], lows = [];
+  for (let i = w; i < bars.length - w; i++) {
+    let isHigh = true, isLow = true;
+    for (let j = i - w; j <= i + w; j++) {
+      if (j === i) continue;
+      if (bars[j].h >= bars[i].h) isHigh = false;
+      if (bars[j].l <= bars[i].l) isLow = false;
     }
-    setAuthChecked(true);
-  }, []);
+    if (isHigh) highs.push(bars[i].h);
+    if (isLow)  lows.push(bars[i].l);
+  }
+  return { highs, lows };
+}
 
-  // ⭐ تحميل المفضلة من جهاز المشترك (خاصة به)
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("radar_favorites");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // توافق مع الصيغة القديمة (نصوص) → نحوّلها لكائنات
-        const migrated = parsed.map((f) =>
-          typeof f === "string"
-            ? { symbol: f, entry: null, t1: null, t2: null, t3: null, sl: null, type: null, addedAt: null }
-            : f
-        );
-        setFavorites(migrated);
-      }
-    } catch { /* ignore */ }
-  }, []);
+function computeStructureLevels(price, bars) {
+  if (!bars || bars.length < 12 || !price) return null;
+  const recent = bars.slice(-60);
+  const { highs, lows } = findPivots(recent, 2);
+  // ملاحظة: لا نخرج لو ما فيه pivots — نعتمد على الحد الأدنى/الأقصى الأخير كبديل
+  // (الأسهم الصاعدة بقوة غالباً بلا قيعان/قمم تأرجح واضحة)
 
-  // ⭐ إضافة/إزالة سهم من المفضلة + حفظ فوري
-  // المفضلة: تخزّن لقطة (snapshot) مجمّدة وقت الإضافة
-  // البنية: { symbol, entry, t1, t2, t3, sl, type, addedAt }
-  const toggleFav = useCallback((row) => {
-    const symbol = typeof row === "string" ? row : row.symbol;
-    setFavorites((prev) => {
-      const exists = prev.some((f) => f.symbol === symbol);
-      let next;
-      if (exists) {
-        next = prev.filter((f) => f.symbol !== symbol);
-      } else {
-        // جمّد اللقطة الحالية
-        const snap = {
-          symbol,
-          entry: row.price ?? null,
-          t1: row.levels?.t1 ?? null,
-          t2: row.levels?.t2 ?? null,
-          t3: row.levels?.t3 ?? null,
-          sl: row.levels?.sl ?? null,
-          type: row.type ?? null,
-          structure: row.structure ?? null,
-          addedAt: new Date().toISOString(),
-        };
-        next = [...prev, snap];
-      }
-      try { localStorage.setItem("radar_favorites", JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
+  // الدعم = أعلى قاع تأرجح تحت السعر | المقاومة = أدنى قمة تأرجح فوق السعر
+  // البديل (بلا pivots) = حدود آخر 12 شمعة فقط — يبقي البنية قريبة وواقعية
+  const recLows  = recent.slice(-12).map(b => b.l);
+  const recHighs = recent.slice(-12).map(b => b.h);
+  const lowsBelow  = lows.filter(l => l < price);
+  const highsAbove = highs.filter(h => h > price);
+  const support    = lowsBelow.length  ? Math.max(...lowsBelow)  : Math.min(...recLows);
+  const resistance = highsAbove.length ? Math.min(...highsAbove) : Math.max(...recHighs);
+
+  const swingHigh = Math.max(resistance, ...recent.map(b => b.h));
+  const swingLow  = support;
+  const range = Math.max(swingHigh - swingLow, price * 0.005);
+
+  // تأكيد الاتجاه = أعلى قمة تأرجح كُسرت (تحت/عند السعر)
+  const highsBelow = highs.filter(h => h <= price * 1.001);
+  const confirm = highsBelow.length ? Math.max(...highsBelow) : support + range * 0.5;
+  const trendUp = price >= confirm;
+
+  // دخول عند الارتداد (38.2% من الساق الصاعدة) + وقف تحت الارتكاز
+  // الوقف = نسبة من مدى التأرجح (يتأقلم مع تذبذب كل سهم بدل نسبة ثابتة)
+  const buffer = Math.max(range * 0.10, price * 0.0005);
+  const entry = support + (price - support) * 0.382;
+  const stop  = support - buffer;
+  const riskEntry = entry - stop;
+
+  // أهداف فيبوناتشي تصاعدية (مضمونة الترتيب وفوق السعر)
+  let t1   = (resistance > price * 1.005) ? resistance : swingHigh + range * 0.272;
+  t1 = Math.max(t1, price * 1.005);
+  let t2   = Math.max(swingHigh + range * 0.272, t1 * 1.003);   // 1.272
+  let t3   = Math.max(swingHigh + range * 0.618, t2 * 1.003);   // 1.618
+  let liq  = Math.max(swingHigh + range * 1.0,   t3 * 1.003);   // 2.0  — تفريغ سيولة
+  let peak = Math.max(swingHigh + range * 1.618, liq * 1.003);  // 2.618 — القمة
+
+  const f2 = n => +Number(n).toFixed(2);
+  const pct = n => +(((n - price) / price) * 100).toFixed(2);
+  const rr = riskEntry > 0 ? +(((t1 - entry) / riskEntry).toFixed(2)) : null;
+
+  return {
+    trend: trendUp ? "صاعد مؤكد ✅" : "ينتظر تأكيد ⏳",
+    support: f2(support),       supportPct: pct(support),
+    entry: f2(entry),           entryPct: pct(entry),
+    confirm: f2(confirm),       confirmPct: pct(confirm),
+    stop: f2(stop),             stopPct: pct(stop),
+    resistance: f2(resistance), resistancePct: pct(resistance),
+    t1: f2(t1),   t1Pct: pct(t1),
+    t2: f2(t2),   t2Pct: pct(t2),
+    t3: f2(t3),   t3Pct: pct(t3),
+    liquidity: f2(liq),  liquidityPct: pct(liq),
+    peak: f2(peak),      peakPct: pct(peak),
+    rr,
+  };
+}
+
+// ════════════════ EP MODEL ════════════════
+function calcEP(s) {
+  let t = 0;
+  const W = { rvol: 30, change: 25, gap: 15, vwap: 10, range: 10, volume: 10 };
+  const rv = s.rvol || 0;
+  t += rv >= 50 ? W.rvol * 1.15 : rv >= 20 ? W.rvol * 1.1 : rv >= 10 ? W.rvol
+     : rv >= 5 ? W.rvol * .80 : rv >= 3 ? W.rvol * .60 : rv >= 2 ? W.rvol * .40 : rv >= 1.5 ? W.rvol * .20 : 0;
+  const ch = s.changePct || 0;
+  t += ch >= 10 && ch <= 30 ? W.change : ch >= 5 && ch < 10 ? W.change * .70 : ch >= 3 && ch < 5 ? W.change * .45
+     : ch > 30 && ch <= 50 ? W.change * .85 : ch > 50 && ch <= 80 ? W.change * .65
+     : ch > 80 && ch <= 120 ? W.change * .45 : ch > 120 ? W.change * .30 : 0;
+  const g = s.gapPct || 0;
+  t += g >= 20 ? W.gap * 1.2 : g >= 10 ? W.gap : g >= 5 ? W.gap * .60 : g >= 2 ? W.gap * .30 : 0;
+  if (s.price > s.vwap && s.vwap > 0) t += W.vwap;
+  else if (s.vwap > 0 && s.price >= s.vwap * 0.99) t += W.vwap * 0.5;
+  if (s.high > s.low) {
+    const pos = (s.price - s.low) / (s.high - s.low);
+    t += pos >= 0.8 ? W.range : pos >= 0.6 ? W.range * .6 : pos >= 0.4 ? W.range * .3 : 0;
+  }
+  t += s.volume >= 5e6 ? W.volume : s.volume >= 2e6 ? W.volume * .7 : s.volume >= 1e6 ? W.volume * .5 : s.volume >= 5e5 ? W.volume * .3 : 0;
+  if (rv >= 10 && ch >= 10) t += 8;
+  if (rv >= 50) t += 5;
+  let ep = Math.min(Math.round((t / Object.values(W).reduce((a, b) => a + b, 0)) * 100), 99);
+  if (ch > 30 && ch <= 50) ep -= 4;
+  else if (ch > 50 && ch <= 80) ep -= 8;
+  else if (ch > 80 && ch <= 120) ep -= 12;
+  else if (ch > 120) ep -= 16;
+  return Math.max(0, Math.min(ep, 99));
+}
+
+// ════════════════ جلب السوق ════════════════
+// تنفيذ على دفعات محكومة التزامن (يمنع إغراق Polygon بـ 70 طلب دفعة واحدة)
+async function inBatches(items, size, fn) {
+  for (let i = 0; i < items.length; i += size) {
+    await Promise.all(items.slice(i, i + size).map(fn));
+  }
+}
+
+async function fetchFullMarket() {
+  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 30000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) throw new Error(`Polygon ${res.status}`);
+    const data = await res.json();
+    return data.tickers || [];
+  } catch (err) { clearTimeout(id); throw err; }
+}
+
+// جلب شموع بفريم محدد (60 دقيقة للمضاربة / يومي للاستثمار)
+async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
+  const to   = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - lookbackDays * 86400000).toISOString().slice(0, 10);
+  const url  = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&limit=${limit}&apiKey=${POLYGON_KEY}`;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 4500);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data.results && data.results.length) ? data.results : null;
+  } catch { clearTimeout(id); return null; }
+}
+
+// إعداد الفريم حسب نوع الصفقة
+function frameFor(style) {
+  return style === "مضاربة"
+    ? { mult: 60, span: "minute", days: 30,  limit: 600 }  // 60 دقيقة
+    : { mult: 1,  span: "day",    days: 140, limit: 200 }; // يومي
+}
+
+// حساب كل المؤشرات من مجموعة شموع
+function computeTech(bars) {
+  if (!bars || bars.length < 21) return null;
+  const closes = bars.map(b => b.c);
+  const price = closes[closes.length - 1];
+  const sma9 = calcSMA(closes, 9), sma21 = calcSMA(closes, 21), sma50 = calcSMA(closes, 50);
+  const ema9 = calcEMA(closes, 9), ema21 = calcEMA(closes, 21);
+  const rsiRaw = calcRSI14(bars), atr = calcATR14(bars), macd = calcMACD(closes);
+
+  let maSignal = null, maBonus = 0;
+  if (sma9 && sma21 && sma9 > sma21) { maBonus += 6; maSignal = "صاعد"; }
+  if (ema9 && ema21 && ema9 > ema21) { maBonus += 5; maSignal = maSignal === "صاعد" ? "صاعد قوي ⚡" : "EMA صاعد"; }
+  if (sma21 && price > sma21) maBonus += 3;
+  if (sma50 && price > sma50) maBonus += 2;
+  const sma9p = calcSMA(closes.slice(0, -3), 9), sma21p = calcSMA(closes.slice(0, -3), 21);
+  const freshGolden = !!(sma9p && sma21p && sma9p <= sma21p && sma9 > sma21);
+  if (freshGolden) { maBonus += 6; maSignal = "تقاطع ذهبي 🌟"; }
+
+  let recentMaxJump = 0;
+  const lastN = closes.slice(-8);
+  for (let i = 1; i < lastN.length; i++) {
+    const j = ((lastN[i] - lastN[i - 1]) / lastN[i - 1]) * 100;
+    if (j > recentMaxJump) recentMaxJump = j;
+  }
+
+  return {
+    price, atr, macd,
+    rsi: rsiRaw != null ? Math.round(rsiRaw) : null,
+    maSignal, maBonus: Math.min(maBonus, 20),
+    priceAboveMA21: !!(sma21 && price > sma21),
+    aligned: !!(sma9 && sma21 && price > sma21 && sma9 > sma21), // اصطفاف صاعد كامل
+    freshGolden,
+    recentMaxJump: +recentMaxJump.toFixed(1),
+    bars,
+  };
+}
+
+// ════════════════ الأخبار اللحظية ════════════════
+async function fetchNews(symbol) {
+  const url = `https://api.polygon.io/v2/reference/news?ticker=${symbol}&limit=3&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 3500);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) return { ageH: null, sentiment: null, hasNews: false };
+    const data = await res.json();
+    const results = data.results || [];
+    if (!results.length) return { ageH: null, sentiment: null, hasNews: false };
+    const latest = results[0];
+    const ageH = latest.published_utc ? (Date.now() - new Date(latest.published_utc).getTime()) / 3600000 : null;
+    let sentiment = null;
+    if (Array.isArray(latest.insights)) {
+      const ins = latest.insights.find(i => i.ticker === symbol);
+      if (ins) sentiment = ins.sentiment;
+    }
+    return { ageH: ageH != null ? +ageH.toFixed(1) : null, sentiment, hasNews: true };
+  } catch { clearTimeout(id); return { ageH: null, sentiment: null, hasNews: false }; }
+}
+
+// ════════════════ الحفظ في Supabase (UPSERT — يمنع التكرار) ════════
+// المفتاح الفريد: (symbol, signal_date).
+// ignore-duplicates: أول رصد للسهم في اليوم يُحفظ ويثبت (سعر الدخول/الأهداف/الوقت)،
+// والمسحات اللاحقة لنفس السهم في نفس اليوم تُتجاهل — صفر تكرار + تجميد عند أول إشارة.
+async function saveSignals(signals) {
+  if (!SUPABASE_URL || !SUPABASE_KEY || !signals.length) return { saved: 0, skipped: true };
+  // تاريخ الإشارة بتوقيت السوق (ET) — ثابت لكل صفوف هذا المسح
+  const sigDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }))
+    .toISOString().split("T")[0];
+  const nowISO = new Date().toISOString();
+  const rows = signals.map(s => ({
+    symbol: s.symbol, signal_date: sigDate, type: s.type, entry_price: s.price, change_pct: s.changePct,
+    volume: Math.round(s.volume), rvol: s.rvol, ep: s.ep, score: s.ep, is_hot: s.is_hot,
+    target1: s.levels.t1, target2: s.levels.t2, target3: s.levels.t3, stop_loss: s.levels.sl,
+    status: "OPEN", ma_signal: s.ma_signal || null, rsi: s.rsi ?? null,
+    atr14: s.levels?.atr14 ?? null, early_watch: s.early_watch || false,
+    is_target: s.is_target || false, news_age_h: s.news_age_h ?? null,
+    structure: s.structure || null,   // 🆕 خريطة البنية كاملة (للبوت) — يتطلب عمود jsonb
+    created_at: nowISO,   // وقت أول رصد — يثبت (يُكتب مرة واحدة عند أول إدخال)
+  }));
+  try {
+    // on_conflict على (symbol, signal_date) + ignore-duplicates = أول رصد يثبت، التكرار يُتجاهل
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/signals?on_conflict=symbol,signal_date`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
+        Prefer: "resolution=ignore-duplicates,return=minimal",
+      },
+      body: JSON.stringify(rows),
     });
-  }, []);
+    return { saved: res.ok ? rows.length : 0, status: res.status };
+  } catch (err) { return { saved: 0, error: err.message }; }
+}
 
-  const handleLogout = () => {
-    localStorage.removeItem("radar_key");
-    localStorage.removeItem("radar_plan");
-    localStorage.removeItem("radar_expires");
-    setAuth(null);
-  };
+// ════════════════ MAIN HANDLER ════════════════
+export default async function handler(req, res) {
+  const t0 = Date.now();
+  const DEADLINE = t0 + 8000;   // ميزانية 8ث (حد Hobby 10ث) — نوقف التحليل الثقيل قبلها
+  const isSubscriber = req.query.sub === "1";
 
-  const scan = useCallback(async (opts = {}) => {
-    const background = opts && opts.background === true;   // 🆕 تحديث بالخلفية بدون تفريغ الشاشة
-    const now = Date.now();
-    if (now - lastScanRef.current < COOLDOWN_MS) return;
-    lastScanRef.current = now;
-    if (background) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-      setResults([]); setLeaders([]); setSpeculation([]); setEarlyWatch([]);
-      setDone(false); setStatus(null);
-    }
-    setScanError(null);
-    try {
-      const res = await fetch("/api/scan");
-      if (!res.ok) { setScanError(`HTTP ${res.status}`); setStatus("error"); return; }
-      const data = await res.json();
-      if (data.error) { setScanError(data.error); setStatus("error"); return; }
+  try {
+    const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const etH = etNow.getHours(), etM = etNow.getMinutes();
+    const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
+    const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
 
-      const raw  = data.results ?? [];
-      const lead = data.leaders     ?? raw.filter(s => s.type === "استثمار");
-      const spec = data.speculation ?? raw.filter(s => s.type !== "استثمار");
-      const early = data.earlyWatch ?? raw.filter(s => s.early_watch);
+    // 1) جلب كامل السوق
+    const allTickers = await fetchFullMarket();
+    const t1 = Date.now();
 
-      const toCard = s => ({
-        symbol:     s.symbol,
-        price:      s.price || 0,
-        change_pct: s.change_pct || 0,
-        score:      s.score || 0,
-        signal:     s.signal || ((s.score||0) >= 80 ? "💥 انفجاري" : "🔥 عالي"),
-        type:       s.type || "مضاربة",
-        volume:     s.volume || 0,
-        rvol:       s.rvol || null,
-        marketCap:  s.marketCap || null,
-        ema9:       s.ema9  || null,
-        ema20:      s.ema20 || null,
-        vwap:       s.vwap  || null,
-        is_hot:     s.is_hot || false,
-        ma_signal:  s.ma_signal || null,
-        atr14:      s.atr14 || null,
-        rsi:        s.rsi ?? null,
-        early_watch: s.early_watch || false,
-        week_max_jump: s.week_max_jump ?? null,
-        created_at: s.created_at || null,
-        levels: s.levels || {
-          t1: 0, t1Pct: 0, t2: 0, t2Pct: 0,
-          t3: 0, t3Pct: 0, sl: 0, slPct: 0, risk: 0,
-        },
-        structure:  s.structure || null,   // 🆕 خريطة الصفقة (كانت تُحذف هنا)
-        is_target:  s.is_target || false,   // 🆕 شارة الهدف
-        news_age_h: s.news_age_h ?? null,
-      });
-
-      setResults(raw.map(toCard));
-      setLeaders(lead.map(toCard));
-      setSpeculation(spec.map(toCard));
-      setEarlyWatch(early.map(toCard));
-      setTotal(raw.length);
-      setLastUpdate(new Date());
-
-      const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-      const h = etNow.getHours(), m = etNow.getMinutes(), day = etNow.getDay();
-      const isWeekend = day === 0 || day === 6;
-      const isMarketOpen = !isWeekend && (h > 9 || (h === 9 && m >= 30)) && h < 16;
-      const isPreMarket  = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
-      if      (isMarketOpen)                        setStatus(raw.length > 0 ? "ok" : "closed");
-      else if (isPreMarket)                         setStatus("premarket");
-      else                                          setStatus("closed");
-    } catch (err) {
-      setScanError(err.message ?? "Network error");
-      setStatus("error");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-      setDone(true);
-    }
-  }, []);
-
-  // 🆕 تحميل فوري من Supabase (الفرص المحفوظة) — يظهر خلال أقل من ثانية
-  const loadCached = useCallback(async () => {
-    try {
-      const res = await fetch("/api/latest");
-      if (!res.ok) return;
-      const data = await res.json();
-      const rows = data.results ?? [];
-      if (!rows.length) return;
-      const cardFromRow = (s) => ({
-        symbol:     s.symbol,
-        price:      s.entry_price || 0,
-        change_pct: s.change_pct || 0,
-        score:      s.score || s.ep || 0,
-        signal:     (s.score || 0) >= 80 ? "💥 انفجاري" : "🔥 عالي",
-        type:       s.type || "مضاربة",
-        volume:     s.volume || 0,
-        rvol:       s.rvol || null,
-        marketCap:  null, ema9: null, ema20: null, vwap: null, week_max_jump: null,
-        is_hot:     s.is_hot || false,
-        ma_signal:  s.ma_signal || null,
-        atr14:      s.atr14 || null,
-        rsi:        s.rsi ?? null,
-        early_watch: s.early_watch || false,
-        created_at: s.created_at || null,
-        levels: {
-          t1: s.target1 || 0, t1Pct: s.entry_price ? (s.target1 - s.entry_price) / s.entry_price * 100 : 0,
-          t2: s.target2 || 0, t2Pct: s.entry_price ? (s.target2 - s.entry_price) / s.entry_price * 100 : 0,
-          t3: s.target3 || 0, t3Pct: s.entry_price ? (s.target3 - s.entry_price) / s.entry_price * 100 : 0,
-          sl: s.stop_loss || 0, slPct: s.entry_price ? (s.stop_loss - s.entry_price) / s.entry_price * 100 : 0,
-          risk: 0,
-        },
-        structure:  s.structure || null,
-        is_target:  s.is_target || false,
-        news_age_h: s.news_age_h ?? null,
-      });
-      const cards = rows.map(cardFromRow);
-      setResults(cards);
-      setLeaders(cards.filter(s => s.type === "استثمار"));
-      setSpeculation(cards.filter(s => s.type !== "استثمار"));
-      setEarlyWatch(cards.filter(s => s.early_watch));
-      setTotal(cards.length);
-      setDone(true);
-    } catch { /* تجاهل — المسح الحيّ سيملأ البيانات */ }
-  }, []);
-
-  useEffect(() => {
-    if (!auth) return;
-    loadCached().finally(() => scan({ background: true }));   // عرض فوري من الكاش ثم مسح حيّ دائماً
-  }, [auth]);
-
-  useEffect(() => {
-    if (autoRefresh) { autoTimerRef.current = setInterval(() => scan({ background: true }), 60_000); }
-    else             { clearInterval(autoTimerRef.current); }
-    return () => clearInterval(autoTimerRef.current);
-  }, [autoRefresh, scan]);
-
-  const filtered = useMemo(() => {
-    if (filter === "favorites") {
-      // ادمج اللقطة المجمّدة + السعر الحي الحالي
-      return favorites.map((fav) => {
-        const live = results.find((r) => r.symbol === fav.symbol);
-        const currentPrice = live?.price ?? fav.entry ?? 0;
-        // ربح/خسارة من سعر الدخول المجمّد
-        const pl = (fav.entry && currentPrice) ? ((currentPrice - fav.entry) / fav.entry) * 100 : null;
-        // أهداف آمنة: من الحي إن وُجد، وإلا من اللقطة المجمّدة — يمنع تعطّل الصفحة لو السهم مو في نتائج المسح
-        const safeLevels = live?.levels || {
-          t1: fav.t1 ?? 0, t1Pct: 0, t2: fav.t2 ?? 0, t2Pct: 0,
-          t3: fav.t3 ?? 0, t3Pct: 0, sl: fav.sl ?? 0, slPct: 0, risk: 0,
-        };
-        return {
-          ...(live || {}),
-          symbol: fav.symbol,
-          price: live?.price ?? fav.entry ?? 0,
-          change_pct: live?.change_pct ?? 0,
-          score: live?.score ?? 0,
-          levels: safeLevels,
-          structure: live?.structure ?? fav.structure ?? null,
-          isFavSnapshot: true,
-          favEntry: fav.entry,
-          favT1: fav.t1, favT2: fav.t2, favT3: fav.t3, favSL: fav.sl,
-          favAddedAt: fav.addedAt,
-          favType: fav.type,
-          livePrice: currentPrice,
-          favPL: pl,
-        };
+    // 2) فلترة أساسية
+    const candidates = [];
+    for (const tk of allTickers) {
+      const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
+      const price  = tk.lastTrade?.p || min.c || day.c || prev.c || 0;
+      const volume = day.v || min.av || 0;
+      if (!tk.ticker || tk.ticker.includes(".")) continue;
+      if (!/^[A-Z]{1,6}$/.test(tk.ticker)) continue;
+      if (price < FILTER.MIN_PRICE || price > FILTER.MAX_PRICE) continue;
+      if (volume < minVolume) continue;
+      const prevClose = prev.c || day.o || price;
+      let changePct = tk.todaysChangePerc;
+      if (changePct == null || changePct === 0) changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
+      if (changePct < FILTER.MIN_CHANGE) continue;
+      if (changePct > FILTER.MAX_CHANGE) continue;
+      const gapPct = (day.o && prevClose) ? ((day.o - prevClose) / prevClose) * 100 : 0;
+      let rvol = (prev.v && prev.v > 0) ? +(volume / prev.v).toFixed(1) : 0;
+      if (rvol > FILTER.MAX_RVOL) continue;
+      candidates.push({
+        symbol: tk.ticker, price: +price.toFixed(2), open: day.o || price, volume,
+        vwap: day.vw || min.vw || 0, high: day.h || min.h || price, low: day.l || min.l || price,
+        prevClose, changePct: +changePct.toFixed(2), gapPct: +gapPct.toFixed(2), rvol,
       });
     }
-    if (filter === "early")       return earlyWatch;
-    if (filter === "leaders")     return leaders;
-    if (filter === "speculation") return speculation;
-    if (filter === "explosive")   return results.filter((r) => r.score >= 80);
-    if (filter === "high")        return results.filter((r) => r.score >= 60 && r.score < 80);
-    if (filter === "hot")         return results.filter((r) => r.is_hot);
-    return results;
-  }, [results, leaders, speculation, earlyWatch, favorites, filter]);
 
-  const favSet      = useMemo(() => new Set(favorites.map((f) => f.symbol)), [favorites]);
-  const favCount    = useMemo(() => favorites.length, [favorites]);
+    // 3) EP + تصنيف نوع الصفقة
+    const scored = candidates.map(s => {
+      const ep = calcEP(s);
+      const levels = calcLevels(s);
+      const is_hot = ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
+      const dollarVolume = s.price * s.volume;
+      const isScalp  = s.changePct >= 5 && s.rvol >= 5;
+      const isInvest = s.price >= 20 && dollarVolume >= 100_000_000 && s.changePct <= 15;
+      const type = isScalp ? "مضاربة" : (isInvest ? "استثمار" : "مضاربة");
+      return { ...s, ep, levels, is_hot, type, trade_style: type, dollarVolume,
+        signal: ep >= 80 ? "💥 انفجاري" : ep >= 60 ? "🔥 عالي" : "👀 مراقبة" };
+    });
 
-  const explosive   = useMemo(() => results.filter((r) => r.score >= 80).length, [results]);
-  const hotCount    = useMemo(() => results.filter((r) => r.is_hot).length,      [results]);
-  const earlyCount  = useMemo(() => earlyWatch.length, [earlyWatch]);
-  const dotColor    = (loading || refreshing) ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
-  const showSections = filter === "all" && (leaders.length > 0 || speculation.length > 0);
-  const earlySymbols = useMemo(() => new Set(earlyWatch.map(s => s.symbol)), [earlyWatch]);
+    // 4) ترتيب أولي
+    scored.sort((a, b) => (b.is_hot !== a.is_hot) ? (b.is_hot ? 1 : -1) : (b.ep !== a.ep) ? b.ep - a.ep : b.rvol - a.rvol);
 
-  if (!authChecked) return null;
-  if (!auth) return (
-    <div style={S.root} dir={isRtl ? "rtl" : "ltr"}>
-      <div style={S.bgWrap}><div style={S.bgCircle} /><div style={S.bgGrid} /></div>
-      <LoginScreen onLogin={setAuth} t={t} lang={lang} setLang={setLang} />
-    </div>
-  );
+    // 5) أعلى N للتحليل الثقيل
+    const top = scored.slice(0, FILTER.HEAVY_LIMIT);
 
-  return (
-    <div style={S.root} dir={isRtl ? "rtl" : "ltr"}>
-      <div style={S.bgWrap}><div style={S.bgCircle} /><div style={S.bgGrid} /></div>
-      <div style={S.container}>
+    // 5.5) التحليل الفني متعدّد الفريمات + الأخبار + البوابة + الهدف
+    //      على دفعات من 8 (≈16 طلب متزامن فقط بدل 70) — أمان من timeout
+    await inBatches(top, 24, async (s) => {
+      if (Date.now() > DEADLINE) return;   // تجاوزنا الميزانية → نكتفي بما حُلّل (يمنع timeout)
+      const fr = frameFor(s.trade_style);
+      const [bars, news] = await Promise.all([
+        fetchAggs(s.symbol, fr.mult, fr.span, fr.days, fr.limit),
+        fetchNews(s.symbol),
+      ]);
 
-        <div style={S.header}>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-            <button style={S.langBtn} onClick={() => setLang(lang === "ar" ? "en" : "ar")}>
-              {lang === "ar" ? "🇺🇸 English" : "🇸🇦 عربي"}
-            </button>
-          </div>
-          <div style={S.headerRow}>
-            <div style={S.dot(dotColor)} />
-            <h1 style={S.title}>RADAR <span style={S.titleAccent}>AZ</span></h1>
-            <span style={S.badge}>PRO</span>
-          </div>
-          <p style={S.subtitle}>{t.subtitle}</p>
-          <div style={{ marginTop: 8, display: "flex", justifyContent: "center", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>
-              {auth.plan === "trial" ? t.trial : t.subscribed} · {auth.key}
-            </span>
-            <button style={S.logoutBtn} onClick={handleLogout}>{t.logout}</button>
-          </div>
-        </div>
+      const tech = computeTech(bars);
+      s._tech = tech;
+      s._news = news;
+      s._drop = false;
 
-        <div style={S.statsRow}>
-          {[
-            { label: t.scanRange,    value: total || "—",  color: "#6366f1", bg: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)"  },
-            { label: t.sectionEarly, value: earlyCount,     color: "#34d399", bg: "rgba(52,211,153,0.1)",  border: "rgba(52,211,153,0.25)" },
-            { label: "🚨 HOT",       value: hotCount,       color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.2)" },
-            { label: t.explosive,    value: explosive,      color: "#ff6b35", bg: "rgba(255,107,53,0.1)",  border: "rgba(255,107,53,0.2)"  },
-          ].map((s) => (
-            <div key={s.label} style={S.statBox(s.bg, s.border)}>
-              <div style={{ ...S.statNum(s.color), fontSize: typeof s.value === "string" ? 18 : 26 }}>{s.value}</div>
-              <div style={S.statLabel(s.color)}>{s.label}</div>
-            </div>
-          ))}
-        </div>
+      // المتوسطات + الأهداف من الفريم الصحيح
+      if (tech) {
+        s.ep = Math.min(s.ep + tech.maBonus, 99);
+        s.ma_signal = tech.maSignal;
+        if (tech.rsi != null) {
+          s.rsi = tech.rsi;
+          if (tech.rsi >= 80) s.ep = Math.max(0, s.ep - 8);
+          else if (tech.rsi >= 72) s.ep = Math.max(0, s.ep - 4);
+          else if (tech.rsi >= 50 && tech.rsi <= 65) s.ep = Math.min(99, s.ep + 3);
+        } else s.rsi = null;
+        // MACD
+        if (tech.macd && tech.macd.bullish) s.ep = Math.min(99, s.ep + (tech.macd.rising ? 7 : 5));
+        // أهداف واقعية بالفريم الصحيح
+        if (tech.bars && tech.bars.length >= 15) {
+          s.levels = s.trade_style === "مضاربة" ? calcScalpLevels(s.price, tech.bars) : calcSmartLevels(s.price, tech.bars);
+          s.levels_source = s.trade_style === "مضاربة" ? "scalp_60m" : "smart_daily";
+          s.structure = computeStructureLevels(s.price, tech.bars);   // 🆕 مستويات البنية (إضافية)
+          // 🆕 وقف/أهداف ذكية مشتقّة من البنية (تحت الارتكاز الحقيقي + حارس ضجيج/سقف)
+          const smart = applyStructureLevels(s.price, s.levels, s.structure, s.trade_style);
+          if (smart.smart_structure) { s.levels = smart; s.levels_source += "+structure"; }
+        } else s.levels_source = "atr_basic";
+        s.week_max_jump = tech.recentMaxJump;
+      } else {
+        s.ma_signal = null; s.rsi = s.rsi ?? null; s.levels_source = "atr_basic"; s.week_max_jump = null;
+      }
 
-        <div style={S.actionRow}>
-          <button onClick={() => scan({ background: true })} disabled={loading || refreshing} style={S.scanBtn(loading || refreshing)}>
-            {(loading || refreshing) ? t.scanning : t.scanBtn}
-          </button>
-          {results.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {[
-                { id: "all",         label: t.filterAll     },
-                ...(favorites.length > 0 ? [{ id: "favorites", label: `${t.favorites} (${favCount})` }] : []),
-                ...(earlyCount > 0 ? [{ id: "early", label: t.earlyBadge }] : []),
-                { id: "leaders",     label: t.filterLeaders },
-                { id: "speculation", label: t.filterSpec    },
-                { id: "hot",         label: "🚨 HOT"        },
-                { id: "explosive",   label: "💥"            },
-                { id: "high",        label: "🔥"            },
-              ].map((f) => (
-                <button key={f.id} onClick={() => setFilter(f.id)} style={S.filterBtn(filter === f.id)}>{f.label}</button>
-              ))}
-            </div>
-          )}
-        </div>
+      // ── الأخبار: تمييز الكاتشي عن الوهمي ──
+      const freshNews = news.hasNews && news.ageH != null && news.ageH <= 48;
+      if (freshNews) {
+        s.ep = Math.min(99, s.ep + (news.sentiment === "positive" ? 6 : 3));
+      }
+      // ارتفاع كبير بدون خبر طازج = خطر تلاعب (pump) → خصم ثقة
+      if (s.changePct > 20 && !freshNews) s.ep = Math.max(0, s.ep - 8);
+      s.news_age_h = news.ageH;
 
-        <div style={S.autoRow}>
-          <span style={S.autoLabel}>{t.autoRefresh}</span>
-          <button style={S.toggleBtn(autoRefresh)} onClick={() => setAutoRefresh((v) => !v)}>
-            <div style={S.toggleThumb(autoRefresh)} />
-          </button>
-        </div>
+      // 📉 خصم الامتداد التدرّجي: كل ما ارتفع السهم فوق 12% قلّ سكوره
+      //   (نفضّل الدخول المبكر — السهم اللي صعد كثير = دخول متأخر)
+      if (s.changePct > 12) {
+        s.ep = Math.max(0, s.ep - Math.round((s.changePct - 12) * 0.7));
+      }
 
-        {loading && <div style={S.progressBar}><div style={S.progressFill} /></div>}
-        {loading && <SkeletonCards />}
-        {(done || loading) && <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} t={t} />}
+      // 🔀 مزج البنية: نرفع الدخول الصحيح ونُنزّل/نُسقط الملاحقة
+      //   (دخول صحيح = اتجاه مؤكد + R:R جيد + ما زال قريب من الدعم + فيه مجال للهدف)
+      if (s.structure) {
+        const st = s.structure;
+        const band = st.resistance - st.support;
+        const pos = band > 0 ? (s.price - st.support) / band : 1;   // 0=عند الدعم .. 1=عند المقاومة
+        const confirmed = s.price >= st.confirm;
+        const rrOk = st.rr != null && st.rr >= STRUCT.MIN_RR;
+        const room = st.resistance > s.price * 1.01;
+        const fresh = pos <= STRUCT.MAX_POS;
 
-        {/* 🔍 قسم الرصد المبكر — يظهر في الأعلى */}
-        {!loading && done && filter === "all" && earlyWatch.length > 0 && (
-          <CollapsibleSection title={t.sectionEarly} subtitle={t.sectionEarlySub} count={earlyWatch.length} color="#34d399" bg="rgba(52,211,153,0.08)" border="rgba(52,211,153,0.3)" t={t}>
-            {earlyWatch.map((r, i) => <Card key={"early-" + r.symbol} r={r} idx={i} t={t} lang={lang} isEarly={true} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
-          </CollapsibleSection>
-        )}
+        let adj = 0, flag;
+        if (confirmed && rrOk && room && fresh) { adj = STRUCT.BONUS_VALID; flag = "دخول صحيح ✅"; }
+        else if (confirmed && (rrOk || fresh))  { adj = STRUCT.BONUS_OK;    flag = "مقبول"; }
+        else                                    { adj = -STRUCT.PENALTY_LATE; flag = "ملاحقة/غير مؤكد ⚠️"; }
+        if (st.rr != null && st.rr < 1) adj -= STRUCT.PENALTY_BADRR;
 
-        {!loading && done && showSections && (
-          <>
-            {leaders.length > 0 && (
-              <CollapsibleSection title={t.sectionLeaders} count={leaders.length} color="#818cf8" bg="rgba(129,140,248,0.08)" border="rgba(129,140,248,0.2)" t={t}>
-                {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} lang={lang} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
-              </CollapsibleSection>
-            )}
-            {speculation.length > 0 && (
-              <CollapsibleSection title={t.sectionSpec} count={speculation.length} color="#fbbf24" bg="rgba(251,191,36,0.08)" border="rgba(251,191,36,0.2)" t={t}>
-                {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} lang={lang} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
-              </CollapsibleSection>
-            )}
-          </>
-        )}
+        s.ep = Math.max(0, Math.min(99, s.ep + adj));
+        st.flag = flag;
+        st.posInBand = +pos.toFixed(2);
 
-        {!loading && filtered.length > 0 && !showSections && (
-          <>
-            <div style={S.dividerRow}>
-              <div style={S.dividerLine(false)} />
-              <span style={S.dividerText}>{filtered.length} {t.opportunities}</span>
-              <div style={S.dividerLine(true)} />
-            </div>
-            {filtered.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} lang={lang} isEarly={filter === "early" || earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
-          </>
-        )}
+        // إسقاط الملاحقة الواضحة فقط: ارتفع كثير + قريب من القمة (دخول متأخر سيء)
+        if (STRUCT.DROP_LATE && s.changePct > STRUCT.DROP_CHANGE && pos > STRUCT.DROP_POS) s._drop = true;
 
-        {/* ⭐ حالة المفضلة الفارغة */}
-        {!loading && done && filter === "favorites" && filtered.length === 0 && (
-          <div style={S.emptyBox}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>⭐</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>{t.noFavs}</div>
-            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>{t.noFavsSub}</div>
-          </div>
-        )}
+        // 💎 حارس الجوهرة: هابط + بلا تأكيد ارتداد → لا يظهر
+        if (STRUCT.STRICT_GEMS && tech.bars && tech.bars.length >= 3) {
+          const lc = tech.bars.slice(-3).map(b => b.c);
+          const fallingNow = lc[2] < lc[1] && lc[1] < lc[0];           // إغلاقان متتاليان أدنى
+          const confirmedUp = s.price >= st.confirm && tech.priceAboveMA21
+                              && (tech.macd ? tech.macd.bullish : true);
+          const lastBar = tech.bars[tech.bars.length - 1];
+          const reversalBar = lastBar && lastBar.c > lastBar.o;        // شمعة ارتداد خضراء
+          if (fallingNow && !confirmedUp && !reversalBar) {
+            s._drop = true;
+            st.flag = "هابط بلا تأكيد ⛔";
+          }
+        }
+      }
 
-        {done && !loading && results.length === 0 && (
-          <div style={S.emptyBox}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🔴</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>{t.noOpps}</div>
-            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>{t.marketClosed}</div>
-          </div>
-        )}
+      // ── البوابة (gate) ──
+      if (s.price < FILTER.STRICT_PRICE) {
+        // غربال صارم لأقل من $1: لازم كل الشروط
+        const pass = tech && tech.aligned
+          && s.rvol >= 5
+          && tech.rsi != null && tech.rsi >= 50 && tech.rsi <= 68
+          && tech.macd && tech.macd.bullish
+          && s.ep >= 70;
+        if (!pass) s._drop = true;
+      } else {
+        // $1 فأعلى:
+        if (tech) {
+          // عندنا بيانات → لازم اتجاه صاعد (فوق MA21)
+          if (!tech.priceAboveMA21) s._drop = true;
+        } else {
+          // لا بيانات فنية (سهم جديد/تاريخ قصير) → ما نثق إلا بالمبكر
+          s.ep = Math.min(s.ep, 72);                 // سقف بدون تأكيد
+          if (s.changePct > 15) s._drop = true;      // ممتد + غير مؤكد = خطر pump
+          else if (s.ep < 60) s._drop = true;
+        }
+      }
 
-        <div style={S.footer}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.25)", letterSpacing: 2, fontFamily: "monospace" }}>{t.footer1}</span>
-          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", lineHeight: 1.6 }}>{t.footer2}</span>
-        </div>
-      </div>
+      // إعادة تقييم HOT + الإشارة
+      s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
+      s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
 
-      <style>{`
-        * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: #080c18; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
-        button:hover:not(:disabled) { filter: brightness(1.1); }
-        @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.8; } }
-        @keyframes earlyglow { 0%,100% { box-shadow: 0 0 0 rgba(52,211,153,0); } 50% { box-shadow: 0 0 12px rgba(52,211,153,0.4); } }
-      `}</style>
-    </div>
-  );
+      // ── رصد مبكر ──
+      const strongMA = ["تقاطع ذهبي 🌟", "صاعد قوي ⚡", "EMA صاعد"].includes(s.ma_signal);
+      const inEarlyZone = s.changePct >= 2 && s.changePct <= 15;
+      let early = 0;
+      if (strongMA) early++;
+      if (s.rsi != null && s.rsi >= 50 && s.rsi <= 68) early++;
+      if (s.rvol != null && s.rvol >= 3 && s.rvol <= 30) early++;
+      if (s.ep >= 65) early++;
+      if (s.week_max_jump != null && s.week_max_jump <= 25) early++;
+      s.early_watch = inEarlyZone && early >= 2;
+
+      // ── 🎯 الهدف: التقاء كامل على الفريم الأساسي ──
+      const earlyStage = s.changePct >= 2 && s.changePct <= 15;
+      const volHigh = s.volume >= 1_000_000;
+      const liqIn = s.rvol >= 4;
+      const rsiPos = s.rsi != null && s.rsi >= 50 && s.rsi <= 68;
+      const macdBull = !!(tech && tech.macd && tech.macd.bullish);
+      const primaryConfluence = !s._drop && earlyStage && volHigh && liqIn && rsiPos && macdBull && tech && tech.aligned;
+      s._primaryConfluence = primaryConfluence;
+    });
+
+    // 5.6) تأكيد الهدف على الفريم الآخر (للمرشحين النهائيين فقط) — على دفعات
+    const finalists = top.filter(s => s._primaryConfluence);
+    await inBatches(finalists, 12, async (s) => {
+      if (Date.now() > DEADLINE) return;   // ميزانية الوقت
+      const other = s.trade_style === "مضاربة"
+        ? { mult: 1, span: "day", days: 140, limit: 200 }
+        : { mult: 60, span: "minute", days: 30, limit: 600 };
+      const otherBars = await fetchAggs(s.symbol, other.mult, other.span, other.days, other.limit);
+      const otherTech = computeTech(otherBars);
+      // النخبة: التقاء كامل على الفريم الأساسي + اتجاه صاعد على الفريم الآخر (فوق MA21)
+      if (otherTech && otherTech.priceAboveMA21) {
+        s.is_target = true;
+        s.signal = "🎯 الهدف";
+        s.ep = Math.max(s.ep, 90);
+        s.is_hot = true;
+      }
+    });
+
+    // 5.7) تطبيق الإسقاط (البوابة)
+    let survivors = top.filter(s => !s._drop);
+    // الفرز مبنيّ على البنية: 🎯 نخبة → دخول صحيح → رصد مبكر → مقبول → زخم فقط → EP
+    const tier = s => {
+      if (s.is_target) return 5;                                          // نخبة (التقاء متعدّد الفريمات)
+      if (s.structure && s.structure.flag === "دخول صحيح ✅") return 4;   // دخول بنيوي صحيح
+      if (s.early_watch) return 3;                                        // رصد مبكر
+      if (s.structure && s.structure.flag === "مقبول") return 2;          // بنية مقبولة
+      if (s.is_hot) return 1;                                             // زخم فقط (أدنى)
+      return 0;
+    };
+    survivors.sort((a, b) => {
+      const ta = tier(a), tb = tier(b);
+      if (tb !== ta) return tb - ta;
+      if (b.ep !== a.ep) return b.ep - a.ep;
+      return b.rvol - a.rvol;
+    });
+
+    // 6) الحفظ (فقط غير المشترك + EP >= حد)
+    let saveResult = { skipped: true, reason: "subscriber scan" };
+    if (!isSubscriber) {
+      const toSave = survivors.filter(s => s.ep >= FILTER.SAVE_MIN_EP);
+      saveResult = await saveSignals(toSave);
+    }
+
+    // 🪶 رد خفيف للكرون فقط (cron-job.org يرفض الردود الكبيرة) — عدّ فقط بدون المصفوفات
+    //    الواجهة تنادي /api/scan بدون light=1 فتاخذ الرد الكامل.
+    if (req.query.light === "1") {
+      return res.status(200).json({
+        success: true, light: true,
+        total: survivors.length,
+        hot:    survivors.filter(s => s.is_hot).length,
+        target: survivors.filter(s => s.is_target).length,
+        early:  survivors.filter(s => s.early_watch).length,
+        saved:  saveResult.saved || 0, saveResult,
+        timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
+        market_scanned: allTickers.length, after_filter: candidates.length,
+      });
+    }
+
+    // 7) تجهيز الرد (نفس شكل الواجهة تماماً)
+    const toCard = s => ({
+      symbol: s.symbol, price: s.price, change_pct: s.changePct, score: s.ep, signal: s.signal,
+      type: s.type, volume: s.volume, rvol: s.rvol, is_hot: s.is_hot, vwap: s.vwap,
+      ma_signal: s.ma_signal || null, rsi: s.rsi ?? null, early_watch: s.early_watch || false,
+      week_max_jump: s.week_max_jump ?? null, levels: s.levels, atr14: s.levels?.atr14 || null,
+      levels_source: s.levels_source || "atr_basic", is_target: s.is_target || false,
+      news_age_h: s.news_age_h ?? null,
+      structure: s.structure || null,   // 🆕 مستويات البنية (Swing + فيبوناتشي)
+    });
+
+    const results     = survivors.map(toCard);
+    const leaders     = results.filter(s => s.type === "استثمار");   // 🐞 إصلاح: كان "قيادي"
+    const speculation = results.filter(s => s.type !== "استثمار");
+    const early       = results.filter(s => s.early_watch);
+
+    return res.status(200).json({
+      success: true, total: results.length,
+      hot: results.filter(s => s.is_hot).length,
+      target: results.filter(s => s.is_target).length,
+      early: early.length, saved: saveResult.saved || 0, saveResult,
+      timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
+      market_scanned: allTickers.length, after_filter: candidates.length,
+      results, leaders, speculation, earlyWatch: early,
+    });
+
+  } catch (error) {
+    return res.status(200).json({ success: false, error: error.message, results: [], leaders: [], speculation: [] });
+  }
 }
