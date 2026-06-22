@@ -224,8 +224,67 @@ function calcScalpLevels(price, bars) {
   };
 }
 
-// أهداف تقريبية (fallback عند غياب الشموع)
-function calcLevels(s) {
+// ─── الوقف/الأهداف الذكية من البنية ──────────────────────────────
+// تجعل الوقف يجلس تحت الارتكاز/الدعم البنيوي الحقيقي بدل نسبة ثابتة،
+// مع حارسين: (1) لا يكون أضيق من نطاق الضجيج (ATR) فيُضرب بسهولة،
+//            (2) لا يتجاوز سقف خسارة معقول حسب التقلّب والنوع.
+const SMART_STOP = {
+  ENABLED: true,
+  NOISE_ATR_MULT: 1.2,    // أقل مسافة للوقف = ATR×1.2 تحت السعر
+  NOISE_MIN_PCT:  0.04,   // أو 4% (الأكبر) — يمنع الوقف القريب جداً
+  SCALP_FLOOR:    0.05,   // مضاربة: أدنى سقف خسارة 5%
+  SCALP_CAP:      0.13,   //          أقصى سقف خسارة 13%
+  SCALP_ATR_K:    1.2,    //          معامل التقلّب
+  SMART_FLOOR:    0.06,   // استثمار: أدنى 6%
+  SMART_CAP:      0.15,   //          أقصى 15%
+  SMART_ATR_K:    1.3,
+  MIN_RR:         1.3,    // R:R مضمون على T1
+};
+
+function applyStructureLevels(price, levels, structure, tradeStyle) {
+  if (!SMART_STOP.ENABLED || !structure) return levels;
+  if (!structure.support || !structure.stop || structure.stop >= price) return levels;
+
+  const atr = levels?.atr14 || price * 0.03;
+  const atrPct = atr / price;
+  const isScalp = tradeStyle === "مضاربة";
+
+  // 1) الوقف الذكي = تحت الارتكاز/الدعم البنيوي
+  let sl = structure.stop;
+
+  // 2) لا يكون أقرب من نطاق الضجيج (ATR) — مساحة تنفّس ضد الاهتزاز
+  const noiseSL = price - Math.max(atr * SMART_STOP.NOISE_ATR_MULT, price * SMART_STOP.NOISE_MIN_PCT);
+  sl = Math.min(sl, noiseSL);   // الأبعد (سعر أقل) = أصعب أن يُضرب
+
+  // 3) سقف الخسارة حسب التقلّب والنوع — لا تكون المخاطرة جنونية
+  const floor = isScalp ? SMART_STOP.SCALP_FLOOR : SMART_STOP.SMART_FLOOR;
+  const cap   = isScalp ? SMART_STOP.SCALP_CAP   : SMART_STOP.SMART_CAP;
+  const atrK  = isScalp ? SMART_STOP.SCALP_ATR_K : SMART_STOP.SMART_ATR_K;
+  const maxLossPct = Math.min(Math.max(floor, atrPct * atrK), cap);
+  sl = Math.max(sl, price * (1 - maxLossPct));   // لا يتجاوز السقف
+  const risk = price - sl;
+  if (risk <= 0) return levels;
+
+  // 4) الأهداف من البنية (مقاومة + فيبوناتشي) مع ضمان الترتيب و R:R
+  let t1 = structure.t1 || (price + risk * 1.5);
+  t1 = Math.max(t1, price + risk * SMART_STOP.MIN_RR, price * 1.015);
+  let t2 = structure.t2 || (t1 + risk);
+  t2 = Math.max(t2, t1 * 1.02);
+  let t3 = structure.t3 || (t2 + risk);
+  t3 = Math.max(t3, t2 * 1.02);
+
+  const dec = price < 1 ? 3 : 2;
+  const f = n => +n.toFixed(dec), pc = n => +(((n - price) / price) * 100).toFixed(2);
+  return {
+    ...levels,
+    t1: f(t1), t2: f(t2), t3: f(t3), sl: f(sl),
+    t1Pct: pc(t1), t2Pct: pc(t2), t3Pct: pc(t3), slPct: pc(sl),
+    risk: f(risk), atr14: levels?.atr14 ?? f(atr),
+    smart_structure: true,
+  };
+}
+
+
   const price = s.price;
   const tr  = Math.max(s.high - s.low, Math.abs(s.high - s.prevClose), Math.abs(s.low - s.prevClose));
   const atr = Math.max(tr, price * 0.02);
@@ -575,6 +634,9 @@ export default async function handler(req, res) {
           s.levels = s.trade_style === "مضاربة" ? calcScalpLevels(s.price, tech.bars) : calcSmartLevels(s.price, tech.bars);
           s.levels_source = s.trade_style === "مضاربة" ? "scalp_60m" : "smart_daily";
           s.structure = computeStructureLevels(s.price, tech.bars);   // 🆕 مستويات البنية (إضافية)
+          // 🆕 وقف/أهداف ذكية مشتقّة من البنية (تحت الارتكاز الحقيقي + حارس ضجيج/سقف)
+          const smart = applyStructureLevels(s.price, s.levels, s.structure, s.trade_style);
+          if (smart.smart_structure) { s.levels = smart; s.levels_source += "+structure"; }
         } else s.levels_source = "atr_basic";
         s.week_max_jump = tech.recentMaxJump;
       } else {
