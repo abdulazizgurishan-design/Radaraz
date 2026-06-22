@@ -265,13 +265,15 @@ function applyStructureLevels(price, levels, structure, tradeStyle) {
   const risk = price - sl;
   if (risk <= 0) return levels;
 
-  // 4) الأهداف من البنية (مقاومة + فيبوناتشي) مع ضمان الترتيب و R:R
-  let t1 = structure.t1 || (price + risk * 1.5);
-  t1 = Math.max(t1, price + risk * SMART_STOP.MIN_RR, price * 1.015);
-  let t2 = structure.t2 || (t1 + risk);
-  t2 = Math.max(t2, t1 * 1.02);
-  let t3 = structure.t3 || (t2 + risk);
-  t3 = Math.max(t3, t2 * 1.02);
+  // 4) الأهداف واقعية قريبة المدى (ATR + مخاطرة) — لا نأخذ امتداد البنية الكامل
+  //    (البنية قد تُظهر مقاومة بعيدة جداً بعد انهيار = أهداف خيالية للمضاربة).
+  //    الخريطة (s.structure) تظل تعرض تلك المستويات للسياق فقط.
+  const k1 = isScalp ? 0.6 : 1.0;
+  const k2 = isScalp ? 1.1 : 2.0;
+  const k3 = isScalp ? 1.7 : 3.0;
+  let t1 = Math.max(price + atr * k1, price + risk * SMART_STOP.MIN_RR, price * 1.015);
+  let t2 = Math.max(price + atr * k2, t1 + risk * 0.8, t1 * 1.02);
+  let t3 = Math.max(price + atr * k3, t2 + risk * 0.8, t2 * 1.02);
 
   const dec = price < 1 ? 3 : 2;
   const f = n => +n.toFixed(dec), pc = n => +(((n - price) / price) * 100).toFixed(2);
