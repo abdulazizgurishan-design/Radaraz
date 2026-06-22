@@ -284,7 +284,8 @@ function applyStructureLevels(price, levels, structure, tradeStyle) {
   };
 }
 
-
+// أهداف تقريبية (fallback عند غياب الشموع)
+function calcLevels(s) {
   const price = s.price;
   const tr  = Math.max(s.high - s.low, Math.abs(s.high - s.prevClose), Math.abs(s.low - s.prevClose));
   const atr = Math.max(tr, price * 0.02);
