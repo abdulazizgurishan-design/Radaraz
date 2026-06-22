@@ -261,7 +261,7 @@ function EarlyBadge({ t }) {
 }
 
 // 📈 شارة المتوسطات
-function MABadge({ signal }) {
+function MABadge({ signal, lang }) {
   if (!signal) return null;
   const map = {
     "تقاطع ذهبي 🌟": { color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.3)" },
@@ -269,10 +269,12 @@ function MABadge({ signal }) {
     "EMA صاعد":      { color: "#60a5fa", bg: "rgba(96,165,250,0.12)", border: "rgba(96,165,250,0.3)" },
     "صاعد":          { color: "#94a3b8", bg: "rgba(148,163,184,0.1)", border: "rgba(148,163,184,0.25)" },
   };
+  const enMap = { "تقاطع ذهبي 🌟": "Golden cross 🌟", "صاعد قوي ⚡": "Strong up ⚡", "EMA صاعد": "EMA rising", "صاعد": "Up" };
   const c = map[signal] || map["صاعد"];
+  const label = lang === "en" ? (enMap[signal] || signal) : signal;
   return (
     <span style={{ fontSize: 9, padding: "3px 8px", borderRadius: 20, background: c.bg, color: c.color, fontWeight: 700, border: `1px solid ${c.border}` }}>
-      📈 {signal}
+      📈 {label}
     </span>
   );
 }
@@ -308,52 +310,63 @@ function entryReady(r) {
   return aboveSupport && notRunYet && goodRR;
 }
 
-function azSummary(r) {
+const AZ_TR = {
+  "صاعد مؤكد ✅": "Confirmed uptrend ✅",
+  "ينتظر تأكيد ⏳": "Awaiting confirmation ⏳",
+  "دخول صحيح ✅": "Valid entry ✅",
+  "مقبول": "Acceptable",
+  "ملاحقة/غير مؤكد ⚠️": "Chasing / unconfirmed ⚠️",
+  "هابط بلا تأكيد ⛔": "Downtrend — unconfirmed ⛔",
+};
+const azTr = (s, lang) => (lang === "en" ? (AZ_TR[s] || s) : s);
+
+function azSummary(r, lang) {
   const st = r.structure;
   if (!st) return "";
   const parts = [];
-  if (st.trend) parts.push(st.trend);
-  if (st.flag) parts.push(st.flag);
+  if (st.trend) parts.push(azTr(st.trend, lang));
+  if (st.flag) parts.push(azTr(st.flag, lang));
   if (st.rr != null) parts.push("R:R " + st.rr);
   let action;
-  if (entryReady(r)) action = "السعر في منطقة الدخول الآن — جاهزة ✅";
-  else if (r.price > st.entry) action = "انتظر ارتداداً لمنطقة الدخول $" + (+st.entry).toFixed(2);
-  else action = "راقب التأكيد فوق $" + (+st.confirm).toFixed(2);
+  if (entryReady(r)) action = lang === "en" ? "Price in entry zone now — ready ✅" : "السعر في منطقة الدخول الآن — جاهزة ✅";
+  else if (r.price > st.entry) action = lang === "en" ? ("Wait for a pullback to the entry zone $" + (+st.entry).toFixed(2)) : ("انتظر ارتداداً لمنطقة الدخول $" + (+st.entry).toFixed(2));
+  else action = lang === "en" ? ("Watch for confirmation above $" + (+st.confirm).toFixed(2)) : ("راقب التأكيد فوق $" + (+st.confirm).toFixed(2));
   return parts.join(" • ") + " — " + action;
 }
 
 const AZ_LEVELS = [
-  { k: "peak",       n: "🟥 منطقة بيع محتمل (قصوى)", c: "#f59e0b" },
-  { k: "liquidity",  n: "🟧 منطقة بيع محتمل",        c: "#fb923c" },
-  { k: "t3",         n: "🎯 هدف ثالث",               c: "#4ade80" },
-  { k: "t2",         n: "🎯 هدف ثانٍ",               c: "#34d399" },
-  { k: "t1",         n: "🌟 هدف مؤكد",              c: "#2dd4bf" },
-  { k: "resistance", n: "🚧 مقاومة",                 c: "#eab308" },
+  { k: "peak",       n: "🟥 منطقة بيع محتمل (قصوى)", en: "🟥 Sell zone (max)",       c: "#f59e0b" },
+  { k: "liquidity",  n: "🟧 منطقة بيع محتمل",        en: "🟧 Sell zone",             c: "#fb923c" },
+  { k: "t3",         n: "🎯 هدف ثالث",               en: "🎯 Target 3",              c: "#4ade80" },
+  { k: "t2",         n: "🎯 هدف ثانٍ",               en: "🎯 Target 2",              c: "#34d399" },
+  { k: "t1",         n: "🌟 هدف مؤكد",              en: "🌟 Confirmed target",      c: "#2dd4bf" },
+  { k: "resistance", n: "🚧 مقاومة",                 en: "🚧 Resistance",            c: "#eab308" },
   { k: "__now__" },
-  { k: "confirm",    n: "✅ تأكيد الاتجاه",           c: "#22d3ee" },
-  { k: "entry",      n: "📥 منطقة الدخول",           c: "#3b82f6" },
-  { k: "support",    n: "⚖️ ارتكاز — ممنوع الكسر",   c: "#818cf8" },
-  { k: "stop",       n: "🔴 إيقاف الخسارة",          c: "#f43f5e" },
+  { k: "confirm",    n: "✅ تأكيد الاتجاه",           en: "✅ Trend confirmation",    c: "#22d3ee" },
+  { k: "entry",      n: "📥 منطقة الدخول",           en: "📥 Entry zone",            c: "#3b82f6" },
+  { k: "support",    n: "⚖️ ارتكاز — ممنوع الكسر",   en: "⚖️ Pivot — do not break",  c: "#818cf8" },
+  { k: "stop",       n: "🔴 إيقاف الخسارة",          en: "🔴 Stop loss",             c: "#f43f5e" },
 ];
 
-function StructureMap({ r }) {
+function StructureMap({ r, lang }) {
+  const en = lang === "en";
   const st = r.structure;
   if (!st) return (
     <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "10px 0" }}>
-      لا تتوفر بيانات بنية كافية لهذا السهم.
+      {en ? "Not enough structure data for this stock." : "لا تتوفر بيانات بنية كافية لهذا السهم."}
     </div>
   );
   const pc = (v) => { const x = ((v - r.price) / r.price) * 100; return (x >= 0 ? "+" : "") + x.toFixed(2) + "%"; };
   return (
     <div>
       <div style={{ fontSize: 12, lineHeight: 1.7, color: "#cdd6ea", background: "rgba(124,140,255,0.07)", borderRight: "3px solid #7c8cff", borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
-        <strong style={{ color: "#2dd4bf" }}>AI-Az:</strong> {azSummary(r)}
+        <strong style={{ color: "#2dd4bf" }}>AI-Az:</strong> {azSummary(r, lang)}
       </div>
       <div>
         {AZ_LEVELS.map((L) => {
           if (L.k === "__now__") return (
             <div key="now" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 8, margin: "5px 0", borderRadius: 10, background: "linear-gradient(90deg,rgba(234,240,251,0.13),rgba(234,240,251,0.03))", border: "1px solid rgba(234,240,251,0.32)", boxShadow: "0 0 16px rgba(120,180,255,0.1)" }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: "#fff" }}>▸ السعر الحالي</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: "#fff" }}>{en ? "▸ Current price" : "▸ السعر الحالي"}</span>
               <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 800, color: "#fff" }}>${(+r.price).toFixed(2)}</span>
             </div>
           );
@@ -364,7 +377,7 @@ function StructureMap({ r }) {
             <div key={L.k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 8px", margin: "2px 0", borderRadius: 9, outline: isEntry ? "1px dashed rgba(59,130,246,0.5)" : "none", outlineOffset: -1 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: L.c, boxShadow: "0 0 7px " + L.c, flex: "none" }} />
-                <span style={{ fontSize: 12, fontWeight: 600, color: L.c }}>{L.n}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: L.c }}>{en ? L.en : L.n}</span>
               </span>
               <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                 <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#e8edf6" }}>${(+v).toFixed(2)}</span>
@@ -375,13 +388,16 @@ function StructureMap({ r }) {
         })}
       </div>
       <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.42)", marginTop: 10, lineHeight: 1.65, borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 9 }}>
-        الارتكاز ممنوع كسره — تحته يُلغى السيناريو. مناطق البيع المحتمل = جنِّ الأرباح تدريجياً.
+        {en
+          ? "The pivot must not break — below it the setup is void. Sell zones = take profits gradually."
+          : "الارتكاز ممنوع كسره — تحته يُلغى السيناريو. مناطق البيع المحتمل = جنِّ الأرباح تدريجياً."}
       </div>
     </div>
   );
 }
 
-function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
+function Card({ r, idx, t, lang, isEarly, isFav, onToggleFav }) {
+  const en = lang === "en";
   const [open, setOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
@@ -390,8 +406,8 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
   const glowColor   = isEarly ? "rgba(52,211,153,0.2)" : r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
 
   const typeTag = r.type === "استثمار"
-    ? { label: "📈 استثمار", color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
-    : { label: "⚡ مضاربة", color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.25)" };
+    ? { label: en ? "📈 Investment" : "📈 استثمار", color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
+    : { label: en ? "⚡ Speculation" : "⚡ مضاربة", color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.25)" };
 
   // 🕐 وقت الرصد + كم صارلها
   const timeInfo = useMemo(() => {
@@ -449,7 +465,7 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
           {ready && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 3, fontSize: 9, fontWeight: 800, color: "#34d399" }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#34d399", animation: "azpulse 1.4s infinite", display: "inline-block" }} />
-              دخول مناسب
+              {en ? "Good entry" : "دخول مناسب"}
             </span>
           )}
           {!ready && r.is_hot && <div style={{ fontSize: 9, color: "#fca5a5", marginTop: 2 }}>🚨 HOT</div>}
@@ -458,12 +474,12 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
           {timeInfo?.isNew && <span style={S.tag("rgba(0,212,170,0.15)", "#00d4aa", "rgba(0,212,170,0.3)")}>🆕</span>}
           {isEarly && <EarlyBadge t={t} />}
           <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.signal}</span>
-          {r.ma_signal && <MABadge signal={r.ma_signal} />}
+          {r.ma_signal && <MABadge signal={r.ma_signal} lang={lang} />}
           {r.rsi != null && <RSIBadge rsi={r.rsi} t={t} />}
           <span style={S.tag(typeTag.bg, typeTag.color, typeTag.border)}>{typeTag.label}</span>
           {r.is_target && <span style={S.tag("rgba(251,191,36,0.13)", "#fbbf24", "rgba(251,191,36,0.4)")}>🎯 الهدف</span>}
           {r.structure && typeof r.structure.flag === "string" && r.structure.flag.indexOf("صحيح") >= 0 && (
-            <span style={S.tag("rgba(45,212,191,0.13)", "#2dd4bf", "rgba(45,212,191,0.4)")}>{r.structure.flag}</span>
+            <span style={S.tag("rgba(45,212,191,0.13)", "#2dd4bf", "rgba(45,212,191,0.4)")}>{azTr(r.structure.flag, lang)}</span>
           )}
           {r.rvol && r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
           {r.is_hot && <span style={S.tag("rgba(248,113,113,0.15)", "#fca5a5", "rgba(248,113,113,0.3)")}>🚨 HOT</span>}
@@ -565,13 +581,13 @@ function Card({ r, idx, t, isEarly, isFav, onToggleFav }) {
 
           <div style={{ marginTop: 14 }}>
             <button onClick={(e) => { e.stopPropagation(); setAiOpen((o) => !o); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "linear-gradient(90deg,rgba(124,140,255,0.16),rgba(45,212,191,0.14))", border: "1px solid rgba(124,140,255,0.32)", borderRadius: 12, padding: 11, color: "#dbe2ff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
-              🤖 تحليل فني AI-Az
+              {en ? "🤖 AI-Az Technical Analysis" : "🤖 تحليل فني AI-Az"}
               <span style={{ marginInlineStart: "auto", fontSize: 11, color: "rgba(255,255,255,0.4)", transform: aiOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▼</span>
             </button>
             {aiOpen && (
               <div style={{ marginTop: 11, background: "rgba(6,10,20,0.6)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 4, display: "flex", alignItems: "center", gap: 7 }}>🗺️ خريطة السوق — تفاصيل شاملة</div>
-                <StructureMap r={r} />
+                <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 4, display: "flex", alignItems: "center", gap: 7 }}>{en ? "🗺️ Market Map — full details" : "🗺️ خريطة السوق — تفاصيل شاملة"}</div>
+                <StructureMap r={r} lang={lang} />
               </div>
             )}
           </div>
@@ -1054,7 +1070,7 @@ export default function Radar() {
         {/* 🔍 قسم الرصد المبكر — يظهر في الأعلى */}
         {!loading && done && filter === "all" && earlyWatch.length > 0 && (
           <CollapsibleSection title={t.sectionEarly} subtitle={t.sectionEarlySub} count={earlyWatch.length} color="#34d399" bg="rgba(52,211,153,0.08)" border="rgba(52,211,153,0.3)" t={t}>
-            {earlyWatch.map((r, i) => <Card key={"early-" + r.symbol} r={r} idx={i} t={t} isEarly={true} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
+            {earlyWatch.map((r, i) => <Card key={"early-" + r.symbol} r={r} idx={i} t={t} lang={lang} isEarly={true} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
           </CollapsibleSection>
         )}
 
@@ -1062,12 +1078,12 @@ export default function Radar() {
           <>
             {leaders.length > 0 && (
               <CollapsibleSection title={t.sectionLeaders} count={leaders.length} color="#818cf8" bg="rgba(129,140,248,0.08)" border="rgba(129,140,248,0.2)" t={t}>
-                {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
+                {leaders.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} lang={lang} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
               </CollapsibleSection>
             )}
             {speculation.length > 0 && (
               <CollapsibleSection title={t.sectionSpec} count={speculation.length} color="#fbbf24" bg="rgba(251,191,36,0.08)" border="rgba(251,191,36,0.2)" t={t}>
-                {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
+                {speculation.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} lang={lang} isEarly={earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
               </CollapsibleSection>
             )}
           </>
@@ -1080,7 +1096,7 @@ export default function Radar() {
               <span style={S.dividerText}>{filtered.length} {t.opportunities}</span>
               <div style={S.dividerLine(true)} />
             </div>
-            {filtered.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} isEarly={filter === "early" || earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
+            {filtered.map((r, i) => <Card key={r.symbol} r={r} idx={i} t={t} lang={lang} isEarly={filter === "early" || earlySymbols.has(r.symbol)} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
           </>
         )}
 
