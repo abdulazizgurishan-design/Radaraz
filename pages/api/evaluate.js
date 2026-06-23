@@ -8,7 +8,7 @@
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
 const SUPABASE_URL = "https://ypxrrghhkjbeojzphdln.supabase.co";
-const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 const BASE = "https://api.polygon.io";
 
@@ -87,10 +87,26 @@ export default async function handler(req, res) {
         const max_gain_pct = +(((high - sig.entry_price) / sig.entry_price) * 100).toFixed(2);
         const close_gain_pct = +(((close - sig.entry_price) / sig.entry_price) * 100).toFixed(2);
 
+        // 🆕 وقت إصابة الهدف الأول (للرابحين فقط) — أول دقيقة يلمس فيها السعر الهدف
+        let target1_hit_at = null;
+        if (t1_hit) {
+          try {
+            const murl = `${BASE}/v2/aggs/ticker/${sig.symbol}/range/1/minute/${d}/${d}?sort=asc&limit=5000&apiKey=${POLYGON_KEY}`;
+            const mc = new AbortController();
+            const mt = setTimeout(() => mc.abort(), 4000);
+            const mr = await fetch(murl, { signal: mc.signal });
+            clearTimeout(mt);
+            const mdata = await mr.json();
+            const mbar = (mdata?.results || []).find(b => b.h >= sig.target1);
+            if (mbar) target1_hit_at = new Date(mbar.t).toISOString();
+          } catch { /* نكتفي بدون الوقت الدقيق */ }
+        }
+
         return {
           id: sig.id,
           high_price: high, low_price: low, close_price: close,
           target1_hit: t1_hit, target2_hit: t2_hit, target3_hit: t3_hit, stop_hit,
+          target1_hit_at,
           max_gain_pct, close_gain_pct,
           evaluated_at: new Date().toISOString(),
           status: "CLOSED",
