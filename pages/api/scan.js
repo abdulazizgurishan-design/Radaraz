@@ -35,7 +35,7 @@ const FILTER = {
   MAX_CHANGE:     40,            // فوق 40% = دخول متأخر/pump → استبعاد نهائي
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
-  HEAVY_LIMIT:    70,            // خطة Hobby: حد 10ث — خُفّض 120→70 ليخلص تحت 8ث بأمان
+  HEAVY_LIMIT:    90,            // رُفع 70→90: الأخبار المشروطة وفّرت وقتاً (حارس الوقت يحمي من timeout)
   SAVE_MIN_EP:    60,            // رفعناه من 50 → 60 (جودة أعلى للحفظ والبوت)
   STRICT_PRICE:   1.00,          // تحت هذا السعر = غربال صارم
 };
@@ -474,12 +474,23 @@ function frameFor(style) {
 }
 
 // حساب كل المؤشرات من مجموعة شموع
+// 🆕 طبقة جودة الدخول (EMA) — كلها قابلة للضبط
+const STRETCH = {
+  ENABLED:   true,
+  WARN:      10,    // فوق هذا البُعد عن EMA9 يبدأ الخصم اللطيف (الدخول صار متأخراً)
+  PEN_K:     0.4,   // شدة الخصم لكل 1% زيادة فوق WARN (لطيف عمداً — لا نقتل الزخم)
+  PEN_CAP:   8,     // أقصى خصم من الامتداد
+  BONUS_STRONG: 3,  // مكافأة اصطفاف EMA القوي (ema9>ema20>ema50 + السعر فوقها)
+  DROP:      18,    // 🆕 امتداد مفرط فوق EMA9 (+18%) بلا محفّز = ملاحقة واضحة → إسقاط
+};
+
 function computeTech(bars) {
   if (!bars || bars.length < 21) return null;
   const closes = bars.map(b => b.c);
   const price = closes[closes.length - 1];
   const sma9 = calcSMA(closes, 9), sma21 = calcSMA(closes, 21), sma50 = calcSMA(closes, 50);
   const ema9 = calcEMA(closes, 9), ema21 = calcEMA(closes, 21);
+  const ema20 = calcEMA(closes, 20), ema50 = calcEMA(closes, 50);   // 🆕 لطبقة جودة الدخول
   const rsiRaw = calcRSI14(bars), atr = calcATR14(bars), macd = calcMACD(closes);
 
   let maSignal = null, maBonus = 0;
@@ -498,12 +509,21 @@ function computeTech(bars) {
     if (j > recentMaxJump) recentMaxJump = j;
   }
 
+  // 🆕 طبقة جودة الدخول (EMA): بُعد السعر عن المتوسطات + اصطفاف قوي
+  const stretch9  = ema9  ? ((price - ema9)  / ema9)  * 100 : null;   // كم السعر ممتد فوق EMA9
+  const stretch20 = ema20 ? ((price - ema20) / ema20) * 100 : null;
+  const strongAligned = !!(ema9 && ema20 && ema50 && ema9 > ema20 && ema20 > ema50 && price > ema9 && price > ema20);
+
   return {
     price, atr, macd,
     rsi: rsiRaw != null ? Math.round(rsiRaw) : null,
     maSignal, maBonus: Math.min(maBonus, 20),
     priceAboveMA21: !!(sma21 && price > sma21),
-    aligned: !!(sma9 && sma21 && price > sma21 && sma9 > sma21), // اصطفاف صاعد كامل
+    priceAboveEMA20: !!(ema20 && price > ema20),    // 🆕 للبوابة الأذكى (ارتداد مبكّر)
+    aligned: !!(sma9 && sma21 && price > sma21 && sma9 > sma21), // اصطفاف صاعد كامل (كما هو)
+    strongAligned,                                               // 🆕 اصطفاف EMA قوي (لرفع جودة 🎯)
+    stretch9:  stretch9  != null ? +stretch9.toFixed(2)  : null, // 🆕 الامتداد فوق EMA9
+    stretch20: stretch20 != null ? +stretch20.toFixed(2) : null,
     freshGolden,
     recentMaxJump: +recentMaxJump.toFixed(1),
     bars,
@@ -616,7 +636,8 @@ export default async function handler(req, res) {
       const dollarVolume = s.price * s.volume;
       const isScalp  = s.changePct >= 5 && s.rvol >= 5;
       const isInvest = s.price >= 20 && dollarVolume >= 100_000_000 && s.changePct <= 15;
-      const type = isScalp ? "مضاربة" : (isInvest ? "استثمار" : "مضاربة");
+      // الأولوية للاستثمار: السهم القيادي الكبير لا يتحوّل تلقائياً لمضاربة لمجرد زخمه
+      const type = isInvest ? "استثمار" : (isScalp ? "مضاربة" : "مضاربة");
       return { ...s, ep, levels, is_hot, type, trade_style: type, dollarVolume,
         signal: ep >= 80 ? "💥 انفجاري" : ep >= 60 ? "🔥 عالي" : "👀 مراقبة" };
     });
@@ -630,11 +651,14 @@ export default async function handler(req, res) {
     // 5.5) التحليل الفني متعدّد الفريمات + الأخبار + البوابة + الهدف
     //      على دفعات من 8 (≈16 طلب متزامن فقط بدل 70) — أمان من timeout
     await inBatches(top, 24, async (s) => {
-      if (Date.now() > DEADLINE) return;   // تجاوزنا الميزانية → نكتفي بما حُلّل (يمنع timeout)
+      if (Date.now() > DEADLINE) { s._timedOut = true; return; }   // تجاوزنا الميزانية → نكتفي بما حُلّل (يمنع timeout)
       const fr = frameFor(s.trade_style);
+      // 🆕 الأخبار مكلفة زمنياً — نجلبها فقط للأسهم الواعدة، فنحلّل أسهماً أكثر بنفس الميزانية
+      const wantNews = s.changePct > 10 || s.rvol > 6 || s.ep >= 65;
+      s._newsFetched = wantNews;
       const [bars, news] = await Promise.all([
         fetchAggs(s.symbol, fr.mult, fr.span, fr.days, fr.limit),
-        fetchNews(s.symbol),
+        wantNews ? fetchNews(s.symbol) : Promise.resolve({ ageH: null, sentiment: null, hasNews: false }),
       ]);
 
       const tech = computeTech(bars);
@@ -683,6 +707,22 @@ export default async function handler(req, res) {
         s.ep = Math.max(0, s.ep - Math.round((s.changePct - 12) * 0.7));
       }
 
+      // 🆕 طبقة جودة الدخول (EMA) — مُكمّلة، لطيفة، بلا إسقاط:
+      //   stretch يلتقط الامتداد فوق EMA9 (يكمّل خصم changePct — السهم قد يكون
+      //   +5% باليوم لكن +12% فوق EMA9 بعد فجوة). والاصطفاف القوي يُكافأ.
+      if (STRETCH.ENABLED && tech) {
+        if (tech.stretch9 != null && tech.stretch9 > STRETCH.WARN) {
+          const pen = Math.min(STRETCH.PEN_CAP, Math.round((tech.stretch9 - STRETCH.WARN) * STRETCH.PEN_K));
+          s.ep = Math.max(0, s.ep - pen);
+        }
+        if (tech.strongAligned) s.ep = Math.min(99, s.ep + STRETCH.BONUS_STRONG);
+        // 🆕 إسقاط الامتداد المفرط: بعيد جداً فوق EMA9 + صعد كثير + بلا محفّز (تقاطع طازج/خبر) = ملاحقة
+        const freshNewsX = !!(news && news.hasNews && news.ageH != null && news.ageH <= 24);
+        if (tech.stretch9 != null && tech.stretch9 > STRETCH.DROP && s.changePct > 12 && !tech.freshGolden && !freshNewsX) {
+          s._drop = true; if (!s._dropReason) s._dropReason = "stretch";
+        }
+      }
+
       // 🔀 مزج البنية: نرفع الدخول الصحيح ونُنزّل/نُسقط الملاحقة
       //   (دخول صحيح = اتجاه مؤكد + R:R جيد + ما زال قريب من الدعم + فيه مجال للهدف)
       if (s.structure) {
@@ -705,18 +745,19 @@ export default async function handler(req, res) {
         st.posInBand = +pos.toFixed(2);
 
         // إسقاط الملاحقة الواضحة فقط: ارتفع كثير + قريب من القمة (دخول متأخر سيء)
-        if (STRUCT.DROP_LATE && s.changePct > STRUCT.DROP_CHANGE && pos > STRUCT.DROP_POS) s._drop = true;
+        if (STRUCT.DROP_LATE && s.changePct > STRUCT.DROP_CHANGE && pos > STRUCT.DROP_POS) { s._drop = true; if (!s._dropReason) s._dropReason = "late"; }
 
         // 💎 حارس الجوهرة: هابط + بلا تأكيد ارتداد → لا يظهر
         if (STRUCT.STRICT_GEMS && tech.bars && tech.bars.length >= 3) {
           const lc = tech.bars.slice(-3).map(b => b.c);
-          const fallingNow = lc[2] < lc[1] && lc[1] < lc[0];           // إغلاقان متتاليان أدنى
+          const dropPct = lc[0] > 0 ? (lc[0] - lc[2]) / lc[0] : 0;
+          const fallingNow = lc[2] < lc[1] && lc[1] < lc[0] && dropPct > 0.03;  // 🆕 تراجع معنوي فقط (>3%) — لا نُسقط pullback صحّي
           const confirmedUp = s.price >= st.confirm && tech.priceAboveMA21
                               && (tech.macd ? tech.macd.bullish : true);
           const lastBar = tech.bars[tech.bars.length - 1];
           const reversalBar = lastBar && lastBar.c > lastBar.o;        // شمعة ارتداد خضراء
           if (fallingNow && !confirmedUp && !reversalBar) {
-            s._drop = true;
+            s._drop = true; if (!s._dropReason) s._dropReason = "strict_gems";
             st.flag = "هابط بلا تأكيد ⛔";
           }
         }
@@ -730,17 +771,18 @@ export default async function handler(req, res) {
           && tech.rsi != null && tech.rsi >= 50 && tech.rsi <= 68
           && tech.macd && tech.macd.bullish
           && s.ep >= 70;
-        if (!pass) s._drop = true;
+        if (!pass) { s._drop = true; if (!s._dropReason) s._dropReason = "penny_gate"; }
       } else {
         // $1 فأعلى:
         if (tech) {
-          // عندنا بيانات → لازم اتجاه صاعد (فوق MA21)
-          if (!tech.priceAboveMA21) s._drop = true;
+          // عندنا بيانات → اتجاه صاعد: فوق MA21، أو ارتداد مبكّر فوق EMA20 + MACD صاعد
+          const trendPass = tech.priceAboveMA21 || (tech.priceAboveEMA20 && tech.macd && tech.macd.bullish);
+          if (!trendPass) { s._drop = true; if (!s._dropReason) s._dropReason = "trend_gate"; }
         } else {
           // لا بيانات فنية (سهم جديد/تاريخ قصير) → ما نثق إلا بالمبكر
           s.ep = Math.min(s.ep, 72);                 // سقف بدون تأكيد
-          if (s.changePct > 15) s._drop = true;      // ممتد + غير مؤكد = خطر pump
-          else if (s.ep < 60) s._drop = true;
+          if (s.changePct > 15) { s._drop = true; if (!s._dropReason) s._dropReason = "no_tech_ext"; }
+          else if (s.ep < 60) { s._drop = true; if (!s._dropReason) s._dropReason = "no_tech_lowep"; }
         }
       }
 
@@ -812,6 +854,40 @@ export default async function handler(req, res) {
       saveResult = await saveSignals(toSave);
     }
 
+    // 📊 Telemetry — قمع الإشارات: وين تُحلّل ووين تُسقط (للتشخيص الحقيقي بدل التخمين)
+    const dropBy = r => top.filter(s => s._dropReason === r).length;
+    const debug = {
+      market_scanned:   allTickers.length,
+      after_filter:     candidates.length,
+      top_selected:     top.length,
+      tech_analyzed:    top.filter(s => s._tech).length,
+      news_fetched:     top.filter(s => s._newsFetched).length,
+      timed_out:        top.filter(s => s._timedOut).length,        // لم يُحلّل (انتهت الميزانية)
+      primary_confluence: top.filter(s => s._primaryConfluence).length,
+      targets:          top.filter(s => s.is_target).length,
+      dropped_total:    top.filter(s => s._drop).length,
+      dropped_late:     dropBy("late"),
+      dropped_strict_gems: dropBy("strict_gems"),
+      dropped_stretch:  dropBy("stretch"),
+      dropped_penny_gate: dropBy("penny_gate"),
+      dropped_trend_gate: dropBy("trend_gate"),
+      dropped_no_tech:  dropBy("no_tech_ext") + dropBy("no_tech_lowep"),
+      survivors:        survivors.length,
+      below_save_ep:    survivors.filter(s => s.ep < FILTER.SAVE_MIN_EP).length,
+      saved:            saveResult.saved || 0,
+    };
+    // نِسب جاهزة للقراءة السريعة (%) — تشخّص بنظرة وين الخلل بدون حساب يدوي
+    const pctOf = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
+    debug.rates = {
+      analyze_pct:      pctOf(debug.tech_analyzed, debug.top_selected),   // كم % من الـtop حُلّل فعلاً
+      timeout_pct:      pctOf(debug.timed_out, debug.top_selected),       // كم % انقطع بالوقت
+      survival_pct:     pctOf(debug.survivors, debug.top_selected),       // كم % نجا من الفلاتر
+      save_pct:         pctOf(debug.saved, debug.survivors),              // كم % من الناجين حُفظ
+      drop_trend_pct:   pctOf(debug.dropped_trend_gate, debug.tech_analyzed),
+      drop_gems_pct:    pctOf(debug.dropped_strict_gems, debug.tech_analyzed),
+      drop_stretch_pct: pctOf(debug.dropped_stretch, debug.tech_analyzed),
+    };
+
     // 🪶 رد خفيف للكرون فقط (cron-job.org يرفض الردود الكبيرة) — عدّ فقط بدون المصفوفات
     //    الواجهة تنادي /api/scan بدون light=1 فتاخذ الرد الكامل.
     if (req.query.light === "1") {
@@ -824,6 +900,7 @@ export default async function handler(req, res) {
         saved:  saveResult.saved || 0, saveResult,
         timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
         market_scanned: allTickers.length, after_filter: candidates.length,
+        debug,
       });
     }
 
@@ -850,6 +927,7 @@ export default async function handler(req, res) {
       early: early.length, saved: saveResult.saved || 0, saveResult,
       timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
       market_scanned: allTickers.length, after_filter: candidates.length,
+      debug,
       results, leaders, speculation, earlyWatch: early,
     });
 
