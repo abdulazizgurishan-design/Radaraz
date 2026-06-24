@@ -292,6 +292,7 @@ function ResultCard({ s, copiedId, onCopy }) {
   const caught = astStr(s.created_at);
   const hitAt  = astStr(s.target1_hit_at);
   const entry  = (s.entry_price || 0).toFixed(2);
+  const tier   = s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅";
   const tgt    = (s.target1 || 0).toFixed(2);
   const gain   = s.max_gain_pct != null ? `+${s.max_gain_pct}%` : (r?.pct != null ? `${r.pct}%` : "");
 
@@ -299,9 +300,9 @@ function ResultCard({ s, copiedId, onCopy }) {
   let text;
   if (won) {
     text =
-      `🎯 $${s.symbol}  ${gain}\n` +
+      `🎯 $${s.symbol}  ${gain}  (وصل ${tier})\n` +
       (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : `📅 سعر الالتقاط: $${entry}\n`) +
-      (hitAt ? `✅ الهدف: ${hitAt} @ $${tgt}\n` : `✅ أصاب الهدف @ $${tgt}\n`) +
+      (hitAt ? `✅ أصاب الهدف الأول: ${hitAt} @ $${tgt}\n` : `✅ أصاب الهدف @ $${tgt}\n`) +
       `— RadarAZ`;
   } else if (s.stop_hit) {
     text =
@@ -528,11 +529,12 @@ export default function Admin() {
       const caught = astStr(s.created_at);
       const hitAt = astStr(s.target1_hit_at);
       const entry = (s.entry_price || 0).toFixed(2);
-      const tgt = (s.target1 || 0).toFixed(2);
+      const tier = s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅";
+      const t1price = (s.target1 || 0).toFixed(2);
       const gain = s.max_gain_pct != null ? `+${s.max_gain_pct}%` : "";
-      return `🎯 $${s.symbol}  ${gain}\n` +
+      return `🎯 $${s.symbol}  ${gain}  (وصل ${tier})\n` +
         (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : `📅 @ $${entry}\n`) +
-        (hitAt ? `✅ الهدف: ${hitAt} @ $${tgt}` : `✅ أصاب الهدف @ $${tgt}`);
+        (hitAt ? `✅ أصاب الهدف الأول: ${hitAt} @ $${t1price}` : `✅ أصاب الهدف @ $${t1price}`);
     });
     copyText(`📡 سجل إنجازات RadarAZ\n\n${blocks.join("\n\n")}\n\n🔗 radaraz.com`, "all-wins");
     showToast("✅ نُسخ تقرير الإنجازات", "ok");
