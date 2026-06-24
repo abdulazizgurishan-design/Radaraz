@@ -241,7 +241,7 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
                   {`📊 RSI ${s.rsi}`}
                 </span>
               )}
-              {s.news_age_h != null && (
+              {s.news_age_h != null && s.news_age_h <= 48 && (
                 <span style={{ fontSize: 11, color: "#fbbf24" }}>
                   📰 {Math.round(s.news_age_h)}h
                 </span>
@@ -619,7 +619,7 @@ export default function Admin() {
     const penny  = list.filter(s => num(s.entry_price) != null && num(s.entry_price) < 1).length;
     const chased = list.filter(s => num(s.change_pct) != null && num(s.change_pct) > 40).length;
     const hiRsi  = list.filter(s => num(s.rsi) != null && num(s.rsi) >= 72).length;
-    const noNews = list.filter(s => s.news_age_h == null).length;
+    const noNews = list.filter(s => s.news_age_h == null || s.news_age_h > 48).length;   // خبر أقدم من 48س = ميّت، يُعدّ بلا خبر طازج
     const spec   = list.filter(s => s.type === "مضاربة").length;
     const invest = list.filter(s => s.type === "استثمار").length;
     const hot    = list.filter(s => s.is_hot).length;
