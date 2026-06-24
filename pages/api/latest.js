@@ -28,9 +28,9 @@ export default async function handler(req, res) {
     const today = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }))
       .toISOString().split("T")[0];
 
-    // 1) فرص اليوم أولاً (الأعلى نقاطاً)
+    // 1) إشارات اليوم (الأحدث أولاً حسب وقت الرصد)
     let { ok, rows } = await query(
-      `signals?signal_date=eq.${today}&order=score.desc&limit=${LIMIT}`
+      `signals?signal_date=eq.${today}&order=created_at.desc&limit=${LIMIT}`
     );
 
     // 2) لو اليوم فاضي (صباح باكر/عطلة) → أحدث الفرص المحفوظة أياً كان يومها
@@ -39,6 +39,25 @@ export default async function handler(req, res) {
       const r2 = await query(`signals?order=created_at.desc&limit=${LIMIT}`);
       rows = r2.rows;
       fallback = true;
+    }
+
+    // 3) 🆕 نعرض "آخر مسح فقط" — لا كل إشارات اليوم المتراكمة.
+    //    نأخذ أحدث وقت رصد ونُبقي ما رُصد خلال آخر 90 دقيقة منه (نافذة مسح واحدة تقريباً).
+    //    هذا يمنع القفزة المربكة (123 متراكمة → 19 حيّة) ويُظهر الحالة الحيّة الحالية فقط.
+    if (rows.length > 0) {
+      const newest = rows.reduce((mx, r) => {
+        const t = new Date(r.created_at || r.scan_time || 0).getTime();
+        return t > mx ? t : mx;
+      }, 0);
+      const WINDOW_MS = 90 * 60 * 1000;   // 90 دقيقة من أحدث رصد
+      const cutoff = newest - WINDOW_MS;
+      const fresh = rows.filter(r => {
+        const t = new Date(r.created_at || r.scan_time || 0).getTime();
+        return t >= cutoff;
+      });
+      if (fresh.length) rows = fresh;
+      // ترتيب نهائي بالأعلى نقاطاً (للعرض)
+      rows.sort((a, b) => (b.score || 0) - (a.score || 0));
     }
 
     return res.status(200).json({
