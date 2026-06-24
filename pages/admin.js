@@ -67,17 +67,14 @@ function astStr(iso) {
 function buildTweet(signals, date, mode = "signals") {
   const lines = [`📡 رادار الأسهم — ${date}\n`];
   if (mode === "results") {
-    const t1 = signals.filter(s => s.target1_hit).length;
-    const t2 = signals.filter(s => s.target2_hit).length;
-    const t3 = signals.filter(s => s.target3_hit).length;
-    const st = signals.filter(s => s.stop_hit).length;
     const hit = signals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length;
-    const decided = hit + st;                                   // المحسوم = رابح + خاسر (نستبعد المحايد)
+    const st  = signals.filter(s => s.stop_hit && !s.target1_hit).length;   // خاسر نقي (لا ازدواج)
+    const decided = hit + st;
     const rate = decided ? Math.round((hit / decided) * 100) : 0;
 
     // 🏆 أبرز الارتفاعات (أعلى max_gain) — الأقوى تسويقياً
     const topGainers = [...signals]
-      .filter(s => (s.max_gain_pct || 0) > 0)
+      .filter(s => (s.target1_hit || s.target2_hit || s.target3_hit) && (s.max_gain_pct || 0) > 0)
       .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
       .slice(0, 4);
 
@@ -568,9 +565,9 @@ export default function Admin() {
   const t1  = closedSignals.filter(s => s.target1_hit).length;
   const t2  = closedSignals.filter(s => s.target2_hit).length;
   const t3  = closedSignals.filter(s => s.target3_hit).length;
-  const stp = closedSignals.filter(s => s.stop_hit).length;
   const hit = closedSignals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length;
-  const decided = hit + stp;                                   // المحسوم = رابح + خاسر
+  const stp = closedSignals.filter(s => s.stop_hit && !s.target1_hit).length;   // خاسر نقي: ضرب الوقف ولم يصب الهدف (لا ازدواج)
+  const decided = hit + stp;                                                     // المحسوم = رابح + خاسر نقي
   const successRate = decided ? Math.round((hit / decided) * 100) : 0;
 
   // فلترة عرض النتائج (الكل/رابح/خاسر)
@@ -802,7 +799,7 @@ export default function Admin() {
                 <button style={S.btn("rgba(52,211,153,.18)")} onClick={() => copyAllWins(winsList)}>
                   📋 نسخ الإنجازات
                 </button>
-                <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={() => setTweetText(buildTweet(winsList, date, "results"))}>
+                <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={() => setTweetText(buildTweet(closedSignals, date, "results"))}>
                   🐦 تغريد النتائج
                 </button>
               </div>
