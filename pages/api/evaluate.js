@@ -90,19 +90,35 @@ export default async function handler(req, res) {
         const low   = Math.min(...bars.map(b => b.l));
         const close = bars[bars.length - 1].c;
 
-        const t1_hit = high >= sig.target1;
-        const t2_hit = high >= sig.target2;
-        const t3_hit = high >= sig.target3;
-        const stop_hit = low <= sig.stop_loss;
-        const max_gain_pct = +(((high - sig.entry_price) / sig.entry_price) * 100).toFixed(2);
+        const t1_reached = high >= sig.target1;
+        const t2_reached = high >= sig.target2;
+        const t3_reached = high >= sig.target3;
+        const stop_reached = low <= sig.stop_loss;
+
+        // ⏱️ حسم الترتيب: أول دقيقة لمس فيها السعر الهدف، وأول دقيقة لمس فيها الوقف
+        const tHitBar  = t1_reached  ? bars.find(b => b.h >= sig.target1)  : null;
+        const stopBar  = stop_reached ? bars.find(b => b.l <= sig.stop_loss) : null;
+        const tHitTime = tHitBar ? tHitBar.t : Infinity;
+        const stopTime = stopBar ? stopBar.t : Infinity;
+
+        // النتيجة الحقيقية حسب ما حصل أولاً (وعند التساوي في نفس الدقيقة → نحسبها خسارة تحفّظاً):
+        const stoppedFirst = stop_reached && stopTime <= tHitTime;
+        const t1_hit = t1_reached && !stoppedFirst;
+        const t2_hit = t2_reached && !stoppedFirst;
+        const t3_hit = t3_reached && !stoppedFirst;
+        const stop_hit = stoppedFirst;
+
+        // أقصى ربح يُحتسب فقط حتى لحظة ضرب الوقف (لا نُجمّل بربح حصل بعد خروجنا)
+        let effHigh = high;
+        if (stoppedFirst) {
+          const upto = bars.filter(b => b.t <= stopTime);
+          effHigh = upto.length ? Math.max(...upto.map(b => b.h)) : sig.entry_price;
+        }
+        const max_gain_pct = +(((effHigh - sig.entry_price) / sig.entry_price) * 100).toFixed(2);
         const close_gain_pct = +(((close - sig.entry_price) / sig.entry_price) * 100).toFixed(2);
 
-        // وقت إصابة الهدف الأول — أول دقيقة (بعد الرصد) يلمس فيها السعر الهدف
-        let target1_hit_at = null;
-        if (t1_hit) {
-          const mb = bars.find(b => b.h >= sig.target1);
-          if (mb) target1_hit_at = new Date(mb.t).toISOString();
-        }
+        // وقت إصابة الهدف الأول (للرابح الفعلي فقط)
+        const target1_hit_at = (t1_hit && tHitBar) ? new Date(tHitBar.t).toISOString() : null;
 
         return {
           id: sig.id,
