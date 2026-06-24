@@ -241,9 +241,9 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
                   {`📊 RSI ${s.rsi}`}
                 </span>
               )}
-              {s.news_age_hours != null && (
+              {s.news_age_h != null && (
                 <span style={{ fontSize: 11, color: "#fbbf24" }}>
-                  📰 {Math.round(s.news_age_hours)}h
+                  📰 {Math.round(s.news_age_h)}h
                 </span>
               )}
             </div>
@@ -538,7 +538,7 @@ export default function Admin() {
   };
 
   const hotCount  = signals.filter(s => s.is_hot).length;
-  const newsCount = signals.filter(s => s.news_age_hours != null && s.news_age_hours <= 24).length;
+  const newsCount = signals.filter(s => s.news_age_h != null && s.news_age_h <= 24).length;
 
   // ── Styles ──────────────────────────────────────────────────────
   const S = {
@@ -588,7 +588,7 @@ export default function Admin() {
     const penny  = list.filter(s => num(s.entry_price) != null && num(s.entry_price) < 1).length;
     const chased = list.filter(s => num(s.change_pct) != null && num(s.change_pct) > 40).length;
     const hiRsi  = list.filter(s => num(s.rsi) != null && num(s.rsi) >= 72).length;
-    const noNews = list.filter(s => s.news_age_hours == null).length;
+    const noNews = list.filter(s => s.news_age_h == null).length;
     const spec   = list.filter(s => s.type === "مضاربة").length;
     const invest = list.filter(s => s.type === "استثمار").length;
     const hot    = list.filter(s => s.is_hot).length;
