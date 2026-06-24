@@ -8,6 +8,10 @@ if (typeof document !== "undefined" && !document.getElementById("az-kf")) {
   document.head.appendChild(_el);
 }
 
+// 🔒 عتبة العرض = عتبة الحفظ في scan.js (SAVE_MIN_EP). كل إشارة معروضة تُحفظ وتُقيّم.
+//    لو غيّرت SAVE_MIN_EP في الماسح، غيّر هذا الرقم ليطابقه.
+const DISPLAY_MIN_SCORE = 60;
+
 const T = {
   ar: {
     title: "رادار",
@@ -822,10 +826,12 @@ export default function Radar() {
       const data = await res.json();
       if (data.error) { setScanError(data.error); setStatus("error"); return; }
 
-      const raw  = data.results ?? [];
-      const lead = data.leaders     ?? raw.filter(s => s.type === "استثمار");
-      const spec = data.speculation ?? raw.filter(s => s.type !== "استثمار");
-      const early = data.earlyWatch ?? raw.filter(s => s.early_watch);
+      // 🔒 عتبة العرض = عتبة الحفظ (60): كل إشارة تظهر للمشترك تُحفظ وتُقيّم → سجل النتائج مطابق للمعروض
+      const MIN = DISPLAY_MIN_SCORE;
+      const raw  = (data.results ?? []).filter(s => (s.score || 0) >= MIN);
+      const lead = (data.leaders     ?? raw.filter(s => s.type === "استثمار")).filter(s => (s.score || 0) >= MIN);
+      const spec = (data.speculation ?? raw.filter(s => s.type !== "استثمار")).filter(s => (s.score || 0) >= MIN);
+      const early = (data.earlyWatch ?? raw.filter(s => s.early_watch)).filter(s => (s.score || 0) >= MIN);
 
       const toCard = s => ({
         symbol:     s.symbol,
@@ -887,7 +893,7 @@ export default function Radar() {
       const res = await fetch("/api/latest");
       if (!res.ok) return;
       const data = await res.json();
-      const rows = data.results ?? [];
+      const rows = (data.results ?? []).filter(s => (s.score || s.ep || 0) >= DISPLAY_MIN_SCORE);
       if (!rows.length) return;
       const cardFromRow = (s) => ({
         symbol:     s.symbol,
