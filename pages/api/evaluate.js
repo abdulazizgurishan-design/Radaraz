@@ -70,16 +70,26 @@ export default async function handler(req, res) {
         const d = sig.signal_date
           || (sig.created_at ? String(sig.created_at).split("T")[0] : today);
 
-        const url = `${BASE}/v2/aggs/ticker/${sig.symbol}/range/1/day/${d}/${d}?apiKey=${POLYGON_KEY}`;
+        // ⏱️ نقيس فقط حركة السعر بعد لحظة الرصد (created_at) — لا نظلم الإشارة بنزولٍ
+        //    حصل صباحاً قبل أن يرصدها الرادار. نطبّق القطع فقط إذا كان الرصد بنفس اليوم.
+        const sameDay = sig.created_at && String(sig.created_at).split("T")[0] === d;
+        const cutoff = sameDay ? new Date(sig.created_at).getTime() : 0;
+
+        // شموع الدقائق ليوم الإشارة (طلب واحد لكل إشارة)
+        const murl = `${BASE}/v2/aggs/ticker/${sig.symbol}/range/1/minute/${d}/${d}?sort=asc&limit=50000&apiKey=${POLYGON_KEY}`;
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 4000);
-        const r2 = await fetch(url, { signal: ctrl.signal });
+        const timer = setTimeout(() => ctrl.abort(), 4500);
+        const r2 = await fetch(murl, { signal: ctrl.signal });
         clearTimeout(timer);
         const data = await r2.json();
-        const bar = data?.results?.[0];
-        if (!bar) return null;
+        let bars = (data?.results || []).filter(b => b.t >= cutoff);
+        if (!bars.length) bars = data?.results || [];   // الرصد بعد آخر شمعة → نكتفي باليوم كامل
+        if (!bars.length) return null;                   // لا بيانات إطلاقاً
 
-        const high = bar.h, low = bar.l, close = bar.c;
+        const high  = Math.max(...bars.map(b => b.h));
+        const low   = Math.min(...bars.map(b => b.l));
+        const close = bars[bars.length - 1].c;
+
         const t1_hit = high >= sig.target1;
         const t2_hit = high >= sig.target2;
         const t3_hit = high >= sig.target3;
@@ -87,19 +97,11 @@ export default async function handler(req, res) {
         const max_gain_pct = +(((high - sig.entry_price) / sig.entry_price) * 100).toFixed(2);
         const close_gain_pct = +(((close - sig.entry_price) / sig.entry_price) * 100).toFixed(2);
 
-        // 🆕 وقت إصابة الهدف الأول (للرابحين فقط) — أول دقيقة يلمس فيها السعر الهدف
+        // وقت إصابة الهدف الأول — أول دقيقة (بعد الرصد) يلمس فيها السعر الهدف
         let target1_hit_at = null;
         if (t1_hit) {
-          try {
-            const murl = `${BASE}/v2/aggs/ticker/${sig.symbol}/range/1/minute/${d}/${d}?sort=asc&limit=5000&apiKey=${POLYGON_KEY}`;
-            const mc = new AbortController();
-            const mt = setTimeout(() => mc.abort(), 4000);
-            const mr = await fetch(murl, { signal: mc.signal });
-            clearTimeout(mt);
-            const mdata = await mr.json();
-            const mbar = (mdata?.results || []).find(b => b.h >= sig.target1);
-            if (mbar) target1_hit_at = new Date(mbar.t).toISOString();
-          } catch { /* نكتفي بدون الوقت الدقيق */ }
+          const mb = bars.find(b => b.h >= sig.target1);
+          if (mb) target1_hit_at = new Date(mb.t).toISOString();
         }
 
         return {
