@@ -582,33 +582,40 @@ export default function Admin() {
     return true;
   });
 
-  // 🔬 تحليل نمط الخسائر تلقائياً — وين يتركّز الخلل بالأرقام
-  const lossPattern = (() => {
-    const n = lossList.length;
+  // 🔬 تحليل نمط الخسائر/الأرباح تلقائياً — مقارنة عادلة بين الفئتين
+  const patternOf = (list) => {
+    const n = list.length;
     if (!n) return null;
     const pctG = c => Math.round((c / n) * 100);
     const num = v => (v == null ? null : parseFloat(v));
-    const penny    = lossList.filter(s => num(s.entry_price) != null && num(s.entry_price) < 1).length;
-    const chased   = lossList.filter(s => num(s.change_pct) != null && num(s.change_pct) > 40).length;
-    const hiRsi    = lossList.filter(s => num(s.rsi) != null && num(s.rsi) >= 72).length;
-    const noNews   = lossList.filter(s => s.news_age_hours == null).length;
-    const spec     = lossList.filter(s => s.type === "مضاربة").length;
-    const invest   = lossList.filter(s => s.type === "استثمار").length;
-    const hot      = lossList.filter(s => s.is_hot).length;
-    const early    = lossList.filter(s => s.early_watch).length;
-    const lowEp    = lossList.filter(s => (num(s.ep) || num(s.score) || 0) < 70).length;
-    const avgEp    = Math.round(lossList.reduce((a, s) => a + (num(s.ep) || num(s.score) || 0), 0) / n);
-    return [
-      { k: "بنسات < $1",     v: penny,  p: pctG(penny),  warn: pctG(penny)  >= 40 },
-      { k: "قفزت > 40% قبل الرصد", v: chased, p: pctG(chased), warn: pctG(chased) >= 30 },
-      { k: "RSI ≥ 72 (مُتشبّع)", v: hiRsi,  p: pctG(hiRsi),  warn: pctG(hiRsi)  >= 35 },
-      { k: "بلا أخبار",       v: noNews, p: pctG(noNews), warn: false },
-      { k: "EP < 70",         v: lowEp,  p: pctG(lowEp),  warn: pctG(lowEp)  >= 50 },
-      { k: "مضاربة / استثمار", v: `${spec} / ${invest}`, p: null, warn: false },
-      { k: "HOT / رصد مبكر",  v: `${hot} / ${early}`, p: null, warn: false },
-      { k: "متوسط EP للخاسر", v: avgEp, p: null, warn: false },
-    ];
-  })();
+    const penny  = list.filter(s => num(s.entry_price) != null && num(s.entry_price) < 1).length;
+    const chased = list.filter(s => num(s.change_pct) != null && num(s.change_pct) > 40).length;
+    const hiRsi  = list.filter(s => num(s.rsi) != null && num(s.rsi) >= 72).length;
+    const noNews = list.filter(s => s.news_age_hours == null).length;
+    const spec   = list.filter(s => s.type === "مضاربة").length;
+    const invest = list.filter(s => s.type === "استثمار").length;
+    const hot    = list.filter(s => s.is_hot).length;
+    const early  = list.filter(s => s.early_watch).length;
+    const lowEp  = list.filter(s => (num(s.ep) || num(s.score) || 0) < 70).length;
+    const avgEp  = Math.round(list.reduce((a, s) => a + (num(s.ep) || num(s.score) || 0), 0) / n);
+    return { penny: pctG(penny), chased: pctG(chased), hiRsi: pctG(hiRsi), noNews: pctG(noNews),
+             spec, invest, hot, early, lowEp: pctG(lowEp), avgEp,
+             pennyN: penny, chasedN: chased, hiRsiN: hiRsi, noNewsN: noNews, lowEpN: lowEp };
+  };
+  const lossPat = patternOf(lossList);
+  const winPat  = patternOf(winsList);
+
+  // صفوف اللوحة (تعرض الخاسر مقابل الرابح لكشف ما يميّز الخسارة فعلاً)
+  const diagRows = (lossPat && winPat) ? [
+    { k: "بنسات < $1",          lv: `${lossPat.pennyN} (${lossPat.penny}%)`, wv: `${winPat.penny}%`, warn: lossPat.penny >= 40 && lossPat.penny > winPat.penny },
+    { k: "قفزت > 40% قبل الرصد", lv: `${lossPat.chasedN} (${lossPat.chased}%)`, wv: `${winPat.chased}%`, warn: lossPat.chased >= 30 && lossPat.chased > winPat.chased },
+    { k: "RSI ≥ 72 (مُتشبّع)",   lv: `${lossPat.hiRsiN} (${lossPat.hiRsi}%)`, wv: `${winPat.hiRsi}%`, warn: lossPat.hiRsi >= 35 && lossPat.hiRsi > winPat.hiRsi },
+    { k: "بلا أخبار",            lv: `${lossPat.noNewsN} (${lossPat.noNews}%)`, wv: `${winPat.noNews}%`, warn: lossPat.noNews >= 60 && lossPat.noNews > winPat.noNews + 15 },
+    { k: "EP < 70",             lv: `${lossPat.lowEpN} (${lossPat.lowEp}%)`, wv: `${winPat.lowEp}%`, warn: lossPat.lowEp >= 50 && lossPat.lowEp > winPat.lowEp + 15 },
+    { k: "متوسط EP",            lv: `${lossPat.avgEp}`, wv: `${winPat.avgEp}`, warn: lossPat.avgEp + 3 < winPat.avgEp },
+    { k: "مضاربة / استثمار",     lv: `${lossPat.spec}/${lossPat.invest}`, wv: `${winPat.spec}/${winPat.invest}`, warn: false },
+    { k: "HOT / رصد مبكر",      lv: `${lossPat.hot}/${lossPat.early}`, wv: `${winPat.hot}/${winPat.early}`, warn: false },
+  ] : null;
 
   return (
     <div style={S.root} dir="rtl">
@@ -801,27 +808,29 @@ export default function Admin() {
               </div>
             )}
 
-            {/* 🔬 لوحة تشخيص الخسائر — تظهر في عرض الخاسرين */}
-            {resultView === "losses" && lossPattern && (
+            {/* 🔬 لوحة تشخيص مقارنة — الخاسر مقابل الرابح (يكشف ما يميّز الخسارة فعلاً) */}
+            {resultView === "losses" && diagRows && (
               <div style={{ marginBottom: 18, padding: "16px 18px", borderRadius: 14, background: "rgba(248,113,113,.05)", border: "1px solid rgba(248,113,113,.18)" }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: "#f87171", marginBottom: 12 }}>🔬 تشخيص الخاسرين ({lossList.length})</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  {lossPattern.map(row => (
-                    <div key={row.k} style={{
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
-                      padding: "9px 12px", borderRadius: 10,
-                      background: row.warn ? "rgba(248,113,113,.12)" : "rgba(255,255,255,.03)",
-                      border: `1px solid ${row.warn ? "rgba(248,113,113,.3)" : "rgba(255,255,255,.06)"}`,
-                    }}>
-                      <span style={{ fontSize: 11, color: row.warn ? "#fca5a5" : "#94a3b8" }}>{row.warn ? "⚠️ " : ""}{row.k}</span>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: row.warn ? "#f87171" : "#cbd5e1", fontFamily: "monospace" }}>
-                        {row.v}{row.p != null ? ` (${row.p}%)` : ""}
-                      </span>
-                    </div>
-                  ))}
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#f87171", marginBottom: 4 }}>🔬 تشخيص مقارن: خاسر مقابل رابح</div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 12 }}>{lossList.length} خاسر · {winsList.length} رابح — العبرة بالفرق بينهما، مو الرقم وحده</div>
+                <div style={{ display: "flex", fontSize: 10, color: "#475569", fontWeight: 700, padding: "0 12px 6px" }}>
+                  <span style={{ flex: 1 }}>المؤشر</span>
+                  <span style={{ width: 90, textAlign: "center", color: "#f87171" }}>🛑 الخاسر</span>
+                  <span style={{ width: 60, textAlign: "center", color: "#34d399" }}>🎯 الرابح</span>
                 </div>
+                {diagRows.map(row => (
+                  <div key={row.k} style={{
+                    display: "flex", alignItems: "center", padding: "9px 12px", borderRadius: 10, marginBottom: 5,
+                    background: row.warn ? "rgba(248,113,113,.12)" : "rgba(255,255,255,.03)",
+                    border: `1px solid ${row.warn ? "rgba(248,113,113,.3)" : "rgba(255,255,255,.06)"}`,
+                  }}>
+                    <span style={{ flex: 1, fontSize: 11.5, color: row.warn ? "#fca5a5" : "#94a3b8" }}>{row.warn ? "⚠️ " : ""}{row.k}</span>
+                    <span style={{ width: 90, textAlign: "center", fontSize: 13, fontWeight: 800, color: row.warn ? "#f87171" : "#cbd5e1", fontFamily: "monospace" }}>{row.lv}</span>
+                    <span style={{ width: 60, textAlign: "center", fontSize: 12, fontWeight: 700, color: "#34d399", fontFamily: "monospace" }}>{row.wv}</span>
+                  </div>
+                ))}
                 <div style={{ fontSize: 10.5, color: "#64748b", marginTop: 10, lineHeight: 1.7 }}>
-                  ⚠️ = نسبة عالية بين الخاسرين، مرشّح قوي لتشديد الفلتر. انسخ هذي الأرقام وأرسلها للمطوّر.
+                  ⚠️ = المؤشر مرتفع لدى الخاسرين <b>وأعلى منه لدى الرابحين</b> = مرشّح حقيقي لتشديد الفلتر. انسخ الأرقام وأرسلها للمطوّر.
                 </div>
               </div>
             )}
