@@ -607,7 +607,9 @@ export default async function handler(req, res) {
     const candidates = [];
     for (const tk of allTickers) {
       const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
-      const price  = tk.lastTrade?.p || min.c || day.c || prev.c || 0;
+      // سعر قابل للتنفيذ فعلاً: VWAP الدقيقة (متوسط مرجّح بالحجم) بدل نبضة tick لحظية
+      //   قد تكون قمة عابرة. يمنع تسجيل دخول عند قمة لحظية لا يعود لها السوق.
+      const price  = min.vw || min.c || tk.lastTrade?.p || day.c || prev.c || 0;
       const volume = day.v || min.av || 0;
       if (!tk.ticker || tk.ticker.includes(".")) continue;
       if (!/^[A-Z]{1,6}$/.test(tk.ticker)) continue;
