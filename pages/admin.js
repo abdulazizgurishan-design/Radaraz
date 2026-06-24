@@ -1,4 +1,4 @@
-// pages/admin.js — RadarAZ Admin Panel v3 (select-to-tweet + Gregorian date)
+// pages/admin.js — RadarAZ Admin Panel v4 (results: Saudi-time + win/loss filter + copyable report)
 import { useState, useEffect } from "react";
 
 const ADMIN_KEY = "123451";
@@ -54,6 +54,15 @@ function EPBadge({ ep }) {
   );
 }
 
+// ─── الوقت بتوقيت السعودية (UTC+3) ───────────────────────────────
+function astStr(iso) {
+  if (!iso) return null;
+  const d = new Date(new Date(iso).getTime() + 3 * 3600 * 1000);
+  if (isNaN(d)) return null;
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} · ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+
 // ─── Tweet builder ────────────────────────────────────────────────
 function buildTweet(signals, date, mode = "signals") {
   const lines = [`📡 رادار الأسهم — ${date}\n`];
@@ -63,7 +72,8 @@ function buildTweet(signals, date, mode = "signals") {
     const t3 = signals.filter(s => s.target3_hit).length;
     const st = signals.filter(s => s.stop_hit).length;
     const hit = signals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length;
-    const rate = signals.length ? Math.round((hit / signals.length) * 100) : 0;
+    const decided = hit + st;                                   // المحسوم = رابح + خاسر (نستبعد المحايد)
+    const rate = decided ? Math.round((hit / decided) * 100) : 0;
 
     // 🏆 أبرز الارتفاعات (أعلى max_gain) — الأقوى تسويقياً
     const topGainers = [...signals]
@@ -75,9 +85,13 @@ function buildTweet(signals, date, mode = "signals") {
     topGainers.forEach(s => {
       const icon = s.type === "استثمار" ? "📈" : "⚡";
       const g = (s.max_gain_pct || 0).toFixed(1);
-      lines.push(`${icon} $${s.symbol} ارتفع +${g}%`);
+      const caught = astStr(s.created_at);
+      const hitAt = astStr(s.target1_hit_at);
+      lines.push(`${icon} $${s.symbol} +${g}%`);
+      if (caught) lines.push(`   رُصد: ${caught}`);
+      if (hitAt)  lines.push(`   أصاب الهدف: ${hitAt}`);
     });
-    lines.push(`\n✅ ${hit} إشارة ناجحة · نسبة نجاح ${rate}% 🔥`);
+    lines.push(`\n✅ ${hit} رابح من ${decided} محسوم · نسبة نجاح ${rate}% 🔥`);
   } else {
     signals.slice(0, 8).forEach(s => {
       const hot = s.is_hot ? " 🚨" : "";
@@ -270,12 +284,33 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
   );
 }
 
-// ─── Result Card ──────────────────────────────────────────────────
+// ─── Result Card (مع أوقات السعودية + تقرير مفصّل قابل للنسخ) ──────
 function ResultCard({ s, copiedId, onCopy }) {
   const r   = getResult(s);
   const ep  = s.ep || s.score || 0;
   const won = s.target1_hit || s.target2_hit || s.target3_hit;
-  const text = `${r?.icon || "📡"} $${s.symbol} (EP: ${ep}%)\nالنتيجة: ${r ? r.label : "مفتوحة"} ${r?.pct != null ? (r.pct >= 0 ? `+${r.pct}%` : `${r.pct}%`) : ""}\n\nradaraz.com`;
+  const caught = astStr(s.created_at);
+  const hitAt  = astStr(s.target1_hit_at);
+  const entry  = (s.entry_price || 0).toFixed(2);
+  const tgt    = (s.target1 || 0).toFixed(2);
+  const gain   = s.max_gain_pct != null ? `+${s.max_gain_pct}%` : (r?.pct != null ? `${r.pct}%` : "");
+
+  // 📋 تقرير مفصّل قابل للنسخ (بتوقيت السعودية)
+  let text;
+  if (won) {
+    text =
+      `🎯 $${s.symbol}  ${gain}\n` +
+      (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : `📅 سعر الالتقاط: $${entry}\n`) +
+      (hitAt ? `✅ الهدف: ${hitAt} @ $${tgt}\n` : `✅ أصاب الهدف @ $${tgt}\n`) +
+      `— RadarAZ`;
+  } else if (s.stop_hit) {
+    text =
+      `🛑 $${s.symbol}  ${r?.pct != null ? (r.pct >= 0 ? `+${r.pct}%` : `${r.pct}%`) : ""}\n` +
+      (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : "") +
+      `🛑 ضرب وقف الخسارة\n— RadarAZ`;
+  } else {
+    text = `➖ $${s.symbol} — أغلق دون هدف/وقف ${r?.pct != null ? `(${r.pct}%)` : ""}\n— RadarAZ`;
+  }
 
   return (
     <div style={{
@@ -300,6 +335,14 @@ function ResultCard({ s, copiedId, onCopy }) {
           {copiedId === s.id ? "✅" : "📋"}
         </button>
       </div>
+
+      {/* أوقات بتوقيت السعودية */}
+      {(caught || hitAt) && (
+        <div style={{ marginTop: 9, paddingTop: 9, borderTop: "1px solid rgba(255,255,255,.06)", fontSize: 11, color: "#94a3b8", lineHeight: 1.9 }}>
+          {caught && <div>📅 التُقط: <span style={{ color: "#cbd5e1", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>{caught}</span> <span style={{ color: "#475569" }}>(السعودية)</span> @ <span style={{ color: "#60a5fa", fontFamily: "monospace" }}>${entry}</span></div>}
+          {won && hitAt && <div>✅ الهدف: <span style={{ color: "#cbd5e1", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>{hitAt}</span> @ <span style={{ color: "#34d399", fontFamily: "monospace" }}>${tgt}</span></div>}
+        </div>
+      )}
     </div>
   );
 }
@@ -320,6 +363,7 @@ export default function Admin() {
   const [toast,     setToast]     = useState({ msg: "", type: "" });
   const [tweetText, setTweetText] = useState(null);
   const [scanStats, setScanStats] = useState(null);
+  const [resultView, setResultView] = useState("all");   // all | wins | losses
 
   // ── select-to-tweet state ──
   const [selectMode, setSelectMode] = useState(false);
@@ -477,6 +521,23 @@ export default function Admin() {
     setTweetText(buildTweet(chosen, date, "signals"));
   };
 
+  // 📋 نسخ تقرير الرابحين كامل (تسويق)
+  const copyAllWins = (winsList) => {
+    if (!winsList.length) { showToast("لا يوجد رابحون بعد", "err"); return; }
+    const blocks = winsList.map(s => {
+      const caught = astStr(s.created_at);
+      const hitAt = astStr(s.target1_hit_at);
+      const entry = (s.entry_price || 0).toFixed(2);
+      const tgt = (s.target1 || 0).toFixed(2);
+      const gain = s.max_gain_pct != null ? `+${s.max_gain_pct}%` : "";
+      return `🎯 $${s.symbol}  ${gain}\n` +
+        (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : `📅 @ $${entry}\n`) +
+        (hitAt ? `✅ الهدف: ${hitAt} @ $${tgt}` : `✅ أصاب الهدف @ $${tgt}`);
+    });
+    copyText(`📡 سجل إنجازات RadarAZ\n\n${blocks.join("\n\n")}\n\n🔗 radaraz.com`, "all-wins");
+    showToast("✅ نُسخ تقرير الإنجازات", "ok");
+  };
+
   const hotCount  = signals.filter(s => s.is_hot).length;
   const newsCount = signals.filter(s => s.news_age_hours != null && s.news_age_hours <= 24).length;
 
@@ -507,7 +568,16 @@ export default function Admin() {
   const t3  = closedSignals.filter(s => s.target3_hit).length;
   const stp = closedSignals.filter(s => s.stop_hit).length;
   const hit = closedSignals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length;
-  const successRate = closedSignals.length ? Math.round((hit / closedSignals.length) * 100) : 0;
+  const decided = hit + stp;                                   // المحسوم = رابح + خاسر
+  const successRate = decided ? Math.round((hit / decided) * 100) : 0;
+
+  // فلترة عرض النتائج (الكل/رابح/خاسر)
+  const winsList = closedSignals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
+  const resultsToShow = closedSignals.filter(s => {
+    if (resultView === "wins")   return s.target1_hit || s.target2_hit || s.target3_hit;
+    if (resultView === "losses") return s.stop_hit && !s.target1_hit;
+    return true;
+  });
 
   return (
     <div style={S.root} dir="rtl">
@@ -663,10 +733,10 @@ export default function Admin() {
             </div>
 
             {/* Success rate bar */}
-            {closedSignals.length > 0 && (
+            {decided > 0 && (
               <div style={{ marginBottom: 20, padding: "14px 18px", borderRadius: 12, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.07)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>نسبة النجاح</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>نسبة النجاح <span style={{ fontSize: 11, color: "#475569" }}>(رابح ÷ المحسوم)</span></span>
                   <span style={{ fontSize: 16, fontWeight: 900, color: successRate >= 60 ? "#34d399" : successRate >= 40 ? "#fbbf24" : "#f87171" }}>
                     {successRate}%
                   </span>
@@ -674,14 +744,27 @@ export default function Admin() {
                 <div style={{ height: 6, background: "rgba(255,255,255,.06)", borderRadius: 3, overflow: "hidden" }}>
                   <div style={{ width: `${successRate}%`, height: "100%", borderRadius: 3, background: successRate >= 60 ? "linear-gradient(90deg,#34d399,#059669)" : successRate >= 40 ? "linear-gradient(90deg,#fbbf24,#d97706)" : "linear-gradient(90deg,#f87171,#dc2626)", transition: "width 1s ease" }} />
                 </div>
-                <div style={{ fontSize: 11, color: "#334155", marginTop: 6 }}>{hit} من {closedSignals.length} إشارة حققت هدفاً</div>
+                <div style={{ fontSize: 11, color: "#334155", marginTop: 6 }}>{hit} رابح · {stp} خاسر · {hit}/{decided} محسوم · ({closedSignals.length} مُقيّمة)</div>
               </div>
             )}
 
-            {/* Tweet results */}
+            {/* Filter + copy/tweet */}
             {closedSignals.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={() => setTweetText(buildTweet(closedSignals, date, "results"))}>
+              <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                {[
+                  { id: "all",    label: `الكل (${closedSignals.length})` },
+                  { id: "wins",   label: `🎯 الرابحون (${winsList.length})` },
+                  { id: "losses", label: `🛑 الخاسرون (${stp})` },
+                ].map(v => (
+                  <button key={v.id} onClick={() => setResultView(v.id)}
+                    style={S.btn(resultView === v.id ? "rgba(99,102,241,.3)" : "rgba(255,255,255,.06)")}>
+                    {v.label}
+                  </button>
+                ))}
+                <button style={S.btn("rgba(52,211,153,.18)")} onClick={() => copyAllWins(winsList)}>
+                  📋 نسخ الإنجازات
+                </button>
+                <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={() => setTweetText(buildTweet(winsList, date, "results"))}>
                   🐦 تغريد النتائج
                 </button>
               </div>
@@ -693,8 +776,10 @@ export default function Admin() {
                 <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
                 انتظر التقييم الأوتوماتيكي
               </div>
+            ) : resultsToShow.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#334155" }}>لا نتائج في هذا العرض</div>
             ) : (
-              closedSignals
+              resultsToShow
                 .sort((a, b) => {
                   const rank = s => s.target3_hit ? 3 : s.target2_hit ? 2 : s.target1_hit ? 1 : s.stop_hit ? -1 : 0;
                   return rank(b) - rank(a);
