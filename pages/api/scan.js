@@ -35,7 +35,7 @@ const FILTER = {
   MAX_CHANGE:     40,            // فوق 40% = دخول متأخر/pump → استبعاد نهائي
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
-  HEAVY_LIMIT:    90,            // رُفع 70→90: الأخبار المشروطة وفّرت وقتاً (حارس الوقت يحمي من timeout)
+  HEAVY_LIMIT:    55,            // خُفّض 90→55: بميزانية 8ث كان 47% من الأسهم لا يُحلّل (timeout). أفضل 55 محلّلاً بالكامل من 90 نصفها مقطوع.
   SAVE_MIN_EP:    60,            // رفعناه من 50 → 60 (جودة أعلى للحفظ والبوت)
   STRICT_PRICE:   1.00,          // تحت هذا السعر = غربال صارم
 };
@@ -456,7 +456,7 @@ async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
   const from = new Date(Date.now() - lookbackDays * 86400000).toISOString().slice(0, 10);
   const url  = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&limit=${limit}&apiKey=${POLYGON_KEY}`;
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 4500);
+  const id = setTimeout(() => controller.abort(), 3500);
   try {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
@@ -590,7 +590,7 @@ async function saveSignals(signals) {
 // ════════════════ MAIN HANDLER ════════════════
 export default async function handler(req, res) {
   const t0 = Date.now();
-  const DEADLINE = t0 + 8000;   // ميزانية 8ث (حد Hobby 10ث) — نوقف التحليل الثقيل قبلها
+  const DEADLINE = t0 + 6500;   // ميزانية 6.5ث (حد Hobby 10ث) — مع مهلة الجلب 3.5ث للدفعة الأخيرة نبقى تحت 10ث
   const isSubscriber = req.query.sub === "1";
 
   try {
