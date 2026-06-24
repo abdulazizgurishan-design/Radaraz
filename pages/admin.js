@@ -362,6 +362,8 @@ export default function Admin() {
   const [tweetText, setTweetText] = useState(null);
   const [scanStats, setScanStats] = useState(null);
   const [resultView, setResultView] = useState("all");   // all | wins | losses
+  const [audit, setAudit] = useState(null);              // تدقيق المطابقة: المعروض مقابل المُقيّم
+  const [auditBusy, setAuditBusy] = useState(false);
 
   // ── select-to-tweet state ──
   const [selectMode, setSelectMode] = useState(false);
@@ -407,6 +409,35 @@ export default function Admin() {
       const data = await res.json();
       setSignals(data?.signals || []);
     } catch (err) { console.error(err); }
+  };
+
+  // 🔍 تدقيق المطابقة: هل كل سهم معروض للمشترك (latest) موجود/سيظهر في التقرير؟
+  const runAudit = async () => {
+    setAuditBusy(true); setAudit(null);
+    try {
+      const latRes = await fetch("/api/latest");
+      const latData = latRes.ok ? await latRes.json() : {};
+      const shown = [...new Set((latData.results || []).map(r => r.symbol).filter(Boolean))];
+
+      // صفوف قاعدة البيانات (نفس مصدر التقرير)
+      const all = summary?.signals || signals || [];
+      const statusBySym = {};
+      for (const s of all) {
+        // آخر حالة لكل رمز (CLOSED أولى من OPEN عند التكرار)
+        if (!statusBySym[s.symbol] || s.status === "CLOSED") statusBySym[s.symbol] = s.status || "OPEN";
+      }
+
+      const inReport = [], pending = [], missing = [];
+      for (const sym of shown) {
+        const st = statusBySym[sym];
+        if (!st) missing.push(sym);
+        else if (st === "OPEN") pending.push(sym);
+        else inReport.push(sym);
+      }
+      setAudit({ shown: shown.length, inReport, pending, missing, ts: new Date() });
+    } catch (e) {
+      setAudit({ error: e.message });
+    } finally { setAuditBusy(false); }
   };
 
   const fetchSummary = async () => {
@@ -751,6 +782,57 @@ export default function Admin() {
         {activeTab === "results" && (
           <>
             {loading && <div style={{ textAlign: "center", color: "#334155", padding: 30 }}>جاري التحميل...</div>}
+
+            {/* 🔍 تدقيق المطابقة: المعروض للمشترك مقابل التقرير */}
+            <div style={{ marginBottom: 18, padding: "14px 16px", borderRadius: 14, background: "rgba(99,102,241,.06)", border: "1px solid rgba(99,102,241,.2)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#a5b4fc" }}>🔍 تدقيق المطابقة</div>
+                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>هل كل سهم معروض للمشترك موجود في التقرير؟</div>
+                </div>
+                <button onClick={runAudit} disabled={auditBusy} style={S.btn(auditBusy ? "rgba(255,255,255,.06)" : "rgba(99,102,241,.25)")}>
+                  {auditBusy ? "⟳ جاري الفحص..." : "▶ افحص الآن"}
+                </button>
+              </div>
+              {audit && !audit.error && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)" }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#a5b4fc" }}>{audit.shown}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>معروض للمشترك</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(52,211,153,.08)", border: "1px solid rgba(52,211,153,.2)" }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#34d399" }}>{audit.inReport.length}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>✅ في التقرير</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(251,191,36,.08)", border: "1px solid rgba(251,191,36,.2)" }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#fbbf24" }}>{audit.pending.length}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>⏳ بانتظار التقييم</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: audit.missing.length ? "rgba(248,113,113,.12)" : "rgba(255,255,255,.04)", border: `1px solid ${audit.missing.length ? "rgba(248,113,113,.35)" : "rgba(255,255,255,.07)"}` }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: audit.missing.length ? "#f87171" : "#475569" }}>{audit.missing.length}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>🔴 غير موجود</div>
+                    </div>
+                  </div>
+                  {audit.missing.length === 0 ? (
+                    <div style={{ fontSize: 12, color: "#34d399", marginTop: 10, fontWeight: 600 }}>
+                      ✅ مطابقة سليمة — كل سهم معروض إمّا في التقرير أو بانتظار التقييم. لا تسريب.
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: "#f87171", marginTop: 10, fontWeight: 600 }}>
+                      🔴 تنبيه: {audit.missing.length} سهم معروض للمشترك وغير محفوظ في القاعدة!<br />
+                      <span style={{ fontFamily: "monospace", color: "#fca5a5", fontWeight: 400 }}>{audit.missing.join(" · ")}</span>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, color: "#475569", marginTop: 8 }}>
+                    ⏳ "بانتظار التقييم" طبيعي لأسهم اليوم (تظهر في التقرير بعد إغلاق السوق وتشغيل التقييم).
+                  </div>
+                </div>
+              )}
+              {audit && audit.error && (
+                <div style={{ fontSize: 12, color: "#f87171", marginTop: 10 }}>تعذّر الفحص: {audit.error}</div>
+              )}
+            </div>
 
             {/* Stats row */}
             <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
