@@ -573,11 +573,40 @@ export default function Admin() {
 
   // فلترة عرض النتائج (الكل/رابح/خاسر)
   const winsList = closedSignals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
+  const lossList = closedSignals.filter(s => s.stop_hit && !s.target1_hit);
   const resultsToShow = closedSignals.filter(s => {
     if (resultView === "wins")   return s.target1_hit || s.target2_hit || s.target3_hit;
     if (resultView === "losses") return s.stop_hit && !s.target1_hit;
     return true;
   });
+
+  // 🔬 تحليل نمط الخسائر تلقائياً — وين يتركّز الخلل بالأرقام
+  const lossPattern = (() => {
+    const n = lossList.length;
+    if (!n) return null;
+    const pctG = c => Math.round((c / n) * 100);
+    const num = v => (v == null ? null : parseFloat(v));
+    const penny    = lossList.filter(s => num(s.entry_price) != null && num(s.entry_price) < 1).length;
+    const chased   = lossList.filter(s => num(s.change_pct) != null && num(s.change_pct) > 40).length;
+    const hiRsi    = lossList.filter(s => num(s.rsi) != null && num(s.rsi) >= 72).length;
+    const noNews   = lossList.filter(s => s.news_age_hours == null).length;
+    const spec     = lossList.filter(s => s.type === "مضاربة").length;
+    const invest   = lossList.filter(s => s.type === "استثمار").length;
+    const hot      = lossList.filter(s => s.is_hot).length;
+    const early    = lossList.filter(s => s.early_watch).length;
+    const lowEp    = lossList.filter(s => (num(s.ep) || num(s.score) || 0) < 70).length;
+    const avgEp    = Math.round(lossList.reduce((a, s) => a + (num(s.ep) || num(s.score) || 0), 0) / n);
+    return [
+      { k: "بنسات < $1",     v: penny,  p: pctG(penny),  warn: pctG(penny)  >= 40 },
+      { k: "قفزت > 40% قبل الرصد", v: chased, p: pctG(chased), warn: pctG(chased) >= 30 },
+      { k: "RSI ≥ 72 (مُتشبّع)", v: hiRsi,  p: pctG(hiRsi),  warn: pctG(hiRsi)  >= 35 },
+      { k: "بلا أخبار",       v: noNews, p: pctG(noNews), warn: false },
+      { k: "EP < 70",         v: lowEp,  p: pctG(lowEp),  warn: pctG(lowEp)  >= 50 },
+      { k: "مضاربة / استثمار", v: `${spec} / ${invest}`, p: null, warn: false },
+      { k: "HOT / رصد مبكر",  v: `${hot} / ${early}`, p: null, warn: false },
+      { k: "متوسط EP للخاسر", v: avgEp, p: null, warn: false },
+    ];
+  })();
 
   return (
     <div style={S.root} dir="rtl">
@@ -767,6 +796,31 @@ export default function Admin() {
                 <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={() => setTweetText(buildTweet(winsList, date, "results"))}>
                   🐦 تغريد النتائج
                 </button>
+              </div>
+            )}
+
+            {/* 🔬 لوحة تشخيص الخسائر — تظهر في عرض الخاسرين */}
+            {resultView === "losses" && lossPattern && (
+              <div style={{ marginBottom: 18, padding: "16px 18px", borderRadius: 14, background: "rgba(248,113,113,.05)", border: "1px solid rgba(248,113,113,.18)" }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#f87171", marginBottom: 12 }}>🔬 تشخيص الخاسرين ({lossList.length})</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {lossPattern.map(row => (
+                    <div key={row.k} style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      padding: "9px 12px", borderRadius: 10,
+                      background: row.warn ? "rgba(248,113,113,.12)" : "rgba(255,255,255,.03)",
+                      border: `1px solid ${row.warn ? "rgba(248,113,113,.3)" : "rgba(255,255,255,.06)"}`,
+                    }}>
+                      <span style={{ fontSize: 11, color: row.warn ? "#fca5a5" : "#94a3b8" }}>{row.warn ? "⚠️ " : ""}{row.k}</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: row.warn ? "#f87171" : "#cbd5e1", fontFamily: "monospace" }}>
+                        {row.v}{row.p != null ? ` (${row.p}%)` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10.5, color: "#64748b", marginTop: 10, lineHeight: 1.7 }}>
+                  ⚠️ = نسبة عالية بين الخاسرين، مرشّح قوي لتشديد الفلتر. انسخ هذي الأرقام وأرسلها للمطوّر.
+                </div>
               </div>
             )}
 
