@@ -552,12 +552,13 @@ export default function Admin() {
   };
 
   // 📋 نسخ تقرير الرابحين كامل (تسويق)
-  // هل رُصدت الإشارة قبل فتح السوق (9:30ص ET)؟ نستبعدها من السجل (أسعار pre-market غير موثوقة)
+  // نستبعد فقط الإشارات قبل بداية مسحنا (3م السعودية = 8ص ET).
+  //   pre-market بعدها قابل للتداول على منصات السعودية، فيُحتسب.
   const isPreMarket = (s) => {
     if (!s.created_at) return false;
     const et = new Date(new Date(s.created_at).toLocaleString("en-US", { timeZone: "America/New_York" }));
     const mins = et.getHours() * 60 + et.getMinutes();
-    return mins < 9 * 60 + 30;   // قبل 9:30ص ET
+    return mins < 8 * 60;   // قبل 8:00ص ET (= 3م السعودية)
   };
 
   const copyAllWins = (winsList) => {
@@ -618,7 +619,8 @@ export default function Admin() {
     return true; // all
   };
 
-  const closedSignals = (summary?.signals || []).filter(s => s.status !== "OPEN" && inPeriod(s));
+  // نستبعد إشارات ما قبل فتح السوق من كل النتائج (غير قابلة للتداول → لا تُحتسب في السجل)
+  const closedSignals = (summary?.signals || []).filter(s => s.status !== "OPEN" && inPeriod(s) && !isPreMarket(s));
   const t1  = closedSignals.filter(s => s.target1_hit).length;
   const t2  = closedSignals.filter(s => s.target2_hit).length;
   const t3  = closedSignals.filter(s => s.target3_hit).length;
