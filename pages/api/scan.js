@@ -35,7 +35,7 @@ const FILTER = {
   MAX_CHANGE:     40,            // فوق 40% = دخول متأخر/pump → استبعاد نهائي
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
-  HEAVY_LIMIT:    55,            // خُفّض 90→55: بميزانية 8ث كان 47% من الأسهم لا يُحلّل (timeout). أفضل 55 محلّلاً بالكامل من 90 نصفها مقطوع.
+  HEAVY_LIMIT:    45,            // خُفّض 55→45: analyze_pct كان 53% (نصف الأسهم بلا تحليل). أقل عدداً = كلٌّ يُحلّل كاملاً.
   SAVE_MIN_EP:    60,            // رفعناه من 50 → 60 (جودة أعلى للحفظ والبوت)
   STRICT_PRICE:   1.00,          // تحت هذا السعر = غربال صارم
 };
@@ -652,7 +652,7 @@ export default async function handler(req, res) {
 
     // 5.5) التحليل الفني متعدّد الفريمات + الأخبار + البوابة + الهدف
     //      على دفعات من 8 (≈16 طلب متزامن فقط بدل 70) — أمان من timeout
-    await inBatches(top, 24, async (s) => {
+    await inBatches(top, 30, async (s) => {
       if (Date.now() > DEADLINE) { s._timedOut = true; return; }   // تجاوزنا الميزانية → نكتفي بما حُلّل (يمنع timeout)
       const fr = frameFor(s.trade_style);
       // 🆕 الأخبار مكلفة زمنياً — نجلبها فقط للأسهم الواعدة، فنحلّل أسهماً أكثر بنفس الميزانية
