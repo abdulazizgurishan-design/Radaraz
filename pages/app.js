@@ -15,26 +15,22 @@ const S = {
 };
 
 // 🔐 بصمة الجهاز — مبنية على خصائص الجهاز الفعلية
-// نفس الجهاز = نفس البصمة (حتى لو تغيّر المتصفح)
-// جهاز مختلف = بصمة مختلفة
 async function getDeviceId() {
   try {
     const parts = [
-      screen.width + "x" + screen.height,          // دقة الشاشة
-      screen.colorDepth,                            // عمق الألوان
-      navigator.hardwareConcurrency || "",          // عدد الأنوية
-      navigator.platform || "",                     // المنصة (iPhone/Android...)
-      navigator.maxTouchPoints || "",               // نقاط اللمس
-      new Date().getTimezoneOffset(),               // المنطقة الزمنية
-      navigator.language || "",                     // اللغة
+      screen.width + "x" + screen.height,
+      screen.colorDepth,
+      navigator.hardwareConcurrency || "",
+      navigator.platform || "",
+      navigator.maxTouchPoints || "",
+      new Date().getTimezoneOffset(),
+      navigator.language || "",
     ];
     const raw = parts.join("|");
-    // تحويل لبصمة ثابتة (hash)
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
     const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
     return "dev_" + hash;
   } catch {
-    // fallback: لو فشل التشفير، استخدم المعرّف المخزّن
     try {
       let id = localStorage.getItem("radar_device_id");
       if (!id) {
@@ -48,11 +44,74 @@ async function getDeviceId() {
   }
 }
 
+// شريط الترحيب — يتكيّف حسب نوع الباقة (trial / monthly)
+function WelcomeBar({ plan, expiresAt }) {
+  const [show, setShow] = useState(true);
+  if (!show) return null;
+
+  const isTrial = plan === 'trial';
+  // حساب المتبقّي
+  let remain = '';
+  if (expiresAt) {
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    if (ms > 0) {
+      const hrs = Math.floor(ms / 3600000);
+      const days = Math.floor(hrs / 24);
+      remain = isTrial
+        ? (hrs >= 1 ? `متبقّي ${hrs} ساعة` : `متبقّي أقل من ساعة`)
+        : (days >= 1 ? `${days} يوم متبقّي` : `ينتهي اليوم`);
+    } else {
+      remain = 'منتهٍ';
+    }
+  }
+
+  const bg = isTrial
+    ? 'linear-gradient(90deg,rgba(99,102,241,0.18),rgba(139,92,246,0.18))'
+    : 'linear-gradient(90deg,rgba(0,212,170,0.14),rgba(52,211,153,0.14))';
+  const border = isTrial ? 'rgba(139,92,246,0.35)' : 'rgba(52,211,153,0.35)';
+  const accent = isTrial ? '#a5b4fc' : '#34d399';
+
+  return (
+    <div style={{
+      position: 'sticky', top: 0, zIndex: 9999,
+      background: bg, borderBottom: `1px solid ${border}`,
+      backdropFilter: 'blur(10px)',
+      padding: '10px 16px',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+      fontFamily: 'system-ui', fontSize: 13, flexWrap: 'wrap',
+    }}>
+      {isTrial ? (
+        <>
+          <span style={{ color: '#fff', fontWeight: 700 }}>⏳ تجربة مجانية</span>
+          {remain && <span style={{ color: accent, fontSize: 12 }}>· {remain}</span>}
+          <a href="/#pricing" style={{
+            background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff',
+            textDecoration: 'none', padding: '5px 14px', borderRadius: 8,
+            fontSize: 12, fontWeight: 800, marginRight: 4,
+          }}>اشترك الآن 💳</a>
+        </>
+      ) : (
+        <>
+          <span style={{ color: accent, fontWeight: 800 }}>⭐ مشترك RadarAZ</span>
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>· اشتراك نشط</span>
+          {remain && <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>· {remain}</span>}
+        </>
+      )}
+      <button onClick={() => setShow(false)} style={{
+        background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)',
+        fontSize: 16, cursor: 'pointer', padding: '0 4px', lineHeight: 1,
+      }}>×</button>
+    </div>
+  );
+}
+
 export default function App() {
   const [key, setKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [verified, setVerified] = useState(false);
+  const [plan, setPlan] = useState(null);
+  const [expiresAt, setExpiresAt] = useState(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('radar_key');
@@ -68,6 +127,8 @@ export default function App() {
       const data = await res.json();
       if (data.valid) {
         localStorage.setItem('radar_key', k);
+        setPlan(data.plan || null);
+        setExpiresAt(data.expires_at || null);
         setVerified(true);
       } else {
         if (!silent) {
@@ -80,7 +141,6 @@ export default function App() {
             setError('المفتاح غير صحيح · Invalid key');
           }
         } else if (data.reason === 'device_mismatch') {
-          // المفتاح المحفوظ صار على جهاز آخر → امسحه واطلب إعادة إدخال
           localStorage.removeItem('radar_key');
           setError('هذا المفتاح مستخدم على جهاز آخر · This key is active on another device');
         }
@@ -92,7 +152,12 @@ export default function App() {
     }
   };
 
-  if (verified) return <Radar />;
+  if (verified) return (
+    <>
+      <WelcomeBar plan={plan} expiresAt={expiresAt} />
+      <Radar />
+    </>
+  );
 
   return (
     <div style={S.root}>
