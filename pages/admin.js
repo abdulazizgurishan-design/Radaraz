@@ -362,6 +362,7 @@ export default function Admin() {
   const [tweetText, setTweetText] = useState(null);
   const [scanStats, setScanStats] = useState(null);
   const [resultView, setResultView] = useState("all");   // all | wins | losses
+  const [datePeriod, setDatePeriod] = useState("today");  // today | yesterday | week | all
   const [audit, setAudit] = useState(null);              // تدقيق المطابقة: المعروض مقابل المُقيّم
   const [auditBusy, setAuditBusy] = useState(false);
 
@@ -592,7 +593,20 @@ export default function Admin() {
     </div>
   );
 
-  const closedSignals = (summary?.signals || []).filter(s => s.status !== "OPEN");
+  // 📅 فلتر الفترة بتوقيت السوق (ET) — لعزل نتائج اليوم عن السجل المتراكم
+  const etDateStr = (d) => new Date(d).toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+  const todayET = etDateStr(Date.now());
+  const yestET  = etDateStr(Date.now() - 86400000);
+  const weekAgo = etDateStr(Date.now() - 7 * 86400000);
+  const inPeriod = (s) => {
+    const d = s.signal_date || etDateStr(s.created_at);
+    if (datePeriod === "today")     return d === todayET;
+    if (datePeriod === "yesterday") return d === yestET;
+    if (datePeriod === "week")      return d >= weekAgo;
+    return true; // all
+  };
+
+  const closedSignals = (summary?.signals || []).filter(s => s.status !== "OPEN" && inPeriod(s));
   const t1  = closedSignals.filter(s => s.target1_hit).length;
   const t2  = closedSignals.filter(s => s.target2_hit).length;
   const t3  = closedSignals.filter(s => s.target3_hit).length;
@@ -846,6 +860,22 @@ export default function Admin() {
                   <div style={{ fontSize: 20, fontWeight: 900, color: s.color }}>{s.value}</div>
                   <div style={{ fontSize: 10, color: "#334155", marginTop: 4 }}>{s.label}</div>
                 </div>
+              ))}
+            </div>
+
+            {/* 📅 فلتر الفترة — لعزل نتائج اليوم للتغريد */}
+            <div style={{ marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "#64748b", fontWeight: 700 }}>📅 الفترة:</span>
+              {[
+                { id: "today",     label: "اليوم" },
+                { id: "yesterday", label: "أمس" },
+                { id: "week",      label: "7 أيام" },
+                { id: "all",       label: "الكل" },
+              ].map(p => (
+                <button key={p.id} onClick={() => setDatePeriod(p.id)}
+                  style={S.btn(datePeriod === p.id ? "rgba(52,211,153,.3)" : "rgba(255,255,255,.06)")}>
+                  {p.label}
+                </button>
               ))}
             </div>
 
