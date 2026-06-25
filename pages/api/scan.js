@@ -1,939 +1,1245 @@
-// pages/api/scan.js — STANDALONE EDITION v3 (Multi-Timeframe + MACD + News + Target)
-// ═══════════════════════════════════════════════════════════════════
-//  مسح مستقل تماماً — صفر اعتماد على جداول أخرى
-//  ─────────────────────────────────────────────────────────────────
-//  ترقيات هذا الإصدار:
-//   ✅ المتوسطات/RSI/ATR/MACD حسب نوع الصفقة:
-//        ⚡ مضاربة → فريم 60 دقيقة (سريع، يناسب اليوم)
-//        📈 استثمار → فريم يومي (يناسب المستثمر)
-//   ✅ إضافة MA50 + MACD(12,26,9) لتأكيد الاتجاه
-//   ✅ المتوسطات صارت "بوابة" (gate) لا مجرد بونص
-//   ✅ غربال صارم للأسهم أقل من $1
-//   ✅ طبقة الأخبار اللحظية (Polygon News) — تفصل الكاتشي عن الوهمي
-//   ✅ شارة 🎯 "الهدف" — التقاء كامل على الفريمين (نخبة)
-//   ✅ أهداف واقعية (مضاربة على ATR 60د = أضيق وأقرب للتحقق)
-//   ✅ إصلاح bug قسم الاستثمار (كان يستخدم "قيادي" بدل "استثمار")
-//
-//  ⚠️ ملاحظة توافق: شكل الرد للواجهة لم يتغيّر (نفس الحقول والأقسام).
-//     شارة "الهدف" تُعرض عبر حقل signal الموجود أصلاً — لا تعديل واجهة.
-//  ⚠️ هذا الإصدار يحفظ عمودين جديدين (is_target, news_age_h) — لازم تضيفهما
-//     في جدول signals أولاً (SQL في الأسفل) قبل الرفع، وإلا يفشل الحفظ.
-// ═══════════════════════════════════════════════════════════════════
+// pages/admin.js — RadarAZ Admin Panel v4 (results: Saudi-time + win/loss filter + copyable report)
+import { useState, useEffect } from "react";
 
-export const config = { maxDuration: 60 };
+const ADMIN_KEY = "123451";
 
-const POLYGON_KEY  = process.env.POLYGON_API_KEY;
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
-
-// ─── إعدادات الفلترة ───────────────────────────────────────────────
-const FILTER = {
-  MIN_PRICE:      0.30,
-  MAX_PRICE:      500,
-  MIN_VOLUME:     300_000,
-  MIN_CHANGE:     3,
-  MAX_CHANGE:     40,            // فوق 40% = دخول متأخر/pump → استبعاد نهائي
-  MAX_RVOL:       100,
-  MAX_RESULTS:    60,
-  HEAVY_LIMIT:    45,            // خُفّض 55→45: analyze_pct كان 53% (نصف الأسهم بلا تحليل). أقل عدداً = كلٌّ يُحلّل كاملاً.
-  SAVE_MIN_EP:    60,            // رفعناه من 50 → 60 (جودة أعلى للحفظ والبوت)
-  STRICT_PRICE:   1.00,          // تحت هذا السعر = غربال صارم
-};
-
-// ─── مزج البنية (Swing) في الاختيار — كله قابل للضبط ───────────────
-// الهدف: نعرض دخولات صحيحة، لا كل سهم مرتفع.
-const STRUCT = {
-  MIN_RR:        1.5,   // أدنى عائد/مخاطرة بنيوي ليُعدّ "دخول صحيح"
-  MAX_POS:       0.66,  // أقصى موضع داخل المدى (0=دعم،1=مقاومة) ليُعدّ دخولاً مبكراً
-  BONUS_VALID:   7,     // مكافأة الدخول الصحيح (يرفعه للأعلى)
-  BONUS_OK:      2,     // مكافأة المقبول
-  PENALTY_LATE:  6,     // خصم الملاحقة/غير المؤكد (يُنزّله)
-  PENALTY_BADRR: 4,     // خصم إضافي لـ R:R < 1
-  // إسقاط الملاحقة الواضحة فقط: سهم ارتفع كثير + دخوله سيء
-  DROP_LATE:     true,  // فعّل/عطّل الإسقاط
-  DROP_CHANGE:   10,    // لا نُسقط إلا إذا ارتفع أكثر من هذا
-  DROP_POS:      0.80,  // + قريب من القمة (دخول متأخر)
-  // 💎 حارس الجوهرة: لا نعرض سهماً هابطاً بلا تأكيد ارتداد
-  STRICT_GEMS:   true,  // اعرض فقط: مؤكد صاعد أو ارتداد واضح
-};
-
-// ════════════════ أدوات المؤشرات ════════════════
-
-function calcEMA(prices, period) {
-  if (!prices || prices.length < period) return null;
-  const k = 2 / (period + 1);
-  let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < prices.length; i++) ema = prices[i] * k + ema * (1 - k);
-  return ema;
+// ─── EP helpers ──────────────────────────────────────────────────
+function epColor(ep) {
+  if (ep >= 85) return { fg: "#f87171", bg: "rgba(248,113,113,.12)", ring: "rgba(248,113,113,.35)" };
+  if (ep >= 70) return { fg: "#fb923c", bg: "rgba(251,146,60,.10)",  ring: "rgba(251,146,60,.28)"  };
+  if (ep >= 55) return { fg: "#fbbf24", bg: "rgba(251,191,36,.10)",  ring: "rgba(251,191,36,.28)"  };
+  if (ep >= 40) return { fg: "#34d399", bg: "rgba(52,211,153,.10)",  ring: "rgba(52,211,153,.28)"  };
+  return          { fg: "#475569", bg: "rgba(71,85,105,.08)",         ring: "rgba(71,85,105,.20)"   };
 }
 
-// سلسلة EMA كاملة (نحتاجها للماكد)
-function emaSeries(values, period) {
-  if (!values || values.length < period) return [];
-  const k = 2 / (period + 1);
-  const out = new Array(period - 1).fill(null);
-  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  out.push(ema);
-  for (let i = period; i < values.length; i++) {
-    ema = values[i] * k + ema * (1 - k);
-    out.push(ema);
-  }
-  return out;
+function EPGauge({ ep }) {
+  if (!ep) return null;
+  const { fg, ring } = epColor(ep);
+  const r = 22, dash = 2 * Math.PI * r, fill = dash * (1 - ep / 100);
+  return (
+    <div style={{ position: "relative", width: 60, height: 60, flexShrink: 0 }}>
+      <svg width="60" height="60" style={{ transform: "rotate(-90deg)" }}>
+        <circle cx="30" cy="30" r={r} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth="5" />
+        <circle cx="30" cy="30" r={r} fill="none" stroke={fg} strokeWidth="5"
+          strokeDasharray={dash} strokeDashoffset={fill} strokeLinecap="round"
+          style={{ filter: `drop-shadow(0 0 6px ${ring})` }} />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: fg, lineHeight: 1 }}>{ep}%</div>
+        <div style={{ fontSize: 8, color: "#334155", marginTop: 1 }}>EP</div>
+      </div>
+    </div>
+  );
 }
 
-function calcSMA(prices, period) {
-  if (!prices || prices.length < period) return null;
-  const slice = prices.slice(-period);
-  return slice.reduce((a, b) => a + b, 0) / period;
+function HotBadge() {
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6,
+      background: "rgba(248,113,113,.18)", color: "#fca5a5",
+      border: "1px solid rgba(248,113,113,.35)", letterSpacing: "1px",
+      animation: "hotpulse 1.5s ease-in-out infinite",
+    }}>🚨 HOT</span>
+  );
 }
 
-// ATR14 بتمهيد Wilder (مطابق TradingView)
-function calcATR14(bars) {
-  if (!bars || bars.length < 15) return null;
-  const trs = [];
-  for (let i = 1; i < bars.length; i++) {
-    const h = bars[i].h, l = bars[i].l, pc = bars[i - 1].c;
-    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
-  }
-  if (trs.length < 14) return null;
-  let atr = trs.slice(0, 14).reduce((a, b) => a + b, 0) / 14;
-  for (let i = 14; i < trs.length; i++) atr = (atr * 13 + trs[i]) / 14;
-  return atr;
+function EPBadge({ ep }) {
+  if (!ep) return null;
+  const { fg, bg, ring } = epColor(ep);
+  const label = ep >= 85 ? "EXTREME" : ep >= 70 ? "HIGH" : ep >= 55 ? "MED" : ep >= 40 ? "LOW" : "WATCH";
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: bg, color: fg, border: `1px solid ${ring}`, letterSpacing: "0.7px" }}>
+      {label}
+    </span>
+  );
 }
 
-// RSI14 بتمهيد Wilder
-function calcRSI14(bars) {
-  if (!bars || bars.length < 15) return null;
-  const closes = bars.map(b => b.c);
-  let gains = 0, losses = 0;
-  for (let i = 1; i <= 14; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff >= 0) gains += diff; else losses -= diff;
-  }
-  let avgGain = gains / 14, avgLoss = losses / 14;
-  for (let i = 15; i < closes.length; i++) {
-    const diff = closes[i] - closes[i - 1];
-    avgGain = (avgGain * 13 + (diff >= 0 ? diff : 0)) / 14;
-    avgLoss = (avgLoss * 13 + (diff < 0 ? -diff : 0)) / 14;
-  }
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
+// ─── الوقت بتوقيت السعودية (UTC+3) ───────────────────────────────
+function astStr(iso) {
+  if (!iso) return null;
+  const d = new Date(new Date(iso).getTime() + 3 * 3600 * 1000);
+  if (isNaN(d)) return null;
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} · ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
 
-// MACD(12,26,9) — يرجع حالة الاتجاه
-function calcMACD(closes) {
-  if (!closes || closes.length < 35) return null;
-  const ema12 = emaSeries(closes, 12);
-  const ema26 = emaSeries(closes, 26);
-  const macdLine = [];
-  for (let i = 0; i < closes.length; i++) {
-    if (ema12[i] == null || ema26[i] == null) continue;
-    macdLine.push(ema12[i] - ema26[i]);
-  }
-  if (macdLine.length < 10) return null;
-  const sig = emaSeries(macdLine, 9);
-  const macdLast = macdLine[macdLine.length - 1];
-  const sigLast  = sig[sig.length - 1];
-  if (macdLast == null || sigLast == null) return null;
-  const hist = macdLast - sigLast;
-  const macdPrev = macdLine[macdLine.length - 2];
-  const sigPrev  = sig[sig.length - 2];
-  const histPrev = (macdPrev != null && sigPrev != null) ? macdPrev - sigPrev : null;
-  return {
-    bullish: macdLast > sigLast && hist > 0,
-    rising:  histPrev != null ? hist > histPrev : false,
-  };
-}
+// ─── Tweet builder ────────────────────────────────────────────────
+function buildTweet(signals, date, mode = "signals") {
+  const lines = [`📡 رادار الأسهم — ${date}\n`];
+  if (mode === "results") {
+    const hit = signals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length;
+    const st  = signals.filter(s => s.stop_hit && !s.target1_hit).length;   // خاسر نقي (لا ازدواج)
+    const decided = hit + st;
+    const rate = decided ? Math.round((hit / decided) * 100) : 0;
 
-function calcSupportResistance(bars, price) {
-  if (!bars || bars.length < 10) return { resistances: [], supports: [] };
-  const recent = bars.slice(-20);
-  const resistances = [...new Set(recent.map(b => b.h))].filter(h => h > price).sort((a, b) => a - b);
-  const supports    = [...new Set(recent.map(b => b.l))].filter(l => l < price).sort((a, b) => b - a);
-  return { resistances, supports };
-}
+    // 🏆 أبرز الارتفاعات (أعلى max_gain) — الأقوى تسويقياً
+    const topGainers = [...signals]
+      .filter(s => (s.target1_hit || s.target2_hit || s.target3_hit) && (s.max_gain_pct || 0) > 0)
+      .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
+      .slice(0, 4);
 
-function calcFibTargets(bars, price) {
-  if (!bars || bars.length < 10) return [];
-  const recent = bars.slice(-20);
-  const swingLow  = Math.min(...recent.map(b => b.l));
-  const swingHigh = Math.max(...recent.map(b => b.h));
-  const range = swingHigh - swingLow;
-  if (range <= 0) return [];
-  return [swingHigh + range * 0.272, swingHigh + range * 0.618, swingHigh + range * 1.0].filter(f => f > price);
-}
-
-// ─── أهداف الاستثمار (ATR أوسع — صبر) ─────────────────────────────
-function calcSmartLevels(price, bars) {
-  const atr = calcATR14(bars) || price * 0.05;
-  const { resistances, supports } = calcSupportResistance(bars, price);
-  const fibs = calcFibTargets(bars, price);
-
-  // الوقف أولاً
-  const atrSL = price - atr * 1.5;
-  const supportSL = supports[0] ? supports[0] * 0.985 : atrSL;
-  const sl = Math.max(Math.min(atrSL, supportSL), price * 0.88);
-  const risk = price - sl;
-
-  const atrT1 = price + atr * 1.0, atrT2 = price + atr * 2.0, atrT3 = price + atr * 3.0;
-  let t1 = resistances[0] && resistances[0] < atrT1 * 1.3 ? Math.min(resistances[0], atrT1 * 1.3) : atrT1;
-  t1 = Math.max(t1, price * 1.03, price + risk * 1.0);  // T1 لا يقل عن 1:1
-  let t2 = resistances[1] && resistances[1] > t1 ? Math.max(atrT2, Math.min(resistances[1], atrT2 * 1.2)) : atrT2;
-  t2 = Math.max(t2, t1 * 1.04);
-  let t3 = fibs[1] && fibs[1] > t2 ? Math.max(atrT3, Math.min(fibs[1], atrT3 * 1.3)) : atrT3;
-  t3 = Math.max(t3, t2 * 1.05);
-
-  const f2 = n => +n.toFixed(2), pct = n => +(((n - price) / price) * 100).toFixed(2);
-  return {
-    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
-    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
-    risk: f2(price - sl), atr14: f2(atr),
-  };
-}
-
-// ─── أهداف المضاربة (ATR 60د = أضيق وأقرب للتحقق) ─────────────────
-// + إصلاح R:R: تضييق الوقف حتى لا تكون المخاطرة ضعف الهدف
-function calcScalpLevels(price, bars) {
-  const atr = calcATR14(bars) || price * 0.03;
-  const { supports } = calcSupportResistance(bars, price);
-  const atrPct = atr / price;                       // تقلّب السهم النسبي
-
-  // الوقف: ATR×0.8 أو تحت دعم قريب (الأبعد = مساحة تنفّس)
-  const atrSL = price - atr * 0.8;
-  const supportSL = supports[0] ? supports[0] * 0.992 : atrSL;
-  let sl = Math.min(atrSL, supportSL);
-
-  // 🔧 سقف الخسارة يتكيّف مع التقلّب: هادئ ~4% ، متقلّب حتى 10%
-  //    (يمنع خنق وقف الأسهم المتقلّبة مثل البنسات عند -4% ثابتة)
-  const maxLossPct = Math.min(Math.max(0.04, atrPct), 0.10);
-  sl = Math.max(sl, price * (1 - maxLossPct));
-  const risk = price - sl;
-
-  // أهداف قريبة واقعية — نضمن R:R ≥ 1.3 على T1 (ربط الهدف بالمخاطرة)
-  let t1 = Math.max(price + atr * 0.6, price + risk * 1.3, price * 1.015);
-  let t2 = Math.max(price + atr * 1.1, t1 + risk * 0.8, t1 * 1.02);
-  let t3 = Math.max(price + atr * 1.7, t2 + risk * 0.8, t2 * 1.02);
-
-  const dec = price < 1 ? 3 : 2;                    // دقّة أعلى للأسهم تحت $1
-  const f2 = n => +n.toFixed(dec), pct = n => +(((n - price) / price) * 100).toFixed(2);
-  return {
-    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
-    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
-    risk: f2(price - sl), atr14: f2(atr),
-  };
-}
-
-// ─── الوقف/الأهداف الذكية من البنية ──────────────────────────────
-// تجعل الوقف يجلس تحت الارتكاز/الدعم البنيوي الحقيقي بدل نسبة ثابتة،
-// مع حارسين: (1) لا يكون أضيق من نطاق الضجيج (ATR) فيُضرب بسهولة،
-//            (2) لا يتجاوز سقف خسارة معقول حسب التقلّب والنوع.
-const SMART_STOP = {
-  ENABLED: true,
-  NOISE_ATR_MULT: 1.2,    // أقل مسافة للوقف = ATR×1.2 تحت السعر
-  NOISE_MIN_PCT:  0.04,   // أو 4% (الأكبر) — يمنع الوقف القريب جداً
-  SCALP_FLOOR:    0.05,   // مضاربة: أدنى سقف خسارة 5%
-  SCALP_CAP:      0.13,   //          أقصى سقف خسارة 13%
-  SCALP_ATR_K:    1.2,    //          معامل التقلّب
-  SMART_FLOOR:    0.06,   // استثمار: أدنى 6%
-  SMART_CAP:      0.15,   //          أقصى 15%
-  SMART_ATR_K:    1.3,
-  MIN_RR:         1.3,    // R:R مضمون على T1
-  SCALP_T1_CAP:   0.30,   // مضاربة: أقصى بُعد للهدف الأول ليُؤخذ من البنية (وإلا أهداف واقعية)
-  SMART_T1_CAP:   0.60,   // استثمار: نفس الفكرة بسقف أوسع
-};
-
-function applyStructureLevels(price, levels, structure, tradeStyle) {
-  if (!SMART_STOP.ENABLED || !structure) return levels;
-  if (!structure.support || !structure.stop || structure.stop >= price) return levels;
-
-  const atr = levels?.atr14 || price * 0.03;
-  const atrPct = atr / price;
-  const isScalp = tradeStyle === "مضاربة";
-
-  // 1) الوقف الذكي = تحت الارتكاز/الدعم البنيوي
-  let sl = structure.stop;
-
-  // 2) لا يكون أقرب من نطاق الضجيج (ATR) — مساحة تنفّس ضد الاهتزاز
-  const noiseSL = price - Math.max(atr * SMART_STOP.NOISE_ATR_MULT, price * SMART_STOP.NOISE_MIN_PCT);
-  sl = Math.min(sl, noiseSL);   // الأبعد (سعر أقل) = أصعب أن يُضرب
-
-  // 3) سقف الخسارة حسب التقلّب والنوع — لا تكون المخاطرة جنونية
-  const floor = isScalp ? SMART_STOP.SCALP_FLOOR : SMART_STOP.SMART_FLOOR;
-  const cap   = isScalp ? SMART_STOP.SCALP_CAP   : SMART_STOP.SMART_CAP;
-  const atrK  = isScalp ? SMART_STOP.SCALP_ATR_K : SMART_STOP.SMART_ATR_K;
-  const maxLossPct = Math.min(Math.max(floor, atrPct * atrK), cap);
-  sl = Math.max(sl, price * (1 - maxLossPct));   // لا يتجاوز السقف
-  const risk = price - sl;
-  if (risk <= 0) return levels;
-
-  // 4) الأهداف "قابلة للتحقق": على مستويات البنية الحقيقية (المقاومة ثم القمم التالية)
-  //    لأن السعر يميل للتوقّف/الارتداد عندها → احتمال لمسها أعلى.
-  //    لكن لو الهدف الأول بعيد جداً (سهم منهار، مقاومة قديمة) نبقى على أهداف ATR الواقعية.
-  const t1Cap = isScalp ? SMART_STOP.SCALP_T1_CAP : SMART_STOP.SMART_T1_CAP;
-
-  // مستويات البنية فوق السعر، تصاعدياً، بلا تكرار متقارب
-  const cand = [structure.resistance, structure.t1, structure.t2, structure.t3]
-    .filter(x => typeof x === "number" && x > price * 1.012)
-    .sort((a, b) => a - b);
-  const ups = [];
-  for (const v of cand) if (!ups.length || v > ups[ups.length - 1] * 1.015) ups.push(v);
-
-  let t1, t2, t3;
-  if (ups.length >= 1 && (ups[0] - price) / price <= t1Cap) {
-    // ✅ أهداف من البنية: TP1 = المقاومة، TP2 = القمة التالية، TP3 = التي تليها
-    t1 = ups[0];
-    t2 = ups[1] || (t1 + risk);
-    t3 = ups[2] || (t2 + Math.max(t2 - t1, risk));
+    lines.push(`🎯 أبرز ارتفاعات اليوم:\n`);
+    topGainers.forEach(s => {
+      const icon = s.type === "استثمار" ? "📈" : "⚡";
+      const g = (s.max_gain_pct || 0).toFixed(1);
+      const caught = astStr(s.created_at);
+      const hitAt = astStr(s.target1_hit_at);
+      lines.push(`${icon} $${s.symbol} +${g}%`);
+      if (caught) lines.push(`   رُصد: ${caught}`);
+      if (hitAt)  lines.push(`   أصاب الهدف: ${hitAt}`);
+    });
+    lines.push(`\n✅ ${hit} رابح من ${decided} محسوم · نسبة نجاح ${rate}% 🔥`);
   } else {
-    // أهداف ضخمة جداً → نبقى على الواقعية (ATR + مخاطرة)
-    const k1 = isScalp ? 0.6 : 1.0;
-    const k2 = isScalp ? 1.1 : 2.0;
-    const k3 = isScalp ? 1.7 : 3.0;
-    t1 = Math.max(price + atr * k1, price + risk * SMART_STOP.MIN_RR, price * 1.015);
-    t2 = Math.max(price + atr * k2, t1 + risk * 0.8, t1 * 1.02);
-    t3 = Math.max(price + atr * k3, t2 + risk * 0.8, t2 * 1.02);
-  }
-
-  const dec = price < 1 ? 3 : 2;
-  const f = n => +n.toFixed(dec), pc = n => +(((n - price) / price) * 100).toFixed(2);
-  return {
-    ...levels,
-    t1: f(t1), t2: f(t2), t3: f(t3), sl: f(sl),
-    t1Pct: pc(t1), t2Pct: pc(t2), t3Pct: pc(t3), slPct: pc(sl),
-    risk: f(risk), atr14: levels?.atr14 ?? f(atr),
-    smart_structure: true,
-  };
-}
-
-// أهداف تقريبية (fallback عند غياب الشموع)
-function calcLevels(s) {
-  const price = s.price;
-  const tr  = Math.max(s.high - s.low, Math.abs(s.high - s.prevClose), Math.abs(s.low - s.prevClose));
-  const atr = Math.max(tr, price * 0.02);
-  const t1 = +(price + atr * 0.5).toFixed(2), t2 = +(price + atr * 1.0).toFixed(2), t3 = +(price + atr * 1.8).toFixed(2);
-  const sl = +Math.max(price - atr * 0.8, price * 0.92).toFixed(2);
-  return {
-    t1, t2, t3, sl,
-    t1Pct: +(((t1 - price) / price) * 100).toFixed(2), t2Pct: +(((t2 - price) / price) * 100).toFixed(2),
-    t3Pct: +(((t3 - price) / price) * 100).toFixed(2), slPct: +(((sl - price) / price) * 100).toFixed(2),
-    risk: +(price - sl).toFixed(2),
-  };
-}
-
-// ════════════════ محرّك مستويات البنية (Swing + Fibonacci) ════════════════
-// أسلوب "الصندوق الذهبي": ارتكاز/دخول/تأكيد/وقف/مقاومة + أهداف فيبوناتشي تصاعدية.
-// إضافي بالكامل — لا يلمس s.levels (ATR). يُرفق كـ s.structure.
-function findPivots(bars, w = 2) {
-  const highs = [], lows = [];
-  for (let i = w; i < bars.length - w; i++) {
-    let isHigh = true, isLow = true;
-    for (let j = i - w; j <= i + w; j++) {
-      if (j === i) continue;
-      if (bars[j].h >= bars[i].h) isHigh = false;
-      if (bars[j].l <= bars[i].l) isLow = false;
-    }
-    if (isHigh) highs.push(bars[i].h);
-    if (isLow)  lows.push(bars[i].l);
-  }
-  return { highs, lows };
-}
-
-function computeStructureLevels(price, bars) {
-  if (!bars || bars.length < 12 || !price) return null;
-  const recent = bars.slice(-60);
-  const { highs, lows } = findPivots(recent, 2);
-  // ملاحظة: لا نخرج لو ما فيه pivots — نعتمد على الحد الأدنى/الأقصى الأخير كبديل
-  // (الأسهم الصاعدة بقوة غالباً بلا قيعان/قمم تأرجح واضحة)
-
-  // الدعم = أعلى قاع تأرجح تحت السعر | المقاومة = أدنى قمة تأرجح فوق السعر
-  // البديل (بلا pivots) = حدود آخر 12 شمعة فقط — يبقي البنية قريبة وواقعية
-  const recLows  = recent.slice(-12).map(b => b.l);
-  const recHighs = recent.slice(-12).map(b => b.h);
-  const lowsBelow  = lows.filter(l => l < price);
-  const highsAbove = highs.filter(h => h > price);
-  const support    = lowsBelow.length  ? Math.max(...lowsBelow)  : Math.min(...recLows);
-  const resistance = highsAbove.length ? Math.min(...highsAbove) : Math.max(...recHighs);
-
-  const swingHigh = Math.max(resistance, ...recent.map(b => b.h));
-  const swingLow  = support;
-  const range = Math.max(swingHigh - swingLow, price * 0.005);
-
-  // تأكيد الاتجاه = أعلى قمة تأرجح كُسرت (تحت/عند السعر)
-  const highsBelow = highs.filter(h => h <= price * 1.001);
-  const confirm = highsBelow.length ? Math.max(...highsBelow) : support + range * 0.5;
-  const trendUp = price >= confirm;
-
-  // دخول عند الارتداد (38.2% من الساق الصاعدة) + وقف تحت الارتكاز
-  // الوقف = نسبة من مدى التأرجح (يتأقلم مع تذبذب كل سهم بدل نسبة ثابتة)
-  const buffer = Math.max(range * 0.10, price * 0.0005);
-  const entry = support + (price - support) * 0.382;
-  const stop  = support - buffer;
-  const riskEntry = entry - stop;
-
-  // أهداف فيبوناتشي تصاعدية (مضمونة الترتيب وفوق السعر)
-  let t1   = (resistance > price * 1.005) ? resistance : swingHigh + range * 0.272;
-  t1 = Math.max(t1, price * 1.005);
-  let t2   = Math.max(swingHigh + range * 0.272, t1 * 1.003);   // 1.272
-  let t3   = Math.max(swingHigh + range * 0.618, t2 * 1.003);   // 1.618
-  let liq  = Math.max(swingHigh + range * 1.0,   t3 * 1.003);   // 2.0  — تفريغ سيولة
-  let peak = Math.max(swingHigh + range * 1.618, liq * 1.003);  // 2.618 — القمة
-
-  const f2 = n => +Number(n).toFixed(2);
-  const pct = n => +(((n - price) / price) * 100).toFixed(2);
-  const rr = riskEntry > 0 ? +(((t1 - entry) / riskEntry).toFixed(2)) : null;
-
-  return {
-    trend: trendUp ? "صاعد مؤكد ✅" : "ينتظر تأكيد ⏳",
-    support: f2(support),       supportPct: pct(support),
-    entry: f2(entry),           entryPct: pct(entry),
-    confirm: f2(confirm),       confirmPct: pct(confirm),
-    stop: f2(stop),             stopPct: pct(stop),
-    resistance: f2(resistance), resistancePct: pct(resistance),
-    t1: f2(t1),   t1Pct: pct(t1),
-    t2: f2(t2),   t2Pct: pct(t2),
-    t3: f2(t3),   t3Pct: pct(t3),
-    liquidity: f2(liq),  liquidityPct: pct(liq),
-    peak: f2(peak),      peakPct: pct(peak),
-    rr,
-  };
-}
-
-// ════════════════ EP MODEL ════════════════
-function calcEP(s) {
-  let t = 0;
-  const W = { rvol: 30, change: 25, gap: 15, vwap: 10, range: 10, volume: 10 };
-  const rv = s.rvol || 0;
-  t += rv >= 50 ? W.rvol * 1.15 : rv >= 20 ? W.rvol * 1.1 : rv >= 10 ? W.rvol
-     : rv >= 5 ? W.rvol * .80 : rv >= 3 ? W.rvol * .60 : rv >= 2 ? W.rvol * .40 : rv >= 1.5 ? W.rvol * .20 : 0;
-  const ch = s.changePct || 0;
-  t += ch >= 10 && ch <= 30 ? W.change : ch >= 5 && ch < 10 ? W.change * .70 : ch >= 3 && ch < 5 ? W.change * .45
-     : ch > 30 && ch <= 50 ? W.change * .85 : ch > 50 && ch <= 80 ? W.change * .65
-     : ch > 80 && ch <= 120 ? W.change * .45 : ch > 120 ? W.change * .30 : 0;
-  const g = s.gapPct || 0;
-  t += g >= 20 ? W.gap * 1.2 : g >= 10 ? W.gap : g >= 5 ? W.gap * .60 : g >= 2 ? W.gap * .30 : 0;
-  if (s.price > s.vwap && s.vwap > 0) t += W.vwap;
-  else if (s.vwap > 0 && s.price >= s.vwap * 0.99) t += W.vwap * 0.5;
-  if (s.high > s.low) {
-    const pos = (s.price - s.low) / (s.high - s.low);
-    t += pos >= 0.8 ? W.range : pos >= 0.6 ? W.range * .6 : pos >= 0.4 ? W.range * .3 : 0;
-  }
-  t += s.volume >= 5e6 ? W.volume : s.volume >= 2e6 ? W.volume * .7 : s.volume >= 1e6 ? W.volume * .5 : s.volume >= 5e5 ? W.volume * .3 : 0;
-  if (rv >= 10 && ch >= 10) t += 8;
-  if (rv >= 50) t += 5;
-  let ep = Math.min(Math.round((t / Object.values(W).reduce((a, b) => a + b, 0)) * 100), 99);
-  if (ch > 30 && ch <= 50) ep -= 4;
-  else if (ch > 50 && ch <= 80) ep -= 8;
-  else if (ch > 80 && ch <= 120) ep -= 12;
-  else if (ch > 120) ep -= 16;
-  return Math.max(0, Math.min(ep, 99));
-}
-
-// ════════════════ جلب السوق ════════════════
-// تنفيذ على دفعات محكومة التزامن (يمنع إغراق Polygon بـ 70 طلب دفعة واحدة)
-async function inBatches(items, size, fn) {
-  for (let i = 0; i < items.length; i += size) {
-    await Promise.all(items.slice(i, i + size).map(fn));
-  }
-}
-
-async function fetchFullMarket() {
-  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`;
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 30000);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(id);
-    if (!res.ok) throw new Error(`Polygon ${res.status}`);
-    const data = await res.json();
-    return data.tickers || [];
-  } catch (err) { clearTimeout(id); throw err; }
-}
-
-// جلب شموع بفريم محدد (60 دقيقة للمضاربة / يومي للاستثمار)
-async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
-  const to   = new Date().toISOString().slice(0, 10);
-  const from = new Date(Date.now() - lookbackDays * 86400000).toISOString().slice(0, 10);
-  const url  = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&limit=${limit}&apiKey=${POLYGON_KEY}`;
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 3500);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(id);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return (data.results && data.results.length) ? data.results : null;
-  } catch { clearTimeout(id); return null; }
-}
-
-// إعداد الفريم حسب نوع الصفقة
-function frameFor(style) {
-  return style === "مضاربة"
-    ? { mult: 60, span: "minute", days: 30,  limit: 600 }  // 60 دقيقة
-    : { mult: 1,  span: "day",    days: 140, limit: 200 }; // يومي
-}
-
-// حساب كل المؤشرات من مجموعة شموع
-// 🆕 طبقة جودة الدخول (EMA) — كلها قابلة للضبط
-const STRETCH = {
-  ENABLED:   true,
-  WARN:      10,    // فوق هذا البُعد عن EMA9 يبدأ الخصم اللطيف (الدخول صار متأخراً)
-  PEN_K:     0.4,   // شدة الخصم لكل 1% زيادة فوق WARN (لطيف عمداً — لا نقتل الزخم)
-  PEN_CAP:   8,     // أقصى خصم من الامتداد
-  BONUS_STRONG: 3,  // مكافأة اصطفاف EMA القوي (ema9>ema20>ema50 + السعر فوقها)
-  DROP:      18,    // 🆕 امتداد مفرط فوق EMA9 (+18%) بلا محفّز = ملاحقة واضحة → إسقاط
-};
-
-function computeTech(bars) {
-  if (!bars || bars.length < 21) return null;
-  const closes = bars.map(b => b.c);
-  const price = closes[closes.length - 1];
-  const sma9 = calcSMA(closes, 9), sma21 = calcSMA(closes, 21), sma50 = calcSMA(closes, 50);
-  const ema9 = calcEMA(closes, 9), ema21 = calcEMA(closes, 21);
-  const ema20 = calcEMA(closes, 20), ema50 = calcEMA(closes, 50);   // 🆕 لطبقة جودة الدخول
-  const rsiRaw = calcRSI14(bars), atr = calcATR14(bars), macd = calcMACD(closes);
-
-  let maSignal = null, maBonus = 0;
-  if (sma9 && sma21 && sma9 > sma21) { maBonus += 6; maSignal = "صاعد"; }
-  if (ema9 && ema21 && ema9 > ema21) { maBonus += 5; maSignal = maSignal === "صاعد" ? "صاعد قوي ⚡" : "EMA صاعد"; }
-  if (sma21 && price > sma21) maBonus += 3;
-  if (sma50 && price > sma50) maBonus += 2;
-  const sma9p = calcSMA(closes.slice(0, -3), 9), sma21p = calcSMA(closes.slice(0, -3), 21);
-  const freshGolden = !!(sma9p && sma21p && sma9p <= sma21p && sma9 > sma21);
-  if (freshGolden) { maBonus += 6; maSignal = "تقاطع ذهبي 🌟"; }
-
-  let recentMaxJump = 0;
-  const lastN = closes.slice(-8);
-  for (let i = 1; i < lastN.length; i++) {
-    const j = ((lastN[i] - lastN[i - 1]) / lastN[i - 1]) * 100;
-    if (j > recentMaxJump) recentMaxJump = j;
-  }
-
-  // 🆕 طبقة جودة الدخول (EMA): بُعد السعر عن المتوسطات + اصطفاف قوي
-  const stretch9  = ema9  ? ((price - ema9)  / ema9)  * 100 : null;   // كم السعر ممتد فوق EMA9
-  const stretch20 = ema20 ? ((price - ema20) / ema20) * 100 : null;
-  const strongAligned = !!(ema9 && ema20 && ema50 && ema9 > ema20 && ema20 > ema50 && price > ema9 && price > ema20);
-
-  return {
-    price, atr, macd,
-    rsi: rsiRaw != null ? Math.round(rsiRaw) : null,
-    maSignal, maBonus: Math.min(maBonus, 20),
-    priceAboveMA21: !!(sma21 && price > sma21),
-    priceAboveEMA20: !!(ema20 && price > ema20),    // 🆕 للبوابة الأذكى (ارتداد مبكّر)
-    aligned: !!(sma9 && sma21 && price > sma21 && sma9 > sma21), // اصطفاف صاعد كامل (كما هو)
-    strongAligned,                                               // 🆕 اصطفاف EMA قوي (لرفع جودة 🎯)
-    stretch9:  stretch9  != null ? +stretch9.toFixed(2)  : null, // 🆕 الامتداد فوق EMA9
-    stretch20: stretch20 != null ? +stretch20.toFixed(2) : null,
-    freshGolden,
-    recentMaxJump: +recentMaxJump.toFixed(1),
-    bars,
-  };
-}
-
-// ════════════════ الأخبار اللحظية ════════════════
-async function fetchNews(symbol) {
-  const url = `https://api.polygon.io/v2/reference/news?ticker=${symbol}&limit=3&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`;
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 3500);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(id);
-    if (!res.ok) return { ageH: null, sentiment: null, hasNews: false };
-    const data = await res.json();
-    const results = data.results || [];
-    if (!results.length) return { ageH: null, sentiment: null, hasNews: false };
-    const latest = results[0];
-    const ageH = latest.published_utc ? (Date.now() - new Date(latest.published_utc).getTime()) / 3600000 : null;
-    let sentiment = null;
-    if (Array.isArray(latest.insights)) {
-      const ins = latest.insights.find(i => i.ticker === symbol);
-      if (ins) sentiment = ins.sentiment;
-    }
-    return { ageH: ageH != null ? +ageH.toFixed(1) : null, sentiment, hasNews: true };
-  } catch { clearTimeout(id); return { ageH: null, sentiment: null, hasNews: false }; }
-}
-
-// ════════════════ الحفظ في Supabase (UPSERT — يمنع التكرار) ════════
-// المفتاح الفريد: (symbol, signal_date).
-// ignore-duplicates: أول رصد للسهم في اليوم يُحفظ ويثبت (سعر الدخول/الأهداف/الوقت)،
-// والمسحات اللاحقة لنفس السهم في نفس اليوم تُتجاهل — صفر تكرار + تجميد عند أول إشارة.
-async function saveSignals(signals) {
-  if (!SUPABASE_URL || !SUPABASE_KEY || !signals.length) return { saved: 0, skipped: true };
-  // تاريخ الإشارة بتوقيت السوق (ET) — ثابت لكل صفوف هذا المسح
-  const sigDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }))
-    .toISOString().split("T")[0];
-  const nowISO = new Date().toISOString();
-  const rows = signals.map(s => ({
-    symbol: s.symbol, signal_date: sigDate, type: s.type, entry_price: s.price, change_pct: s.changePct,
-    volume: Math.round(s.volume), rvol: s.rvol, ep: s.ep, score: s.ep, is_hot: s.is_hot,
-    target1: s.levels.t1, target2: s.levels.t2, target3: s.levels.t3, stop_loss: s.levels.sl,
-    status: "OPEN", ma_signal: s.ma_signal || null, rsi: s.rsi ?? null,
-    atr14: s.levels?.atr14 ?? null, early_watch: s.early_watch || false,
-    is_target: s.is_target || false, news_age_h: s.news_age_h ?? null,
-    structure: s.structure || null,   // 🆕 خريطة البنية كاملة (للبوت) — يتطلب عمود jsonb
-    created_at: nowISO,   // وقت أول رصد — يثبت (يُكتب مرة واحدة عند أول إدخال)
-  }));
-  try {
-    // on_conflict على (symbol, signal_date) + ignore-duplicates = أول رصد يثبت، التكرار يُتجاهل
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/signals?on_conflict=symbol,signal_date`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
-        Prefer: "resolution=ignore-duplicates,return=minimal",
-      },
-      body: JSON.stringify(rows),
+    signals.slice(0, 8).forEach(s => {
+      const hot = s.is_hot ? " 🚨" : "";
+      const early = s.early_watch ? " 🔍" : "";
+      const chg = s.change_pct != null ? ` ${s.change_pct >= 0 ? "+" : ""}${Math.round(parseFloat(s.change_pct))}%${s.change_pct >= 0 ? "▲" : "▼"}` : "";
+      const ma = s.ma_signal ? ` · ${s.ma_signal}` : "";
+      lines.push(`📡 $${s.symbol}${hot}${early} (EP: ${s.ep || s.score}%)${chg}${ma}`);
+      lines.push(`  دخل: $${(s.entry_price || 0).toFixed(2)}`);
+      lines.push(`  🎯 T1: $${(s.target1 || 0).toFixed(2)} | T2: $${(s.target2 || 0).toFixed(2)} | T3: $${(s.target3 || 0).toFixed(2)}`);
+      lines.push(`  🛑 وقف: $${(s.stop_loss || 0).toFixed(2)}\n`);
     });
-    return { saved: res.ok ? rows.length : 0, status: res.status };
-  } catch (err) { return { saved: 0, error: err.message }; }
+  }
+  lines.push(`\n🔗 radaraz.com`);
+  return lines.join("\n");
 }
 
-// ════════════════ MAIN HANDLER ════════════════
-export default async function handler(req, res) {
-  const t0 = Date.now();
-  const DEADLINE = t0 + 6500;   // ميزانية 6.5ث (حد Hobby 10ث) — مع مهلة الجلب 3.5ث للدفعة الأخيرة نبقى تحت 10ث
-  const isSubscriber = req.query.sub === "1";
+function getResult(s) {
+  if (s?.status === "OPEN") return null;
+  if (s?.target3_hit) return { icon: "🏆", label: "وصل T3", pct: s?.max_gain_pct };
+  if (s?.target2_hit) return { icon: "🎯", label: "وصل T2", pct: s?.max_gain_pct };
+  if (s?.target1_hit) return { icon: "✅", label: "وصل T1", pct: s?.max_gain_pct };
+  if (s?.stop_hit)    return { icon: "❌", label: "ضرب الوقف", pct: s?.close_gain_pct };
+  return { icon: "⏳", label: "لم يصل هدف", pct: s?.close_gain_pct };
+}
 
-  try {
-    const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const etH = etNow.getHours(), etM = etNow.getMinutes();
-    const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
-    const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
+// ─── Tweet Modal ──────────────────────────────────────────────────
+function TweetModal({ text, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.8)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div style={{ background: "#0f172a", border: "1px solid rgba(99,102,241,.35)", borderRadius: 18, padding: 24, maxWidth: 500, width: "100%" }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#818cf8" }}>🐦 معاينة التغريدة</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 18 }}>✕</button>
+        </div>
+        <textarea readOnly value={text} style={{ width: "100%", minHeight: 240, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 10, color: "#e2e8f0", fontSize: 13, lineHeight: 1.7, padding: "12px 14px", resize: "vertical", fontFamily: "monospace", boxSizing: "border-box" }} />
+        <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+          <button onClick={copy} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: "rgba(99,102,241,.18)", color: "#818cf8", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            {copied ? "✅ تم النسخ!" : "📋 نسخ"}
+          </button>
+          <button onClick={() => window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank")} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: "rgba(29,161,242,.18)", color: "#60a5fa", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            🐦 فتح Twitter
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-    // 1) جلب كامل السوق
-    const allTickers = await fetchFullMarket();
-    const t1 = Date.now();
+// ─── Scan Status Toast ────────────────────────────────────────────
+function Toast({ msg, type }) {
+  if (!msg) return null;
+  const ok = type === "ok";
+  return (
+    <div style={{
+      position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 999,
+      padding: "10px 22px", borderRadius: 12, fontWeight: 700, fontSize: 13,
+      background: ok ? "rgba(52,211,153,.15)" : "rgba(248,113,113,.15)",
+      border: `1px solid ${ok ? "rgba(52,211,153,.35)" : "rgba(248,113,113,.35)"}`,
+      color: ok ? "#34d399" : "#f87171",
+      boxShadow: "0 8px 32px rgba(0,0,0,.5)",
+      animation: "fadeup .3s ease",
+      whiteSpace: "nowrap",
+    }}>{msg}</div>
+  );
+}
 
-    // 2) فلترة أساسية
-    const candidates = [];
-    for (const tk of allTickers) {
-      const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
-      // سعر قابل للتنفيذ فعلاً: VWAP الدقيقة (متوسط مرجّح بالحجم) بدل نبضة tick لحظية
-      //   قد تكون قمة عابرة. يمنع تسجيل دخول عند قمة لحظية لا يعود لها السوق.
-      const price  = min.vw || min.c || tk.lastTrade?.p || day.c || prev.c || 0;
-      const volume = day.v || min.av || 0;
-      if (!tk.ticker || tk.ticker.includes(".")) continue;
-      if (!/^[A-Z]{1,6}$/.test(tk.ticker)) continue;
-      if (price < FILTER.MIN_PRICE || price > FILTER.MAX_PRICE) continue;
-      if (volume < minVolume) continue;
-      const prevClose = prev.c || day.o || price;
-      let changePct = tk.todaysChangePerc;
-      if (changePct == null || changePct === 0) changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
-      if (changePct < FILTER.MIN_CHANGE) continue;
-      if (changePct > FILTER.MAX_CHANGE) continue;
-      const gapPct = (day.o && prevClose) ? ((day.o - prevClose) / prevClose) * 100 : 0;
-      let rvol = (prev.v && prev.v > 0) ? +(volume / prev.v).toFixed(1) : 0;
-      if (rvol > FILTER.MAX_RVOL) continue;
-      candidates.push({
-        symbol: tk.ticker, price: +price.toFixed(2), open: day.o || price, volume,
-        vwap: day.vw || min.vw || 0, high: day.h || min.h || price, low: day.l || min.l || price,
-        prevClose, changePct: +changePct.toFixed(2), gapPct: +gapPct.toFixed(2), rvol,
+// ─── Signal Card ──────────────────────────────────────────────────
+function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
+  const ep  = s.ep || s.score || 0;
+  const hot = s.is_hot;
+  const epc = epColor(ep);
+
+  const text = `📡 $${s.symbol} — EP ${ep}%\nدخل: $${(s.entry_price||0).toFixed(2)}\nT1: $${(s.target1||0).toFixed(2)} | T2: $${(s.target2||0).toFixed(2)} | T3: $${(s.target3||0).toFixed(2)}\n🛑 وقف: $${(s.stop_loss||0).toFixed(2)}\n\nradaraz.com`;
+
+  return (
+    <div
+      onClick={selectMode ? onToggle : undefined}
+      style={{
+        background: hot ? "linear-gradient(135deg,rgba(11,14,31,1),rgba(20,8,8,1))" : "rgba(255,255,255,.03)",
+        border: `1px solid ${selectMode && selected ? "#6366f1" : hot ? "rgba(248,113,113,.45)" : "rgba(255,255,255,.08)"}`,
+        borderRadius: 14, padding: "14px 16px", marginBottom: 10, position: "relative",
+        boxShadow: selectMode && selected ? "0 0 0 2px rgba(99,102,241,.4)" : hot ? "0 0 20px rgba(248,113,113,.12)" : "none",
+        cursor: selectMode ? "pointer" : "default",
+        transition: "border .15s, box-shadow .15s",
+      }}>
+      {/* top bar */}
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, borderRadius: "14px 14px 0 0", background: `linear-gradient(90deg,${epc.fg}88,transparent)` }} />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        {/* Left: checkbox + ticker + badges */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          {selectMode && (
+            <div style={{
+              width: 24, height: 24, borderRadius: 6, flexShrink: 0,
+              border: `2px solid ${selected ? "#6366f1" : "rgba(255,255,255,.2)"}`,
+              background: selected ? "#6366f1" : "transparent",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 14, color: "#fff", fontWeight: 800,
+            }}>{selected ? "✓" : ""}</div>
+          )}
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 19, fontWeight: 800, color: "#f1f5f9", fontFamily: "monospace" }}>${s.symbol}</span>
+              {s.early_watch && (
+                <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6,
+                  background: "linear-gradient(135deg,rgba(16,185,129,0.25),rgba(5,150,105,0.18))",
+                  color: "#34d399", border: "1px solid rgba(52,211,153,0.5)", letterSpacing: "0.5px" }}>
+                  🔍 رصد مبكر
+                </span>
+              )}
+              {hot && <HotBadge />}
+              <EPBadge ep={ep} />
+              {s.type && (
+                <span style={{ fontSize: 11, color: "#475569" }}>{s.type}</span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 12, marginTop: 4, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                دخل: <strong style={{ color: "#60a5fa", fontFamily: "monospace", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>${(s.entry_price || 0).toFixed(2)}</strong>
+              </span>
+              {s.change_pct != null && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: (s.change_pct || 0) >= 0 ? "#34d399" : "#f87171", fontFamily: "monospace", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>
+                  {((s.change_pct || 0) >= 0 ? "+" : "") + Math.round(parseFloat(s.change_pct)) + "% " + ((s.change_pct || 0) >= 0 ? "▲" : "▼")}
+                </span>
+              )}
+              {s.rvol != null && (
+                <span style={{ fontSize: 11, color: (s.rvol || 0) >= 3 ? "#fbbf24" : "#475569", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>
+                  {`RVOL: ${parseFloat(s.rvol).toFixed(1)}x`}
+                </span>
+              )}
+              {s.ma_signal && (
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 12,
+                  background: s.ma_signal.includes("ذهبي") ? "rgba(251,191,36,0.12)" : "rgba(52,211,153,0.12)",
+                  color: s.ma_signal.includes("ذهبي") ? "#fbbf24" : "#34d399",
+                  border: `1px solid ${s.ma_signal.includes("ذهبي") ? "rgba(251,191,36,0.3)" : "rgba(52,211,153,0.3)"}` }}>
+                  📈 {s.ma_signal}
+                </span>
+              )}
+              {s.rsi != null && (
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 12, direction: "ltr", unicodeBidi: "isolate", display: "inline-block",
+                  background: s.rsi >= 72 ? "rgba(248,113,113,0.12)" : (s.rsi >= 50 && s.rsi <= 65) ? "rgba(52,211,153,0.12)" : "rgba(148,163,184,0.1)",
+                  color: s.rsi >= 72 ? "#f87171" : (s.rsi >= 50 && s.rsi <= 65) ? "#34d399" : "#94a3b8",
+                  border: `1px solid ${s.rsi >= 72 ? "rgba(248,113,113,0.3)" : (s.rsi >= 50 && s.rsi <= 65) ? "rgba(52,211,153,0.3)" : "rgba(148,163,184,0.25)"}` }}>
+                  {`📊 RSI ${s.rsi}`}
+                </span>
+              )}
+              {s.news_age_h != null && s.news_age_h <= 48 && (
+                <span style={{ fontSize: 11, color: "#fbbf24" }}>
+                  📰 {Math.round(s.news_age_h)}h
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <EPGauge ep={ep} />
+          {!selectMode && (
+            <button onClick={() => onCopy(text, s.id)} style={{
+              background: "rgba(99,102,241,.15)", border: "1px solid rgba(99,102,241,.25)",
+              borderRadius: 8, padding: "5px 11px", color: "#a5b4fc", fontSize: 11, cursor: "pointer", fontWeight: 600,
+            }}>
+              {copiedId === s.id ? "✅" : "📋"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Targets row */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+        {[
+          { label: "T1", price: s.target1, color: "#34d399" },
+          { label: "T2", price: s.target2, color: "#fbbf24" },
+          { label: "T3", price: s.target3, color: "#c084fc" },
+          { label: "وقف", price: s.stop_loss, color: "#f87171" },
+        ].map(t => (
+          <div key={t.label} style={{ background: "rgba(255,255,255,.04)", border: `1px solid ${t.color}30`, borderRadius: 8, padding: "4px 10px", fontSize: 11 }}>
+            <span style={{ color: t.color, fontWeight: 700 }}>{t.label}</span>
+            <span style={{ color: "#e2e8f0", fontFamily: "monospace", marginRight: 5 }}> ${(t.price || 0).toFixed(2)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Result Card (مع أوقات السعودية + تقرير مفصّل قابل للنسخ) ──────
+function ResultCard({ s, copiedId, onCopy }) {
+  const r   = getResult(s);
+  const ep  = s.ep || s.score || 0;
+  const won = s.target1_hit || s.target2_hit || s.target3_hit;
+  const caught = astStr(s.created_at);
+  const hitAt  = astStr(s.target1_hit_at);
+  const entry  = (s.entry_price || 0).toFixed(2);
+  const tier   = s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅";
+  const tgt    = (s.target1 || 0).toFixed(2);
+  const gain   = s.max_gain_pct != null ? `+${s.max_gain_pct}%` : (r?.pct != null ? `${r.pct}%` : "");
+
+  // 📋 تقرير مفصّل قابل للنسخ (بتوقيت السعودية)
+  let text;
+  if (won) {
+    text =
+      `🎯 $${s.symbol}  ${gain}  (وصل ${tier})\n` +
+      (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : `📅 سعر الالتقاط: $${entry}\n`) +
+      (hitAt ? `✅ أصاب الهدف الأول: ${hitAt} @ $${tgt}\n` : `✅ أصاب الهدف @ $${tgt}\n`) +
+      `— RadarAZ`;
+  } else if (s.stop_hit) {
+    text =
+      `🛑 $${s.symbol}  ${r?.pct != null ? (r.pct >= 0 ? `+${r.pct}%` : `${r.pct}%`) : ""}\n` +
+      (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : "") +
+      `🛑 ضرب وقف الخسارة\n— RadarAZ`;
+  } else {
+    text = `➖ $${s.symbol} — أغلق دون هدف/وقف ${r?.pct != null ? `(${r.pct}%)` : ""}\n— RadarAZ`;
+  }
+
+  return (
+    <div style={{
+      background: "rgba(255,255,255,.03)",
+      border: `1px solid ${s.target3_hit ? "rgba(251,191,36,.3)" : won ? "rgba(52,211,153,.2)" : s.stop_hit ? "rgba(248,113,113,.2)" : "rgba(255,255,255,.08)"}`,
+      borderRadius: 14, padding: "12px 16px", marginBottom: 10,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 18 }}>{r ? r.icon : "📡"}</span>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ fontWeight: 800, fontFamily: "monospace", fontSize: 16, color: "#f1f5f9" }}>${s.symbol}</span>
+              <EPBadge ep={ep} />
+            </div>
+            <div style={{ fontSize: 12, color: won ? "#34d399" : s.stop_hit ? "#f87171" : "#475569", marginTop: 3, fontWeight: 600 }}>
+              {r ? `${r.label} ${r.pct != null ? (r.pct >= 0 ? `+${r.pct}%` : `${r.pct}%`) : ""}` : "⏳ مفتوحة"}
+            </div>
+          </div>
+        </div>
+        <button onClick={() => onCopy(text, s.id)} style={{ background: "rgba(99,102,241,.15)", border: "1px solid rgba(99,102,241,.25)", borderRadius: 8, padding: "5px 11px", color: "#a5b4fc", fontSize: 11, cursor: "pointer" }}>
+          {copiedId === s.id ? "✅" : "📋"}
+        </button>
+      </div>
+
+      {/* أوقات بتوقيت السعودية */}
+      {(caught || hitAt) && (
+        <div style={{ marginTop: 9, paddingTop: 9, borderTop: "1px solid rgba(255,255,255,.06)", fontSize: 11, color: "#94a3b8", lineHeight: 1.9 }}>
+          {caught && <div>📅 التُقط: <span style={{ color: "#cbd5e1", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>{caught}</span> <span style={{ color: "#475569" }}>(السعودية)</span> @ <span style={{ color: "#60a5fa", fontFamily: "monospace" }}>${entry}</span></div>}
+          {won && hitAt && <div>✅ الهدف: <span style={{ color: "#cbd5e1", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>{hitAt}</span> @ <span style={{ color: "#34d399", fontFamily: "monospace" }}>${tgt}</span></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  MAIN
+// ═══════════════════════════════════════════════════════════════════
+export default function Admin() {
+  const [auth,      setAuth]      = useState(false);
+  const [pass,      setPass]      = useState("");
+  const [summary,   setSummary]   = useState(null);
+  const [signals,   setSignals]   = useState([]);
+  const [loading,   setLoading]   = useState(false);
+  const [scanning,  setScanning]  = useState(false);
+  const [copiedId,  setCopiedId]  = useState(null);
+  const [activeTab, setActiveTab] = useState("signals");
+  const [date,      setDate]      = useState("");
+  const [toast,     setToast]     = useState({ msg: "", type: "" });
+  const [tweetText, setTweetText] = useState(null);
+  const [scanStats, setScanStats] = useState(null);
+  const [resultView, setResultView] = useState("all");   // all | wins | losses
+  const [datePeriod, setDatePeriod] = useState("today");  // today | yesterday | week | all
+  const [audit, setAudit] = useState(null);              // تدقيق المطابقة: المعروض مقابل المُقيّم
+  const [auditBusy, setAuditBusy] = useState(false);
+
+  // ── select-to-tweet state ──
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
+  // 📱 حالة نقل الجهاز
+  const [resetKey,    setResetKey]    = useState("");
+  const [resetBusy,   setResetBusy]   = useState(false);
+  const [resetResult, setResetResult] = useState(null);
+
+  // 🤝 حالة الشركاء
+  const [affiliates,  setAffiliates]  = useState([]);
+  const [affTotals,   setAffTotals]   = useState({});
+  const [affLoading,  setAffLoading]  = useState(false);
+
+  const showToast = (msg, type = "ok") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast({ msg: "", type: "" }), 4000);
+  };
+
+  const login = () => { if (pass === ADMIN_KEY) setAuth(true); };
+
+  useEffect(() => {
+    if (auth) {
+      const today = new Date();
+      // ── التاريخ ميلادي ──
+      setDate(today.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
+      fetchSummary();
+      fetchSignals();
+    }
+  }, [auth]);
+
+  // حمّل الشركاء عند فتح تبويبهم
+  useEffect(() => {
+    if (auth && activeTab === "affiliates" && affiliates.length === 0) {
+      loadAffiliates();
+    }
+  }, [auth, activeTab]);
+
+  const fetchSignals = async () => {
+    try {
+      const res  = await fetch("/api/summary");
+      const data = await res.json();
+      setSignals(data?.signals || []);
+    } catch (err) { console.error(err); }
+  };
+
+  // 🔍 تدقيق المطابقة: هل كل سهم معروض للمشترك (latest) موجود/سيظهر في التقرير؟
+  const runAudit = async () => {
+    setAuditBusy(true); setAudit(null);
+    try {
+      const latRes = await fetch("/api/latest");
+      const latData = latRes.ok ? await latRes.json() : {};
+      const shown = [...new Set((latData.results || []).map(r => r.symbol).filter(Boolean))];
+
+      // صفوف قاعدة البيانات (نفس مصدر التقرير)
+      const all = summary?.signals || signals || [];
+      const statusBySym = {};
+      for (const s of all) {
+        // آخر حالة لكل رمز (CLOSED أولى من OPEN عند التكرار)
+        if (!statusBySym[s.symbol] || s.status === "CLOSED") statusBySym[s.symbol] = s.status || "OPEN";
+      }
+
+      const inReport = [], pending = [], missing = [];
+      for (const sym of shown) {
+        const st = statusBySym[sym];
+        if (!st) missing.push(sym);
+        else if (st === "OPEN") pending.push(sym);
+        else inReport.push(sym);
+      }
+      setAudit({ shown: shown.length, inReport, pending, missing, ts: new Date() });
+    } catch (e) {
+      setAudit({ error: e.message });
+    } finally { setAuditBusy(false); }
+  };
+
+  const fetchSummary = async () => {
+    setLoading(true);
+    try {
+      const res  = await fetch("/api/summary");
+      const data = await res.json();
+      setSummary(data);
+    } catch (err) { console.error(err); }
+    setLoading(false);
+  };
+
+  const runScan = async () => {
+    setScanning(true);
+    setScanStats(null);
+    try {
+      const res  = await fetch("/api/scan", {
+        method: "GET",
+        headers: { "x-admin-scan": "true" },
       });
-    }
-
-    // 3) EP + تصنيف نوع الصفقة
-    const scored = candidates.map(s => {
-      const ep = calcEP(s);
-      const levels = calcLevels(s);
-      const is_hot = ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
-      const dollarVolume = s.price * s.volume;
-      const isScalp  = s.changePct >= 5 && s.rvol >= 5;
-      const isInvest = s.price >= 20 && dollarVolume >= 100_000_000 && s.changePct <= 15;
-      // الأولوية للاستثمار: السهم القيادي الكبير لا يتحوّل تلقائياً لمضاربة لمجرد زخمه
-      const type = isInvest ? "استثمار" : (isScalp ? "مضاربة" : "مضاربة");
-      return { ...s, ep, levels, is_hot, type, trade_style: type, dollarVolume,
-        signal: ep >= 80 ? "💥 انفجاري" : ep >= 60 ? "🔥 عالي" : "👀 مراقبة" };
-    });
-
-    // 4) ترتيب أولي
-    scored.sort((a, b) => (b.is_hot !== a.is_hot) ? (b.is_hot ? 1 : -1) : (b.ep !== a.ep) ? b.ep - a.ep : b.rvol - a.rvol);
-
-    // 5) أعلى N للتحليل الثقيل
-    const top = scored.slice(0, FILTER.HEAVY_LIMIT);
-
-    // 5.5) التحليل الفني متعدّد الفريمات + الأخبار + البوابة + الهدف
-    //      على دفعات من 8 (≈16 طلب متزامن فقط بدل 70) — أمان من timeout
-    await inBatches(top, 30, async (s) => {
-      if (Date.now() > DEADLINE) { s._timedOut = true; return; }   // تجاوزنا الميزانية → نكتفي بما حُلّل (يمنع timeout)
-      const fr = frameFor(s.trade_style);
-      // 🆕 الأخبار مكلفة زمنياً — نجلبها فقط للأسهم الواعدة، فنحلّل أسهماً أكثر بنفس الميزانية
-      const wantNews = s.changePct > 10 || s.rvol > 6 || s.ep >= 65;
-      s._newsFetched = wantNews;
-      const [bars, news] = await Promise.all([
-        fetchAggs(s.symbol, fr.mult, fr.span, fr.days, fr.limit),
-        wantNews ? fetchNews(s.symbol) : Promise.resolve({ ageH: null, sentiment: null, hasNews: false }),
-      ]);
-
-      const tech = computeTech(bars);
-      s._tech = tech;
-      s._news = news;
-      s._drop = false;
-
-      // المتوسطات + الأهداف من الفريم الصحيح
-      if (tech) {
-        s.ep = Math.min(s.ep + tech.maBonus, 99);
-        s.ma_signal = tech.maSignal;
-        if (tech.rsi != null) {
-          s.rsi = tech.rsi;
-          if (tech.rsi >= 80) s.ep = Math.max(0, s.ep - 8);
-          else if (tech.rsi >= 72) s.ep = Math.max(0, s.ep - 4);
-          else if (tech.rsi >= 50 && tech.rsi <= 65) s.ep = Math.min(99, s.ep + 3);
-        } else s.rsi = null;
-        // MACD
-        if (tech.macd && tech.macd.bullish) s.ep = Math.min(99, s.ep + (tech.macd.rising ? 7 : 5));
-        // أهداف واقعية بالفريم الصحيح
-        if (tech.bars && tech.bars.length >= 15) {
-          s.levels = s.trade_style === "مضاربة" ? calcScalpLevels(s.price, tech.bars) : calcSmartLevels(s.price, tech.bars);
-          s.levels_source = s.trade_style === "مضاربة" ? "scalp_60m" : "smart_daily";
-          s.structure = computeStructureLevels(s.price, tech.bars);   // 🆕 مستويات البنية (إضافية)
-          // 🆕 وقف/أهداف ذكية مشتقّة من البنية (تحت الارتكاز الحقيقي + حارس ضجيج/سقف)
-          const smart = applyStructureLevels(s.price, s.levels, s.structure, s.trade_style);
-          if (smart.smart_structure) { s.levels = smart; s.levels_source += "+structure"; }
-        } else s.levels_source = "atr_basic";
-        s.week_max_jump = tech.recentMaxJump;
+      const data = await res.json();
+      if (data.success) {
+        setScanStats({ total: data.total, hot: data.hot, saved: data.saved });
+        showToast(`✅ مسح اكتمل — ${data.total} إشارة · ${data.hot} HOT · ${data.saved} محفوظ`, "ok");
+        await fetchSummary();
+        await fetchSignals();
       } else {
-        s.ma_signal = null; s.rsi = s.rsi ?? null; s.levels_source = "atr_basic"; s.week_max_jump = null;
+        showToast(`❌ خطأ: ${data.error}`, "err");
       }
+    } catch (err) {
+      showToast(`❌ ${err.message}`, "err");
+    }
+    setScanning(false);
+  };
 
-      // ── الأخبار: تمييز الكاتشي عن الوهمي ──
-      const freshNews = news.hasNews && news.ageH != null && news.ageH <= 48;
-      if (freshNews) {
-        s.ep = Math.min(99, s.ep + (news.sentiment === "positive" ? 6 : 3));
-      }
-      // ارتفاع كبير بدون خبر طازج = خطر تلاعب (pump) → خصم ثقة
-      if (s.changePct > 20 && !freshNews) s.ep = Math.max(0, s.ep - 8);
-      s.news_age_h = news.ageH;
-
-      // 📉 خصم الامتداد التدرّجي: كل ما ارتفع السهم فوق 12% قلّ سكوره
-      //   (نفضّل الدخول المبكر — السهم اللي صعد كثير = دخول متأخر)
-      if (s.changePct > 12) {
-        s.ep = Math.max(0, s.ep - Math.round((s.changePct - 12) * 0.7));
-      }
-
-      // 🆕 طبقة جودة الدخول (EMA) — مُكمّلة، لطيفة، بلا إسقاط:
-      //   stretch يلتقط الامتداد فوق EMA9 (يكمّل خصم changePct — السهم قد يكون
-      //   +5% باليوم لكن +12% فوق EMA9 بعد فجوة). والاصطفاف القوي يُكافأ.
-      if (STRETCH.ENABLED && tech) {
-        if (tech.stretch9 != null && tech.stretch9 > STRETCH.WARN) {
-          const pen = Math.min(STRETCH.PEN_CAP, Math.round((tech.stretch9 - STRETCH.WARN) * STRETCH.PEN_K));
-          s.ep = Math.max(0, s.ep - pen);
-        }
-        if (tech.strongAligned) s.ep = Math.min(99, s.ep + STRETCH.BONUS_STRONG);
-        // 🆕 إسقاط الامتداد المفرط: بعيد جداً فوق EMA9 + صعد كثير + بلا محفّز (تقاطع طازج/خبر) = ملاحقة
-        const freshNewsX = !!(news && news.hasNews && news.ageH != null && news.ageH <= 24);
-        if (tech.stretch9 != null && tech.stretch9 > STRETCH.DROP && s.changePct > 12 && !tech.freshGolden && !freshNewsX) {
-          s._drop = true; if (!s._dropReason) s._dropReason = "stretch";
-        }
-      }
-
-      // 🔀 مزج البنية: نرفع الدخول الصحيح ونُنزّل/نُسقط الملاحقة
-      //   (دخول صحيح = اتجاه مؤكد + R:R جيد + ما زال قريب من الدعم + فيه مجال للهدف)
-      if (s.structure) {
-        const st = s.structure;
-        const band = st.resistance - st.support;
-        const pos = band > 0 ? (s.price - st.support) / band : 1;   // 0=عند الدعم .. 1=عند المقاومة
-        const confirmed = s.price >= st.confirm;
-        const rrOk = st.rr != null && st.rr >= STRUCT.MIN_RR;
-        const room = st.resistance > s.price * 1.01;
-        const fresh = pos <= STRUCT.MAX_POS;
-
-        let adj = 0, flag;
-        if (confirmed && rrOk && room && fresh) { adj = STRUCT.BONUS_VALID; flag = "دخول صحيح ✅"; }
-        else if (confirmed && (rrOk || fresh))  { adj = STRUCT.BONUS_OK;    flag = "مقبول"; }
-        else                                    { adj = -STRUCT.PENALTY_LATE; flag = "ملاحقة/غير مؤكد ⚠️"; }
-        if (st.rr != null && st.rr < 1) adj -= STRUCT.PENALTY_BADRR;
-
-        s.ep = Math.max(0, Math.min(99, s.ep + adj));
-        st.flag = flag;
-        st.posInBand = +pos.toFixed(2);
-
-        // إسقاط الملاحقة الواضحة فقط: ارتفع كثير + قريب من القمة (دخول متأخر سيء)
-        if (STRUCT.DROP_LATE && s.changePct > STRUCT.DROP_CHANGE && pos > STRUCT.DROP_POS) { s._drop = true; if (!s._dropReason) s._dropReason = "late"; }
-
-        // 💎 حارس الجوهرة: هابط + بلا تأكيد ارتداد → لا يظهر
-        if (STRUCT.STRICT_GEMS && tech.bars && tech.bars.length >= 3) {
-          const lc = tech.bars.slice(-3).map(b => b.c);
-          const dropPct = lc[0] > 0 ? (lc[0] - lc[2]) / lc[0] : 0;
-          const fallingNow = lc[2] < lc[1] && lc[1] < lc[0] && dropPct > 0.03;  // 🆕 تراجع معنوي فقط (>3%) — لا نُسقط pullback صحّي
-          const confirmedUp = s.price >= st.confirm && tech.priceAboveMA21
-                              && (tech.macd ? tech.macd.bullish : true);
-          const lastBar = tech.bars[tech.bars.length - 1];
-          const reversalBar = lastBar && lastBar.c > lastBar.o;        // شمعة ارتداد خضراء
-          if (fallingNow && !confirmedUp && !reversalBar) {
-            s._drop = true; if (!s._dropReason) s._dropReason = "strict_gems";
-            st.flag = "هابط بلا تأكيد ⛔";
-          }
-        }
-      }
-
-      // ── البوابة (gate) ──
-      if (s.price < FILTER.STRICT_PRICE) {
-        // غربال صارم لأقل من $1: لازم كل الشروط
-        const pass = tech && tech.aligned
-          && s.rvol >= 5
-          && tech.rsi != null && tech.rsi >= 50 && tech.rsi <= 68
-          && tech.macd && tech.macd.bullish
-          && s.ep >= 70;
-        if (!pass) { s._drop = true; if (!s._dropReason) s._dropReason = "penny_gate"; }
+  // 📱 نقل المفتاح لجهاز جديد
+  const resetDevice = async () => {
+    if (!resetKey.trim()) { setToast({ msg: "أدخل المفتاح", type: "error" }); return; }
+    setResetBusy(true); setResetResult(null);
+    try {
+      const res = await fetch(`/api/reset-device?key=${encodeURIComponent(resetKey.trim())}&pass=${encodeURIComponent(pass)}`);
+      const d = await res.json();
+      if (d.success) {
+        setResetResult(d);
+        setResetKey("");
+        setToast({ msg: "تم تحرير المفتاح ✅", type: "success" });
+      } else if (d.reason === "not_found") {
+        setToast({ msg: "المفتاح غير موجود", type: "error" });
+      } else if (d.reason === "unauthorized") {
+        setToast({ msg: "غير مصرّح", type: "error" });
       } else {
-        // $1 فأعلى:
-        if (tech) {
-          // عندنا بيانات → اتجاه صاعد: فوق MA21، أو ارتداد مبكّر فوق EMA20 + MACD صاعد
-          const trendPass = tech.priceAboveMA21 || (tech.priceAboveEMA20 && tech.macd && tech.macd.bullish);
-          if (!trendPass) { s._drop = true; if (!s._dropReason) s._dropReason = "trend_gate"; }
-        } else {
-          // لا بيانات فنية (سهم جديد/تاريخ قصير) → ما نثق إلا بالمبكر
-          s.ep = Math.min(s.ep, 72);                 // سقف بدون تأكيد
-          if (s.changePct > 15) { s._drop = true; if (!s._dropReason) s._dropReason = "no_tech_ext"; }
-          else if (s.ep < 60) { s._drop = true; if (!s._dropReason) s._dropReason = "no_tech_lowep"; }
-        }
+        setToast({ msg: "خطأ: " + (d.reason || "غير معروف"), type: "error" });
       }
+    } catch {
+      setToast({ msg: "خطأ في الاتصال", type: "error" });
+    } finally {
+      setResetBusy(false);
+    }
+  };
 
-      // إعادة تقييم HOT + الإشارة
-      s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
-      s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
-
-      // ── رصد مبكر ──
-      const strongMA = ["تقاطع ذهبي 🌟", "صاعد قوي ⚡", "EMA صاعد"].includes(s.ma_signal);
-      const inEarlyZone = s.changePct >= 2 && s.changePct <= 15;
-      let early = 0;
-      if (strongMA) early++;
-      if (s.rsi != null && s.rsi >= 50 && s.rsi <= 68) early++;
-      if (s.rvol != null && s.rvol >= 3 && s.rvol <= 30) early++;
-      if (s.ep >= 65) early++;
-      if (s.week_max_jump != null && s.week_max_jump <= 25) early++;
-      s.early_watch = inEarlyZone && early >= 2;
-
-      // ── 🎯 الهدف: التقاء كامل على الفريم الأساسي ──
-      const earlyStage = s.changePct >= 2 && s.changePct <= 15;
-      const volHigh = s.volume >= 1_000_000;
-      const liqIn = s.rvol >= 4;
-      const rsiPos = s.rsi != null && s.rsi >= 50 && s.rsi <= 68;
-      const macdBull = !!(tech && tech.macd && tech.macd.bullish);
-      const primaryConfluence = !s._drop && earlyStage && volHigh && liqIn && rsiPos && macdBull && tech && tech.aligned;
-      s._primaryConfluence = primaryConfluence;
-    });
-
-    // 5.6) تأكيد الهدف على الفريم الآخر (للمرشحين النهائيين فقط) — على دفعات
-    const finalists = top.filter(s => s._primaryConfluence);
-    await inBatches(finalists, 12, async (s) => {
-      if (Date.now() > DEADLINE) return;   // ميزانية الوقت
-      const other = s.trade_style === "مضاربة"
-        ? { mult: 1, span: "day", days: 140, limit: 200 }
-        : { mult: 60, span: "minute", days: 30, limit: 600 };
-      const otherBars = await fetchAggs(s.symbol, other.mult, other.span, other.days, other.limit);
-      const otherTech = computeTech(otherBars);
-      // النخبة: التقاء كامل على الفريم الأساسي + اتجاه صاعد على الفريم الآخر (فوق MA21)
-      if (otherTech && otherTech.priceAboveMA21) {
-        s.is_target = true;
-        s.signal = "🎯 الهدف";
-        s.ep = Math.max(s.ep, 90);
-        s.is_hot = true;
+  // 🤝 تحميل الشركاء
+  const loadAffiliates = async () => {
+    setAffLoading(true);
+    try {
+      const res = await fetch(`/api/admin-affiliates?pass=${encodeURIComponent(pass)}`);
+      const d = await res.json();
+      if (d.success) {
+        setAffiliates(d.affiliates || []);
+        setAffTotals(d.totals || {});
       }
-    });
-
-    // 5.7) تطبيق الإسقاط (البوابة)
-    let survivors = top.filter(s => !s._drop);
-    // الفرز مبنيّ على البنية: 🎯 نخبة → دخول صحيح → رصد مبكر → مقبول → زخم فقط → EP
-    const tier = s => {
-      if (s.is_target) return 5;                                          // نخبة (التقاء متعدّد الفريمات)
-      if (s.structure && s.structure.flag === "دخول صحيح ✅") return 4;   // دخول بنيوي صحيح
-      if (s.early_watch) return 3;                                        // رصد مبكر
-      if (s.structure && s.structure.flag === "مقبول") return 2;          // بنية مقبولة
-      if (s.is_hot) return 1;                                             // زخم فقط (أدنى)
-      return 0;
-    };
-    survivors.sort((a, b) => {
-      const ta = tier(a), tb = tier(b);
-      if (tb !== ta) return tb - ta;
-      if (b.ep !== a.ep) return b.ep - a.ep;
-      return b.rvol - a.rvol;
-    });
-
-    // 6) الحفظ (فقط غير المشترك + EP >= حد)
-    let saveResult = { skipped: true, reason: "subscriber scan" };
-    if (!isSubscriber) {
-      const toSave = survivors.filter(s => s.ep >= FILTER.SAVE_MIN_EP);
-      saveResult = await saveSignals(toSave);
+    } catch {
+      setToast({ msg: "تعذّر تحميل الشركاء", type: "error" });
+    } finally {
+      setAffLoading(false);
     }
+  };
 
-    // 📊 Telemetry — قمع الإشارات: وين تُحلّل ووين تُسقط (للتشخيص الحقيقي بدل التخمين)
-    const dropBy = r => top.filter(s => s._dropReason === r).length;
-    const debug = {
-      market_scanned:   allTickers.length,
-      after_filter:     candidates.length,
-      top_selected:     top.length,
-      tech_analyzed:    top.filter(s => s._tech).length,
-      news_fetched:     top.filter(s => s._newsFetched).length,
-      timed_out:        top.filter(s => s._timedOut).length,        // لم يُحلّل (انتهت الميزانية)
-      primary_confluence: top.filter(s => s._primaryConfluence).length,
-      targets:          top.filter(s => s.is_target).length,
-      dropped_total:    top.filter(s => s._drop).length,
-      dropped_late:     dropBy("late"),
-      dropped_strict_gems: dropBy("strict_gems"),
-      dropped_stretch:  dropBy("stretch"),
-      dropped_penny_gate: dropBy("penny_gate"),
-      dropped_trend_gate: dropBy("trend_gate"),
-      dropped_no_tech:  dropBy("no_tech_ext") + dropBy("no_tech_lowep"),
-      survivors:        survivors.length,
-      below_save_ep:    survivors.filter(s => s.ep < FILTER.SAVE_MIN_EP).length,
-      saved:            saveResult.saved || 0,
-    };
-    // نِسب جاهزة للقراءة السريعة (%) — تشخّص بنظرة وين الخلل بدون حساب يدوي
-    const pctOf = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
-    debug.rates = {
-      analyze_pct:      pctOf(debug.tech_analyzed, debug.top_selected),   // كم % من الـtop حُلّل فعلاً
-      timeout_pct:      pctOf(debug.timed_out, debug.top_selected),       // كم % انقطع بالوقت
-      survival_pct:     pctOf(debug.survivors, debug.top_selected),       // كم % نجا من الفلاتر
-      save_pct:         pctOf(debug.saved, debug.survivors),              // كم % من الناجين حُفظ
-      drop_trend_pct:   pctOf(debug.dropped_trend_gate, debug.tech_analyzed),
-      drop_gems_pct:    pctOf(debug.dropped_strict_gems, debug.tech_analyzed),
-      drop_stretch_pct: pctOf(debug.dropped_stretch, debug.tech_analyzed),
-    };
+  const copyText = (text, id) => {
+    navigator.clipboard?.writeText(text).catch(() => {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); document.body.removeChild(ta);
+    });
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
-    // 🪶 رد خفيف للكرون فقط (cron-job.org يرفض الردود الكبيرة) — عدّ فقط بدون المصفوفات
-    //    الواجهة تنادي /api/scan بدون light=1 فتاخذ الرد الكامل.
-    if (req.query.light === "1") {
-      return res.status(200).json({
-        success: true, light: true,
-        total: survivors.length,
-        hot:    survivors.filter(s => s.is_hot).length,
-        target: survivors.filter(s => s.is_target).length,
-        early:  survivors.filter(s => s.early_watch).length,
-        saved:  saveResult.saved || 0, saveResult,
-        timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
-        market_scanned: allTickers.length, after_filter: candidates.length,
-        debug,
-      });
+  // ── select helpers ──
+  const sigKey = (s, i) => s.id || s.symbol || i;
+
+  const toggleSelect = (key) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(signals.map((s, i) => sigKey(s, i))));
+  };
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const tweetSelected = () => {
+    const chosen = signals.filter((s, i) => selectedIds.has(sigKey(s, i)));
+    if (chosen.length === 0) {
+      showToast("⚠️ اختر شركة واحدة على الأقل", "err");
+      return;
     }
+    setTweetText(buildTweet(chosen, date, "signals"));
+  };
 
-    // 7) تجهيز الرد (نفس شكل الواجهة تماماً)
-    const toCard = s => ({
-      symbol: s.symbol, price: s.price, change_pct: s.changePct, score: s.ep, signal: s.signal,
-      type: s.type, volume: s.volume, rvol: s.rvol, is_hot: s.is_hot, vwap: s.vwap,
-      ma_signal: s.ma_signal || null, rsi: s.rsi ?? null, early_watch: s.early_watch || false,
-      week_max_jump: s.week_max_jump ?? null, levels: s.levels, atr14: s.levels?.atr14 || null,
-      levels_source: s.levels_source || "atr_basic", is_target: s.is_target || false,
-      news_age_h: s.news_age_h ?? null,
-      structure: s.structure || null,   // 🆕 مستويات البنية (Swing + فيبوناتشي)
+  // 📋 نسخ تقرير الرابحين كامل (تسويق)
+  const copyAllWins = (winsList) => {
+    if (!winsList.length) { showToast("لا يوجد رابحون بعد", "err"); return; }
+    const blocks = winsList.map(s => {
+      const caught = astStr(s.created_at);
+      const hitAt = astStr(s.target1_hit_at);
+      const entry = (s.entry_price || 0).toFixed(2);
+      const tier = s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅";
+      const t1price = (s.target1 || 0).toFixed(2);
+      const gain = s.max_gain_pct != null ? `+${s.max_gain_pct}%` : "";
+      return `🎯 $${s.symbol}  ${gain}  (وصل ${tier})\n` +
+        (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : `📅 @ $${entry}\n`) +
+        (hitAt ? `✅ أصاب الهدف الأول: ${hitAt} @ $${t1price}` : `✅ أصاب الهدف @ $${t1price}`);
     });
+    copyText(`📡 سجل إنجازات RadarAZ\n\n${blocks.join("\n\n")}\n\n🔗 radaraz.com`, "all-wins");
+    showToast("✅ نُسخ تقرير الإنجازات", "ok");
+  };
 
-    const results     = survivors.map(toCard);
-    const leaders     = results.filter(s => s.type === "استثمار");   // 🐞 إصلاح: كان "قيادي"
-    const speculation = results.filter(s => s.type !== "استثمار");
-    const early       = results.filter(s => s.early_watch);
+  const hotCount  = signals.filter(s => s.is_hot).length;
+  const newsCount = signals.filter(s => s.news_age_h != null && s.news_age_h <= 24).length;
 
-    return res.status(200).json({
-      success: true, total: results.length,
-      hot: results.filter(s => s.is_hot).length,
-      target: results.filter(s => s.is_target).length,
-      early: early.length, saved: saveResult.saved || 0, saveResult,
-      timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
-      market_scanned: allTickers.length, after_filter: candidates.length,
-      debug,
-      results, leaders, speculation, earlyWatch: early,
-    });
+  // ── Styles ──────────────────────────────────────────────────────
+  const S = {
+    root:  { minHeight: "100vh", background: "#07091a", color: "#e2e8f0", fontFamily: "'Inter','Segoe UI',system-ui,sans-serif", padding: 24 },
+    box:   { maxWidth: 640, margin: "0 auto" },
+    input: { width: "100%", padding: "11px 14px", background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 10, color: "#fff", fontSize: 15, marginBottom: 12, boxSizing: "border-box", outline: "none" },
+    btn:   (bg) => ({ padding: "10px 22px", background: bg || "linear-gradient(135deg,#6366f1,#8b5cf6)", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }),
+  };
 
-  } catch (error) {
-    return res.status(200).json({ success: false, error: error.message, results: [], leaders: [], speculation: [] });
-  }
+  // ── Login screen ────────────────────────────────────────────────
+  if (!auth) return (
+    <div style={S.root}>
+      <div style={{ ...S.box, maxWidth: 360, paddingTop: 90, textAlign: "center" }}>
+        <div style={{ fontSize: 44, marginBottom: 14 }}>📡</div>
+        <div style={{ fontSize: 24, fontWeight: 900, marginBottom: 24, color: "#818cf8" }}>Radaraz Admin</div>
+        <input style={S.input} type="password" placeholder="كلمة المرور" value={pass}
+          onChange={e => setPass(e.target.value)} onKeyDown={e => e.key === "Enter" && login()} />
+        <button style={S.btn()} onClick={login}>دخول</button>
+      </div>
+    </div>
+  );
+
+  // 📅 فلتر الفترة بتوقيت السوق (ET) — لعزل نتائج اليوم عن السجل المتراكم
+  const etDateStr = (d) => new Date(d).toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+  const todayET = etDateStr(Date.now());
+  const yestET  = etDateStr(Date.now() - 86400000);
+  const weekAgo = etDateStr(Date.now() - 7 * 86400000);
+  const inPeriod = (s) => {
+    // نعتمد على created_at أولاً (دائماً موجود)، ثم signal_date كاحتياط
+    const d = (s.created_at ? etDateStr(s.created_at) : null) || s.signal_date;
+    if (!d) return true;
+    if (datePeriod === "today")     return d === todayET;
+    if (datePeriod === "yesterday") return d === yestET;
+    if (datePeriod === "week")      return d >= weekAgo;
+    return true; // all
+  };
+
+  const closedSignals = (summary?.signals || []).filter(s => s.status !== "OPEN" && inPeriod(s));
+  const t1  = closedSignals.filter(s => s.target1_hit).length;
+  const t2  = closedSignals.filter(s => s.target2_hit).length;
+  const t3  = closedSignals.filter(s => s.target3_hit).length;
+  const hit = closedSignals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length;
+  const stp = closedSignals.filter(s => s.stop_hit && !s.target1_hit).length;   // خاسر نقي: ضرب الوقف ولم يصب الهدف (لا ازدواج)
+  const decided = hit + stp;                                                     // المحسوم = رابح + خاسر نقي
+  const successRate = decided ? Math.round((hit / decided) * 100) : 0;
+
+  // 📋 تقرير شامل: المحصلة لو تداولت كل إشارة (للاقتناع الذاتي)
+  const dayReport = useMemo(() => {
+    const cs = closedSignals;
+    if (!cs.length) return null;
+    const per = 1000;   // افتراض: $1000 لكل صفقة
+    // المحصلة عند الإغلاق (close_gain) والمحصلة المثالية (max_gain)
+    let netClose = 0, netMax = 0, wins = 0, losses = 0, flat = 0;
+    let grossWinClose = 0, grossLossClose = 0;
+    for (const s of cs) {
+      const cg = Number(s.close_gain_pct) || 0;
+      const mg = Number(s.max_gain_pct) || 0;
+      netClose += per * cg / 100;
+      netMax   += per * mg / 100;
+      if (cg > 0) { wins++; grossWinClose += per * cg / 100; }
+      else if (cg < 0) { losses++; grossLossClose += Math.abs(per * cg / 100); }
+      else flat++;
+    }
+    const pf = grossLossClose > 0 ? grossWinClose / grossLossClose : (grossWinClose > 0 ? 999 : 0);
+    const sorted = [...cs].sort((a, b) => (Number(b.close_gain_pct)||0) - (Number(a.close_gain_pct)||0));
+    const top5 = sorted.slice(0, 5);
+    const worst5 = sorted.slice(-5).reverse();
+    // تحليل حسب النوع
+    const byType = (t) => {
+      const arr = cs.filter(s => s.type === t);
+      const w = arr.filter(s => (Number(s.close_gain_pct)||0) > 0).length;
+      return { n: arr.length, w, rate: arr.length ? Math.round(w/arr.length*100) : 0 };
+    };
+    return {
+      count: cs.length, wins, losses, flat,
+      winRate: (wins+losses) ? Math.round(wins/(wins+losses)*100) : 0,
+      netClose: Math.round(netClose), netMax: Math.round(netMax),
+      profitFactor: +pf.toFixed(2),
+      avgClose: +(cs.reduce((a,s)=>a+(Number(s.close_gain_pct)||0),0)/cs.length).toFixed(2),
+      top5, worst5,
+      scalp: byType("مضاربة"), invest: byType("استثمار"),
+    };
+  }, [closedSignals]);
+
+  // فلترة عرض النتائج (الكل/رابح/خاسر)
+  const winsList = closedSignals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
+  const lossList = closedSignals.filter(s => s.stop_hit && !s.target1_hit);
+  const resultsToShow = closedSignals.filter(s => {
+    if (resultView === "wins")   return s.target1_hit || s.target2_hit || s.target3_hit;
+    if (resultView === "losses") return s.stop_hit && !s.target1_hit;
+    return true;
+  });
+
+  // 🔬 تحليل نمط الخسائر/الأرباح تلقائياً — مقارنة عادلة بين الفئتين
+  const patternOf = (list) => {
+    const n = list.length;
+    if (!n) return null;
+    const pctG = c => Math.round((c / n) * 100);
+    const num = v => (v == null ? null : parseFloat(v));
+    const penny  = list.filter(s => num(s.entry_price) != null && num(s.entry_price) < 1).length;
+    const chased = list.filter(s => num(s.change_pct) != null && num(s.change_pct) > 40).length;
+    const hiRsi  = list.filter(s => num(s.rsi) != null && num(s.rsi) >= 72).length;
+    const noNews = list.filter(s => s.news_age_h == null || s.news_age_h > 48).length;   // خبر أقدم من 48س = ميّت، يُعدّ بلا خبر طازج
+    const spec   = list.filter(s => s.type === "مضاربة").length;
+    const invest = list.filter(s => s.type === "استثمار").length;
+    const hot    = list.filter(s => s.is_hot).length;
+    const early  = list.filter(s => s.early_watch).length;
+    const lowEp  = list.filter(s => (num(s.ep) || num(s.score) || 0) < 70).length;
+    const avgEp  = Math.round(list.reduce((a, s) => a + (num(s.ep) || num(s.score) || 0), 0) / n);
+    return { penny: pctG(penny), chased: pctG(chased), hiRsi: pctG(hiRsi), noNews: pctG(noNews),
+             spec, invest, hot, early, lowEp: pctG(lowEp), avgEp,
+             pennyN: penny, chasedN: chased, hiRsiN: hiRsi, noNewsN: noNews, lowEpN: lowEp };
+  };
+  const lossPat = patternOf(lossList);
+  const winPat  = patternOf(winsList);
+
+  // صفوف اللوحة (تعرض الخاسر مقابل الرابح لكشف ما يميّز الخسارة فعلاً)
+  const diagRows = (lossPat && winPat) ? [
+    { k: "بنسات < $1",          lv: `${lossPat.pennyN} (${lossPat.penny}%)`, wv: `${winPat.penny}%`, warn: lossPat.penny >= 40 && lossPat.penny > winPat.penny },
+    { k: "قفزت > 40% قبل الرصد", lv: `${lossPat.chasedN} (${lossPat.chased}%)`, wv: `${winPat.chased}%`, warn: lossPat.chased >= 30 && lossPat.chased > winPat.chased },
+    { k: "RSI ≥ 72 (مُتشبّع)",   lv: `${lossPat.hiRsiN} (${lossPat.hiRsi}%)`, wv: `${winPat.hiRsi}%`, warn: lossPat.hiRsi >= 35 && lossPat.hiRsi > winPat.hiRsi },
+    { k: "بلا أخبار",            lv: `${lossPat.noNewsN} (${lossPat.noNews}%)`, wv: `${winPat.noNews}%`, warn: lossPat.noNews >= 60 && lossPat.noNews > winPat.noNews + 15 },
+    { k: "EP < 70",             lv: `${lossPat.lowEpN} (${lossPat.lowEp}%)`, wv: `${winPat.lowEp}%`, warn: lossPat.lowEp >= 50 && lossPat.lowEp > winPat.lowEp + 15 },
+    { k: "متوسط EP",            lv: `${lossPat.avgEp}`, wv: `${winPat.avgEp}`, warn: lossPat.avgEp + 3 < winPat.avgEp },
+    { k: "مضاربة / استثمار",     lv: `${lossPat.spec}/${lossPat.invest}`, wv: `${winPat.spec}/${winPat.invest}`, warn: false },
+    { k: "HOT / رصد مبكر",      lv: `${lossPat.hot}/${lossPat.early}`, wv: `${winPat.hot}/${winPat.early}`, warn: false },
+  ] : null;
+
+  return (
+    <div style={S.root} dir="rtl">
+      <div style={S.box}>
+
+        {/* ── Header ── */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: "#818cf8", display: "flex", alignItems: "center", gap: 10 }}>
+              📡 لوحة التحكم
+              {hotCount > 0 && (
+                <span style={{ fontSize: 12, fontWeight: 800, color: "#fca5a5", background: "rgba(248,113,113,.15)", padding: "2px 10px", borderRadius: 8, border: "1px solid rgba(248,113,113,.3)", animation: "hotpulse 1.5s infinite" }}>🚨 {hotCount} HOT</span>
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: "#334155", marginTop: 4 }}>{date}</div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button style={S.btn("linear-gradient(135deg,#10b981,#059669)")} onClick={runScan} disabled={scanning}>
+              {scanning ? "⏳ جاري المسح..." : "📡 تشغيل المسح"}
+            </button>
+            <button style={S.btn("rgba(255,255,255,.08)")} onClick={() => { fetchSummary(); fetchSignals(); }}>
+              🔄 تحديث
+            </button>
+          </div>
+        </div>
+
+        {/* ── Scan stats strip ── */}
+        {scanStats && (
+          <div style={{ marginBottom: 16, padding: "10px 16px", borderRadius: 10, background: "rgba(52,211,153,.08)", border: "1px solid rgba(52,211,153,.2)", display: "flex", gap: 20, fontSize: 12, color: "#34d399", flexWrap: "wrap" }}>
+            <span>✅ <strong>{scanStats.total}</strong> إشارة</span>
+            <span>🚨 <strong>{scanStats.hot}</strong> HOT</span>
+            <span>💾 <strong>{scanStats.saved}</strong> محفوظ في Supabase</span>
+          </div>
+        )}
+
+        {/* ── Tabs ── */}
+        <div style={{ display: "flex", gap: 0, marginBottom: 24, borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+          {[
+            { id: "signals", label: `📡 الإشارات${signals.length ? ` (${signals.length})` : ""}` },
+            { id: "results", label: "📊 النتائج" },
+            { id: "subscribers", label: "👥 المشتركين" },
+            { id: "affiliates", label: "🤝 الشركاء" },
+          ].map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+              padding: "12px 22px", background: "transparent", border: "none",
+              borderBottom: `3px solid ${activeTab === t.id ? "#6366f1" : "transparent"}`,
+              color: activeTab === t.id ? "#818cf8" : "rgba(255,255,255,.4)",
+              fontWeight: 700, cursor: "pointer", fontSize: 14, transition: "color .15s",
+            }}>{t.label}</button>
+          ))}
+        </div>
+
+        {/* ════════ TAB: SIGNALS ════════ */}
+        {activeTab === "signals" && (
+          <>
+            {/* Stats row */}
+            <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+              {[
+                { label: "إجمالي",   value: signals.length,                                color: "#818cf8" },
+                { label: "🚨 HOT",   value: hotCount,                                      color: "#f87171" },
+                { label: "قيادي",    value: signals.filter(s => s.type === "قيادي").length, color: "#34d399" },
+                { label: "مضاربة",   value: signals.filter(s => s.type === "مضاربة").length,color: "#fbbf24" },
+                { label: "خبر <24h", value: newsCount,                                      color: "#c084fc" },
+              ].map(s => (
+                <div key={s.label} style={{ flex: 1, minWidth: 70, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 12, padding: "10px 12px", textAlign: "center" }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: 10, color: "#334155", marginTop: 4 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Tweet controls */}
+            {signals.length > 0 && (
+              <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                {!selectMode ? (
+                  <>
+                    <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={() => setTweetText(buildTweet(signals, date, "signals"))}>
+                      🐦 تغريد الكل
+                    </button>
+                    <button style={S.btn("rgba(99,102,241,.18)")} onClick={() => { setSelectMode(true); clearSelection(); }}>
+                      ☑️ اختيار شركات
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={tweetSelected}>
+                      🐦 تغريد المختار ({selectedIds.size})
+                    </button>
+                    <button style={S.btn("rgba(99,102,241,.18)")} onClick={selectAll}>
+                      تحديد الكل
+                    </button>
+                    <button style={S.btn("rgba(255,255,255,.08)")} onClick={clearSelection}>
+                      مسح التحديد
+                    </button>
+                    <button style={S.btn("rgba(248,113,113,.18)")} onClick={() => { setSelectMode(false); clearSelection(); }}>
+                      ✕ إلغاء
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Select hint */}
+            {selectMode && (
+              <div style={{ marginBottom: 12, fontSize: 12, color: "#818cf8", textAlign: "center" }}>
+                👆 اضغط على الشركات اللي تبي تغرّدها
+              </div>
+            )}
+
+            {/* Signal cards */}
+            {signals.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 50, color: "#334155" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>📡</div>
+                لا توجد إشارات — اضغط «تشغيل المسح»
+              </div>
+            ) : (
+              signals.map((s, i) => {
+                const key = sigKey(s, i);
+                return (
+                  <SignalCard
+                    key={key}
+                    s={s}
+                    copiedId={copiedId}
+                    onCopy={copyText}
+                    selectMode={selectMode}
+                    selected={selectedIds.has(key)}
+                    onToggle={() => toggleSelect(key)}
+                  />
+                );
+              })
+            )}
+          </>
+        )}
+
+        {/* ════════ TAB: RESULTS ════════ */}
+        {activeTab === "results" && (
+          <>
+            {loading && <div style={{ textAlign: "center", color: "#334155", padding: 30 }}>جاري التحميل...</div>}
+
+            {/* 🔍 تدقيق المطابقة: المعروض للمشترك مقابل التقرير */}
+            <div style={{ marginBottom: 18, padding: "14px 16px", borderRadius: 14, background: "rgba(99,102,241,.06)", border: "1px solid rgba(99,102,241,.2)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#a5b4fc" }}>🔍 تدقيق المطابقة</div>
+                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>هل كل سهم معروض للمشترك موجود في التقرير؟</div>
+                </div>
+                <button onClick={runAudit} disabled={auditBusy} style={S.btn(auditBusy ? "rgba(255,255,255,.06)" : "rgba(99,102,241,.25)")}>
+                  {auditBusy ? "⟳ جاري الفحص..." : "▶ افحص الآن"}
+                </button>
+              </div>
+              {audit && !audit.error && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)" }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#a5b4fc" }}>{audit.shown}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>معروض للمشترك</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(52,211,153,.08)", border: "1px solid rgba(52,211,153,.2)" }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#34d399" }}>{audit.inReport.length}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>✅ في التقرير</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(251,191,36,.08)", border: "1px solid rgba(251,191,36,.2)" }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#fbbf24" }}>{audit.pending.length}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>⏳ بانتظار التقييم</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: audit.missing.length ? "rgba(248,113,113,.12)" : "rgba(255,255,255,.04)", border: `1px solid ${audit.missing.length ? "rgba(248,113,113,.35)" : "rgba(255,255,255,.07)"}` }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: audit.missing.length ? "#f87171" : "#475569" }}>{audit.missing.length}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>🔴 غير موجود</div>
+                    </div>
+                  </div>
+                  {audit.missing.length === 0 ? (
+                    <div style={{ fontSize: 12, color: "#34d399", marginTop: 10, fontWeight: 600 }}>
+                      ✅ مطابقة سليمة — كل سهم معروض إمّا في التقرير أو بانتظار التقييم. لا تسريب.
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: "#f87171", marginTop: 10, fontWeight: 600 }}>
+                      🔴 تنبيه: {audit.missing.length} سهم معروض للمشترك وغير محفوظ في القاعدة!<br />
+                      <span style={{ fontFamily: "monospace", color: "#fca5a5", fontWeight: 400 }}>{audit.missing.join(" · ")}</span>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, color: "#475569", marginTop: 8 }}>
+                    ⏳ "بانتظار التقييم" طبيعي لأسهم اليوم (تظهر في التقرير بعد إغلاق السوق وتشغيل التقييم).
+                  </div>
+                </div>
+              )}
+              {audit && audit.error && (
+                <div style={{ fontSize: 12, color: "#f87171", marginTop: 10 }}>تعذّر الفحص: {audit.error}</div>
+              )}
+            </div>
+
+            {/* Stats row */}
+            <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+              {[
+                { label: "T1 ✅", value: t1,  color: "#34d399" },
+                { label: "T2 🎯", value: t2,  color: "#fbbf24" },
+                { label: "T3 🏆", value: t3,  color: "#c084fc" },
+                { label: "وقف ❌", value: stp, color: "#f87171" },
+              ].map(s => (
+                <div key={s.label} style={{ flex: 1, minWidth: 70, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 12, padding: "10px 12px", textAlign: "center" }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: 10, color: "#334155", marginTop: 4 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* 📅 فلتر الفترة — لعزل نتائج اليوم للتغريد */}
+            <div style={{ marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "#64748b", fontWeight: 700 }}>📅 الفترة:</span>
+              {[
+                { id: "today",     label: "اليوم" },
+                { id: "yesterday", label: "أمس" },
+                { id: "week",      label: "7 أيام" },
+                { id: "all",       label: "الكل" },
+              ].map(p => (
+                <button key={p.id} onClick={() => setDatePeriod(p.id)}
+                  style={S.btn(datePeriod === p.id ? "rgba(52,211,153,.3)" : "rgba(255,255,255,.06)")}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* 📋 التقرير الشامل — المحصلة الحقيقية لو تداولت كل إشارة */}
+            {dayReport && (
+              <div style={{ marginBottom: 16, padding: "16px", borderRadius: 14, background: "rgba(15,23,42,.6)", border: "1px solid rgba(99,102,241,.25)" }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#a5b4fc", marginBottom: 4 }}>📋 التقرير الشامل</div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 14 }}>
+                  لو دخلت كل إشارة بـ$1000 (الفترة: {datePeriod === "today" ? "اليوم" : datePeriod === "yesterday" ? "أمس" : datePeriod === "week" ? "7 أيام" : "الكل"}) · {dayReport.count} إشارة
+                </div>
+
+                {/* المحصلة المالية */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                  <div style={{ flex: 1, minWidth: 130, padding: "12px", borderRadius: 10, background: dayReport.netClose >= 0 ? "rgba(52,211,153,.1)" : "rgba(248,113,113,.12)", border: `1px solid ${dayReport.netClose >= 0 ? "rgba(52,211,153,.3)" : "rgba(248,113,113,.35)"}` }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: dayReport.netClose >= 0 ? "#34d399" : "#f87171", direction: "ltr", textAlign: "right" }}>
+                      {dayReport.netClose >= 0 ? "+" : ""}{dayReport.netClose.toLocaleString()}$
+                    </div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>المحصلة عند الإغلاق</div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 130, padding: "12px", borderRadius: 10, background: "rgba(251,191,36,.08)", border: "1px solid rgba(251,191,36,.25)" }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#fbbf24", direction: "ltr", textAlign: "right" }}>
+                      +{dayReport.netMax.toLocaleString()}$
+                    </div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>لو خرجت عند أعلى سعر</div>
+                  </div>
+                </div>
+
+                {/* مؤشرات */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                  {[
+                    { label: "نسبة الربح", val: dayReport.winRate + "%", c: "#a5b4fc" },
+                    { label: "Profit Factor", val: dayReport.profitFactor, c: dayReport.profitFactor >= 1 ? "#34d399" : "#f87171" },
+                    { label: "متوسط الإغلاق", val: (dayReport.avgClose >= 0 ? "+" : "") + dayReport.avgClose + "%", c: dayReport.avgClose >= 0 ? "#34d399" : "#f87171" },
+                    { label: "رابح/خاسر", val: `${dayReport.wins}/${dayReport.losses}`, c: "#e2e8f0" },
+                  ].map(m => (
+                    <div key={m.label} style={{ flex: 1, minWidth: 80, textAlign: "center", padding: "8px", borderRadius: 8, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: m.c, direction: "ltr" }}>{m.val}</div>
+                      <div style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}>{m.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* أبرز الرابحة */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#34d399", marginBottom: 6 }}>🏆 أبرز الرابحة</div>
+                <div style={{ marginBottom: 12 }}>
+                  {dayReport.top5.filter(s => (Number(s.close_gain_pct)||0) > 0).map(s => (
+                    <div key={s.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 8px", direction: "ltr" }}>
+                      <span style={{ color: "#34d399", fontWeight: 700, fontFamily: "monospace" }}>+{Number(s.close_gain_pct).toFixed(1)}%</span>
+                      <span style={{ color: "#94a3b8" }}>{s.symbol}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* أسوأ الخاسرة */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#f87171", marginBottom: 6 }}>🔻 أكبر الخسائر (مين أكل الأرباح)</div>
+                <div style={{ marginBottom: 12 }}>
+                  {dayReport.worst5.filter(s => (Number(s.close_gain_pct)||0) < 0).map(s => (
+                    <div key={s.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 8px", direction: "ltr" }}>
+                      <span style={{ color: "#f87171", fontWeight: 700, fontFamily: "monospace" }}>{Number(s.close_gain_pct).toFixed(1)}%</span>
+                      <span style={{ color: "#94a3b8" }}>{s.symbol}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* تحليل النوع */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ flex: 1, padding: "8px", borderRadius: 8, background: "rgba(255,255,255,.03)", textAlign: "center" }}>
+                    <div style={{ fontSize: 12, color: "#fbbf24", fontWeight: 700 }}>⚡ مضاربة</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{dayReport.scalp.w}/{dayReport.scalp.n} ({dayReport.scalp.rate}%)</div>
+                  </div>
+                  <div style={{ flex: 1, padding: "8px", borderRadius: 8, background: "rgba(255,255,255,.03)", textAlign: "center" }}>
+                    <div style={{ fontSize: 12, color: "#818cf8", fontWeight: 700 }}>📈 استثمار</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{dayReport.invest.w}/{dayReport.invest.n} ({dayReport.invest.rate}%)</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Success rate bar */}
+            {decided > 0 && (
+              <div style={{ marginBottom: 20, padding: "14px 18px", borderRadius: 12, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.07)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>نسبة النجاح <span style={{ fontSize: 11, color: "#475569" }}>(رابح ÷ المحسوم)</span></span>
+                  <span style={{ fontSize: 16, fontWeight: 900, color: successRate >= 60 ? "#34d399" : successRate >= 40 ? "#fbbf24" : "#f87171" }}>
+                    {successRate}%
+                  </span>
+                </div>
+                <div style={{ height: 6, background: "rgba(255,255,255,.06)", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ width: `${successRate}%`, height: "100%", borderRadius: 3, background: successRate >= 60 ? "linear-gradient(90deg,#34d399,#059669)" : successRate >= 40 ? "linear-gradient(90deg,#fbbf24,#d97706)" : "linear-gradient(90deg,#f87171,#dc2626)", transition: "width 1s ease" }} />
+                </div>
+                <div style={{ fontSize: 11, color: "#334155", marginTop: 6 }}>
+                  <span style={{ color: "#34d399", fontWeight: 700 }}>
+                    [{datePeriod === "today" ? "اليوم" : datePeriod === "yesterday" ? "أمس" : datePeriod === "week" ? "7 أيام" : "الكل"}]
+                  </span>
+                  {" "}{hit} رابح · {stp} خاسر · {hit}/{decided} محسوم · ({closedSignals.length} مُقيّمة)
+                </div>
+              </div>
+            )}
+
+            {/* Filter + copy/tweet */}
+            {closedSignals.length > 0 && (
+              <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                {[
+                  { id: "all",    label: `الكل (${closedSignals.length})` },
+                  { id: "wins",   label: `🎯 الرابحون (${winsList.length})` },
+                  { id: "losses", label: `🛑 الخاسرون (${stp})` },
+                ].map(v => (
+                  <button key={v.id} onClick={() => setResultView(v.id)}
+                    style={S.btn(resultView === v.id ? "rgba(99,102,241,.3)" : "rgba(255,255,255,.06)")}>
+                    {v.label}
+                  </button>
+                ))}
+                <button style={S.btn("rgba(52,211,153,.18)")} onClick={() => copyAllWins(winsList)}>
+                  📋 نسخ الإنجازات
+                </button>
+                <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={() => setTweetText(buildTweet(closedSignals, date, "results"))}>
+                  🐦 تغريد النتائج
+                </button>
+              </div>
+            )}
+
+            {/* 🔬 لوحة تشخيص مقارنة — الخاسر مقابل الرابح (يكشف ما يميّز الخسارة فعلاً) */}
+            {resultView === "losses" && diagRows && (
+              <div style={{ marginBottom: 18, padding: "16px 18px", borderRadius: 14, background: "rgba(248,113,113,.05)", border: "1px solid rgba(248,113,113,.18)" }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#f87171", marginBottom: 4 }}>🔬 تشخيص مقارن: خاسر مقابل رابح</div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 12 }}>{lossList.length} خاسر · {winsList.length} رابح — العبرة بالفرق بينهما، مو الرقم وحده</div>
+                <div style={{ display: "flex", fontSize: 10, color: "#475569", fontWeight: 700, padding: "0 12px 6px" }}>
+                  <span style={{ flex: 1 }}>المؤشر</span>
+                  <span style={{ width: 90, textAlign: "center", color: "#f87171" }}>🛑 الخاسر</span>
+                  <span style={{ width: 60, textAlign: "center", color: "#34d399" }}>🎯 الرابح</span>
+                </div>
+                {diagRows.map(row => (
+                  <div key={row.k} style={{
+                    display: "flex", alignItems: "center", padding: "9px 12px", borderRadius: 10, marginBottom: 5,
+                    background: row.warn ? "rgba(248,113,113,.12)" : "rgba(255,255,255,.03)",
+                    border: `1px solid ${row.warn ? "rgba(248,113,113,.3)" : "rgba(255,255,255,.06)"}`,
+                  }}>
+                    <span style={{ flex: 1, fontSize: 11.5, color: row.warn ? "#fca5a5" : "#94a3b8" }}>{row.warn ? "⚠️ " : ""}{row.k}</span>
+                    <span style={{ width: 90, textAlign: "center", fontSize: 13, fontWeight: 800, color: row.warn ? "#f87171" : "#cbd5e1", fontFamily: "monospace" }}>{row.lv}</span>
+                    <span style={{ width: 60, textAlign: "center", fontSize: 12, fontWeight: 700, color: "#34d399", fontFamily: "monospace" }}>{row.wv}</span>
+                  </div>
+                ))}
+                <div style={{ fontSize: 10.5, color: "#64748b", marginTop: 10, lineHeight: 1.7 }}>
+                  ⚠️ = المؤشر مرتفع لدى الخاسرين <b>وأعلى منه لدى الرابحين</b> = مرشّح حقيقي لتشديد الفلتر. انسخ الأرقام وأرسلها للمطوّر.
+                </div>
+              </div>
+            )}
+
+            {/* Result cards */}
+            {closedSignals.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 50, color: "#334155" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
+                انتظر التقييم الأوتوماتيكي
+              </div>
+            ) : resultsToShow.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#334155" }}>لا نتائج في هذا العرض</div>
+            ) : (
+              resultsToShow
+                .sort((a, b) => {
+                  const rank = s => s.target3_hit ? 3 : s.target2_hit ? 2 : s.target1_hit ? 1 : s.stop_hit ? -1 : 0;
+                  return rank(b) - rank(a);
+                })
+                .map((s, i) => (
+                  <ResultCard key={s.id || s.symbol || i} s={s} copiedId={copiedId} onCopy={copyText} />
+                ))
+            )}
+          </>
+        )}
+
+        {/* ════════ TAB: SUBSCRIBERS ════════ */}
+        {activeTab === "subscribers" && (
+          <>
+            <div style={{ maxWidth: 460, margin: "0 auto" }}>
+              {/* أداة نقل الجهاز */}
+              <div style={{ background: "linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.05))", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 18, padding: "24px 20px", marginBottom: 20 }}>
+                <div style={{ textAlign: "center", marginBottom: 18 }}>
+                  <div style={{ fontSize: 38, marginBottom: 8 }}>📱</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 4 }}>نقل المفتاح لجهاز جديد</div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", lineHeight: 1.6 }}>
+                    لو المشترك بدّل جواله، حرّر مفتاحه ليدخل من جهازه الجديد
+                  </div>
+                </div>
+
+                <input
+                  style={{ width: "100%", padding: "13px 16px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#fff", fontSize: 15, textAlign: "center", marginBottom: 12, outline: "none", boxSizing: "border-box", fontFamily: "monospace", letterSpacing: 1, direction: "ltr" }}
+                  type="text"
+                  placeholder="XXXX-XXXX-XXXX"
+                  value={resetKey}
+                  onChange={(e) => setResetKey(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => e.key === "Enter" && resetDevice()}
+                />
+                <button
+                  onClick={resetDevice}
+                  disabled={resetBusy}
+                  style={{ width: "100%", padding: 14, background: resetBusy ? "rgba(99,102,241,0.3)" : "linear-gradient(135deg,#6366f1,#8b5cf6)", border: "none", borderRadius: 12, color: "#fff", fontWeight: 800, fontSize: 15, cursor: resetBusy ? "not-allowed" : "pointer", fontFamily: "system-ui" }}
+                >
+                  {resetBusy ? "⟳ جاري التحرير..." : "🔓 حرّر المفتاح"}
+                </button>
+
+                {resetResult && (
+                  <div style={{ background: "rgba(0,212,170,0.1)", border: "1px solid rgba(0,212,170,0.3)", borderRadius: 12, padding: "16px", fontSize: 14, color: "#00d4aa", marginTop: 16, textAlign: "center" }}>
+                    ✓ تم التحرير بنجاح
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 6, direction: "ltr" }}>
+                      {resetResult.email}
+                    </div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 4 }}>
+                      مرات النقل: {resetResult.device_resets}
+                      {resetResult.device_resets >= 5 && " 🚩 (مرتفع — راقب)"}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* تنبيه أمني */}
+              <div style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 14, padding: "14px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.7 }}>
+                <div style={{ fontWeight: 700, color: "#fbbf24", marginBottom: 6 }}>🛡️ حماية المشاركة مفعّلة</div>
+                كل مفتاح مربوط بجهاز واحد. لو حاول أحد يستخدمه على جهاز ثاني، يُرفض تلقائياً.
+                <br /><br />
+                عداد "مرات النقل" يكشف المشاركة: نقل كثير = مشترك يشارك مفتاحه 🚩
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ════════ TAB: AFFILIATES ════════ */}
+        {activeTab === "affiliates" && (
+          <>
+            {affLoading && <div style={{ textAlign: "center", color: "#334155", padding: 30 }}>جاري التحميل...</div>}
+
+            {!affLoading && (
+              <>
+                {/* ملخّص الإجماليات */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                  <div style={{ background: "rgba(99,102,241,.08)", border: "1px solid rgba(99,102,241,.2)", borderRadius: 14, padding: "14px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#818cf8" }}>{affTotals.affiliateCount || 0}</div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>شريك مسجّل</div>
+                  </div>
+                  <div style={{ background: "rgba(0,212,170,.08)", border: "1px solid rgba(0,212,170,.2)", borderRadius: 14, padding: "14px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#00d4aa" }}>{affTotals.totalActive || 0}</div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>مشترك عبر الإحالة</div>
+                  </div>
+                  <div style={{ background: "rgba(251,191,36,.08)", border: "1px solid rgba(251,191,36,.2)", borderRadius: 14, padding: "14px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: "#fbbf24", fontFamily: "monospace" }}>${affTotals.totalCommission || 0}</div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>إجمالي العمولات</div>
+                  </div>
+                  <div style={{ background: "rgba(0,212,170,.08)", border: "1px solid rgba(0,212,170,.2)", borderRadius: 14, padding: "14px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: "#00d4aa", fontFamily: "monospace" }}>${affTotals.netProfit || 0}</div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>صافي ربحك (تقديري)</div>
+                  </div>
+                </div>
+
+                <button onClick={loadAffiliates} style={{ ...S.btn("rgba(255,255,255,.06)"), marginBottom: 16, fontSize: 13 }}>
+                  🔄 تحديث
+                </button>
+
+                {/* قائمة الشركاء */}
+                {affiliates.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: 50, color: "#334155" }}>
+                    <div style={{ fontSize: 40, marginBottom: 12 }}>🤝</div>
+                    لا شركاء مسجّلون بعد
+                  </div>
+                ) : (
+                  affiliates.map((a, i) => (
+                    <div key={i} style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 14, padding: 16, marginBottom: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: 15, color: "#e2e8f0" }}>{a.name || "—"}</div>
+                          <div style={{ fontSize: 11, color: "#64748b", direction: "ltr", textAlign: "right" }}>{a.email}</div>
+                        </div>
+                        <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#00d4aa", background: "rgba(0,212,170,.1)", padding: "4px 10px", borderRadius: 8 }}>{a.code}</span>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                        <div style={{ flex: 1, background: "rgba(255,255,255,.04)", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: "#00d4aa" }}>{a.activeCount}</div>
+                          <div style={{ fontSize: 9, color: "#64748b" }}>نشط</div>
+                        </div>
+                        <div style={{ flex: 1, background: "rgba(255,255,255,.04)", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: "#fbbf24", fontFamily: "monospace" }}>${a.commission}</div>
+                          <div style={{ fontSize: 9, color: "#64748b" }}>مستحق</div>
+                        </div>
+                        <div style={{ flex: 1, background: "rgba(255,255,255,.04)", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: "#94a3b8" }}>{a.totalCount}</div>
+                          <div style={{ fontSize: 9, color: "#64748b" }}>إجمالي</div>
+                        </div>
+                      </div>
+
+                      {/* طريقة الدفع */}
+                      <div style={{ fontSize: 11, color: "#64748b", borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 10 }}>
+                        {a.payout_method ? (
+                          <div style={{ direction: "ltr", textAlign: "right" }}>
+                            <span style={{ color: "#a5b4fc", fontWeight: 700 }}>{a.payout_method}:</span> {a.payout_address || "—"}
+                          </div>
+                        ) : (
+                          <span style={{ color: "#64748b" }}>لم يحدّد طريقة دفع بعد</span>
+                        )}
+                        {a.telegram && <div style={{ direction: "ltr", textAlign: "right", marginTop: 4 }}>📱 {a.telegram}</div>}
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                <div style={{ background: "rgba(99,102,241,.06)", border: "1px solid rgba(99,102,241,.15)", borderRadius: 12, padding: "13px 15px", fontSize: 11.5, color: "#94a3b8", marginTop: 12, lineHeight: 1.7 }}>
+                  💡 نهاية كل شهر: راجع العمولة المستحقة لكل شريك وحوّلها بطريقة دفعه (USDT/PayPal).
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+      </div>
+
+      {tweetText && <TweetModal text={tweetText} onClose={() => setTweetText(null)} />}
+      <Toast msg={toast.msg} type={toast.type} />
+
+      <style>{`
+        @keyframes hotpulse { 0%,100%{opacity:1} 50%{opacity:.55} }
+        @keyframes fadeup { from{opacity:0;transform:translateX(-50%) translateY(8px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+        * { box-sizing: border-box }
+        input:focus { border-color: rgba(99,102,241,.5) !important; }
+        button:disabled { opacity: .55; cursor: not-allowed !important; }
+        ::-webkit-scrollbar { width: 5px }
+        ::-webkit-scrollbar-thumb { background: rgba(99,102,241,.3); border-radius: 3px }
+      `}</style>
+    </div>
+  );
 }
