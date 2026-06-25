@@ -617,6 +617,44 @@ export default function Admin() {
   const decided = hit + stp;                                                     // المحسوم = رابح + خاسر نقي
   const successRate = decided ? Math.round((hit / decided) * 100) : 0;
 
+  // 📋 تقرير شامل: المحصلة لو تداولت كل إشارة (للاقتناع الذاتي)
+  const dayReport = useMemo(() => {
+    const cs = closedSignals;
+    if (!cs.length) return null;
+    const per = 1000;   // افتراض: $1000 لكل صفقة
+    // المحصلة عند الإغلاق (close_gain) والمحصلة المثالية (max_gain)
+    let netClose = 0, netMax = 0, wins = 0, losses = 0, flat = 0;
+    let grossWinClose = 0, grossLossClose = 0;
+    for (const s of cs) {
+      const cg = Number(s.close_gain_pct) || 0;
+      const mg = Number(s.max_gain_pct) || 0;
+      netClose += per * cg / 100;
+      netMax   += per * mg / 100;
+      if (cg > 0) { wins++; grossWinClose += per * cg / 100; }
+      else if (cg < 0) { losses++; grossLossClose += Math.abs(per * cg / 100); }
+      else flat++;
+    }
+    const pf = grossLossClose > 0 ? grossWinClose / grossLossClose : (grossWinClose > 0 ? 999 : 0);
+    const sorted = [...cs].sort((a, b) => (Number(b.close_gain_pct)||0) - (Number(a.close_gain_pct)||0));
+    const top5 = sorted.slice(0, 5);
+    const worst5 = sorted.slice(-5).reverse();
+    // تحليل حسب النوع
+    const byType = (t) => {
+      const arr = cs.filter(s => s.type === t);
+      const w = arr.filter(s => (Number(s.close_gain_pct)||0) > 0).length;
+      return { n: arr.length, w, rate: arr.length ? Math.round(w/arr.length*100) : 0 };
+    };
+    return {
+      count: cs.length, wins, losses, flat,
+      winRate: (wins+losses) ? Math.round(wins/(wins+losses)*100) : 0,
+      netClose: Math.round(netClose), netMax: Math.round(netMax),
+      profitFactor: +pf.toFixed(2),
+      avgClose: +(cs.reduce((a,s)=>a+(Number(s.close_gain_pct)||0),0)/cs.length).toFixed(2),
+      top5, worst5,
+      scalp: byType("مضاربة"), invest: byType("استثمار"),
+    };
+  }, [closedSignals]);
+
   // فلترة عرض النتائج (الكل/رابح/خاسر)
   const winsList = closedSignals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
   const lossList = closedSignals.filter(s => s.stop_hit && !s.target1_hit);
@@ -880,6 +918,81 @@ export default function Admin() {
                 </button>
               ))}
             </div>
+
+            {/* 📋 التقرير الشامل — المحصلة الحقيقية لو تداولت كل إشارة */}
+            {dayReport && (
+              <div style={{ marginBottom: 16, padding: "16px", borderRadius: 14, background: "rgba(15,23,42,.6)", border: "1px solid rgba(99,102,241,.25)" }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#a5b4fc", marginBottom: 4 }}>📋 التقرير الشامل</div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 14 }}>
+                  لو دخلت كل إشارة بـ$1000 (الفترة: {datePeriod === "today" ? "اليوم" : datePeriod === "yesterday" ? "أمس" : datePeriod === "week" ? "7 أيام" : "الكل"}) · {dayReport.count} إشارة
+                </div>
+
+                {/* المحصلة المالية */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                  <div style={{ flex: 1, minWidth: 130, padding: "12px", borderRadius: 10, background: dayReport.netClose >= 0 ? "rgba(52,211,153,.1)" : "rgba(248,113,113,.12)", border: `1px solid ${dayReport.netClose >= 0 ? "rgba(52,211,153,.3)" : "rgba(248,113,113,.35)"}` }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: dayReport.netClose >= 0 ? "#34d399" : "#f87171", direction: "ltr", textAlign: "right" }}>
+                      {dayReport.netClose >= 0 ? "+" : ""}{dayReport.netClose.toLocaleString()}$
+                    </div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>المحصلة عند الإغلاق</div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 130, padding: "12px", borderRadius: 10, background: "rgba(251,191,36,.08)", border: "1px solid rgba(251,191,36,.25)" }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#fbbf24", direction: "ltr", textAlign: "right" }}>
+                      +{dayReport.netMax.toLocaleString()}$
+                    </div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>لو خرجت عند أعلى سعر</div>
+                  </div>
+                </div>
+
+                {/* مؤشرات */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                  {[
+                    { label: "نسبة الربح", val: dayReport.winRate + "%", c: "#a5b4fc" },
+                    { label: "Profit Factor", val: dayReport.profitFactor, c: dayReport.profitFactor >= 1 ? "#34d399" : "#f87171" },
+                    { label: "متوسط الإغلاق", val: (dayReport.avgClose >= 0 ? "+" : "") + dayReport.avgClose + "%", c: dayReport.avgClose >= 0 ? "#34d399" : "#f87171" },
+                    { label: "رابح/خاسر", val: `${dayReport.wins}/${dayReport.losses}`, c: "#e2e8f0" },
+                  ].map(m => (
+                    <div key={m.label} style={{ flex: 1, minWidth: 80, textAlign: "center", padding: "8px", borderRadius: 8, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: m.c, direction: "ltr" }}>{m.val}</div>
+                      <div style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}>{m.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* أبرز الرابحة */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#34d399", marginBottom: 6 }}>🏆 أبرز الرابحة</div>
+                <div style={{ marginBottom: 12 }}>
+                  {dayReport.top5.filter(s => (Number(s.close_gain_pct)||0) > 0).map(s => (
+                    <div key={s.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 8px", direction: "ltr" }}>
+                      <span style={{ color: "#34d399", fontWeight: 700, fontFamily: "monospace" }}>+{Number(s.close_gain_pct).toFixed(1)}%</span>
+                      <span style={{ color: "#94a3b8" }}>{s.symbol}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* أسوأ الخاسرة */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#f87171", marginBottom: 6 }}>🔻 أكبر الخسائر (مين أكل الأرباح)</div>
+                <div style={{ marginBottom: 12 }}>
+                  {dayReport.worst5.filter(s => (Number(s.close_gain_pct)||0) < 0).map(s => (
+                    <div key={s.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 8px", direction: "ltr" }}>
+                      <span style={{ color: "#f87171", fontWeight: 700, fontFamily: "monospace" }}>{Number(s.close_gain_pct).toFixed(1)}%</span>
+                      <span style={{ color: "#94a3b8" }}>{s.symbol}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* تحليل النوع */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ flex: 1, padding: "8px", borderRadius: 8, background: "rgba(255,255,255,.03)", textAlign: "center" }}>
+                    <div style={{ fontSize: 12, color: "#fbbf24", fontWeight: 700 }}>⚡ مضاربة</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{dayReport.scalp.w}/{dayReport.scalp.n} ({dayReport.scalp.rate}%)</div>
+                  </div>
+                  <div style={{ flex: 1, padding: "8px", borderRadius: 8, background: "rgba(255,255,255,.03)", textAlign: "center" }}>
+                    <div style={{ fontSize: 12, color: "#818cf8", fontWeight: 700 }}>📈 استثمار</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{dayReport.invest.w}/{dayReport.invest.n} ({dayReport.invest.rate}%)</div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Success rate bar */}
             {decided > 0 && (
