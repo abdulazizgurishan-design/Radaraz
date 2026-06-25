@@ -552,9 +552,19 @@ export default function Admin() {
   };
 
   // 📋 نسخ تقرير الرابحين كامل (تسويق)
+  // هل رُصدت الإشارة قبل فتح السوق (9:30ص ET)؟ نستبعدها من السجل (أسعار pre-market غير موثوقة)
+  const isPreMarket = (s) => {
+    if (!s.created_at) return false;
+    const et = new Date(new Date(s.created_at).toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const mins = et.getHours() * 60 + et.getMinutes();
+    return mins < 9 * 60 + 30;   // قبل 9:30ص ET
+  };
+
   const copyAllWins = (winsList) => {
-    if (!winsList.length) { showToast("لا يوجد رابحون بعد", "err"); return; }
-    const blocks = winsList.map(s => {
+    // استبعاد إشارات ما قبل فتح السوق (التُقطت والسوق مقفل)
+    const tradable = winsList.filter(s => !isPreMarket(s));
+    if (!tradable.length) { showToast("لا يوجد رابحون (بعد استبعاد ما قبل السوق)", "err"); return; }
+    const blocks = tradable.map(s => {
       const caught = astStr(s.created_at);
       const hitAt = astStr(s.target1_hit_at);
       const entry = (s.entry_price || 0).toFixed(2);
@@ -565,8 +575,8 @@ export default function Admin() {
         (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : `📅 @ $${entry}\n`) +
         (hitAt ? `✅ أصاب الهدف الأول: ${hitAt} @ $${t1price}` : `✅ أصاب الهدف @ $${t1price}`);
     });
-    copyText(`📡 سجل إنجازات RadarAZ\n\n${blocks.join("\n\n")}\n\n🔗 radaraz.com`, "all-wins");
-    showToast("✅ نُسخ تقرير الإنجازات", "ok");
+    copyText(`📡 سجل إنجازات RadarAZ\n\n${blocks.join("\n\n")}\n\n📊 ليست نصيحة استثمارية\n🔗 radaraz.com`, "all-wins");
+    showToast(`✅ نُسخ (${tradable.length} إنجاز · استُبعد ${winsList.length - tradable.length} قبل السوق)`, "ok");
   };
 
   const hotCount  = signals.filter(s => s.is_hot).length;
