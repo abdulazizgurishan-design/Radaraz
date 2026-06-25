@@ -599,7 +599,9 @@ export default function Admin() {
   const yestET  = etDateStr(Date.now() - 86400000);
   const weekAgo = etDateStr(Date.now() - 7 * 86400000);
   const inPeriod = (s) => {
-    const d = s.signal_date || etDateStr(s.created_at);
+    // نعتمد على created_at أولاً (دائماً موجود)، ثم signal_date كاحتياط
+    const d = (s.created_at ? etDateStr(s.created_at) : null) || s.signal_date;
+    if (!d) return true;
     if (datePeriod === "today")     return d === todayET;
     if (datePeriod === "yesterday") return d === yestET;
     if (datePeriod === "week")      return d >= weekAgo;
@@ -891,7 +893,12 @@ export default function Admin() {
                 <div style={{ height: 6, background: "rgba(255,255,255,.06)", borderRadius: 3, overflow: "hidden" }}>
                   <div style={{ width: `${successRate}%`, height: "100%", borderRadius: 3, background: successRate >= 60 ? "linear-gradient(90deg,#34d399,#059669)" : successRate >= 40 ? "linear-gradient(90deg,#fbbf24,#d97706)" : "linear-gradient(90deg,#f87171,#dc2626)", transition: "width 1s ease" }} />
                 </div>
-                <div style={{ fontSize: 11, color: "#334155", marginTop: 6 }}>{hit} رابح · {stp} خاسر · {hit}/{decided} محسوم · ({closedSignals.length} مُقيّمة)</div>
+                <div style={{ fontSize: 11, color: "#334155", marginTop: 6 }}>
+                  <span style={{ color: "#34d399", fontWeight: 700 }}>
+                    [{datePeriod === "today" ? "اليوم" : datePeriod === "yesterday" ? "أمس" : datePeriod === "week" ? "7 أيام" : "الكل"}]
+                  </span>
+                  {" "}{hit} رابح · {stp} خاسر · {hit}/{decided} محسوم · ({closedSignals.length} مُقيّمة)
+                </div>
               </div>
             )}
 
