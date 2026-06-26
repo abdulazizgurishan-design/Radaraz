@@ -243,6 +243,50 @@ const SMART_STOP = {
   SMART_T1_CAP:   0.60,   // استثمار: نفس الفكرة بسقف أوسع
 };
 
+// ─── 🔄 فلتر الارتداد (Momentum + Mean-Reversion) ─────────────────
+// مبني على استراتيجية موثّقة (RSI<30 على أسهم قوية): اشترِ القوي وقت ضعفه المؤقت.
+// الفكرة: السهم القوي (عوائد عالية) لما ينزل RSI تحت 30 = تصحيح مؤقت غالباً يرتد.
+// صفقة swing (أيام)، هدف +3%، تخرج خلال 10 أيام. تُعرض في الرادار كنوع ثالث.
+const REBOUND = {
+  ENABLED:        true,
+  RSI_MAX:        30,      // الدخول لما RSI ≤ 30 (متشبّع بيعاً = تصحيح مؤقت)
+  MIN_PRICE:      5,       // تجنّب الأسهم الرخيصة جداً
+  MIN_DOLLAR_VOL: 20_000_000,  // سيولة كافية (تقريب عملي لسوق ≥ $2B)
+  STRONG_JUMP:    8,       // قوة: أقصى قفزة حديثة ≥ 8% (بديل عملي متاح لعائد 3 شهور)
+  TARGET_PCT:     3.0,     // هدف الربح +3% (حسب البحث الأصلي)
+  MAX_HOLD_DAYS:  10,      // أقصى مدة احتفاظ 10 أيام
+  STOP_PCT:       7,       // 🛡️ وقف 7% (البحث بلا وقف — نضيفه للحماية)
+  MAX_VIX_RANK:   70,      // 🔄 الابتكار الأساسي: ندخل فقط لو VIX Rank < 70 (تقلّب معتدل)
+};
+
+// يحدّد إن كان السهم مرشّحاً لفلتر الارتداد: سهم قوي + متشبّع بيعاً مؤقتاً + تقلّب معتدل
+function isReboundCandidate(s, vixRank) {
+  if (!REBOUND.ENABLED) return false;
+  if (s.rsi == null || s.rsi > REBOUND.RSI_MAX) return false;     // لازم RSI ≤ 30
+  if (s.price < REBOUND.MIN_PRICE) return false;
+  const dvol = s.price * (s.volume || 0);
+  if (dvol < REBOUND.MIN_DOLLAR_VOL) return false;
+  // 🔄 فلتر VIX: لو متاح وفوق العتبة → نرفض (تقلّب عالٍ = حتى المتشبّع بيعاً يستمر بالهبوط)
+  if (vixRank != null && vixRank >= REBOUND.MAX_VIX_RANK) return false;
+  // قوة السهم: ارتفاع تاريخي ملموس (أقصى قفزة حديثة أو فوق المتوسطات)
+  const strong = (s.week_max_jump != null && s.week_max_jump >= REBOUND.STRONG_JUMP)
+              || (s.ma_signal && /صاعد|فوق/.test(s.ma_signal));
+  return strong;
+}
+
+// أهداف الارتداد: هدف +3% ثابت + وقف 7% (حسب الاستراتيجية الموثّقة)
+function calcReboundLevels(price) {
+  const f = v => +v.toFixed(price < 1 ? 4 : 2);
+  const t1 = f(price * (1 + REBOUND.TARGET_PCT / 100));
+  const sl = f(price * (1 - REBOUND.STOP_PCT / 100));
+  return {
+    entry: price, t1, t2: t1, t3: t1, sl,    // هدف واحد +3% (نفس أسماء النظام)
+    t1Pct: REBOUND.TARGET_PCT, t2Pct: REBOUND.TARGET_PCT, t3Pct: REBOUND.TARGET_PCT,
+    rr: (REBOUND.TARGET_PCT / REBOUND.STOP_PCT).toFixed(2),
+    atr14: price * 0.03, source: "rebound_3pct", hold_days: REBOUND.MAX_HOLD_DAYS,
+  };
+}
+
 function applyStructureLevels(price, levels, structure, tradeStyle) {
   if (!SMART_STOP.ENABLED || !structure) return levels;
   if (!structure.support || !structure.stop || structure.stop >= price) return levels;
@@ -553,6 +597,32 @@ async function fetchNews(symbol) {
   } catch { clearTimeout(id); return { ageH: null, sentiment: null, hasNews: false }; }
 }
 
+// ════════════════ 🔄 VIX Rank (لفلتر الارتداد) ════════════════════
+// يجلب VIX التاريخي (سنة) ويحسب أين VIX الحالي ضمنها كبيرسنتايل (0-100).
+// VIX Rank < 70 = بيئة تقلّب معتدلة → الارتداد يعمل جيداً (حسب البحث).
+// يُحسب مرة واحدة لكل مسح (مو لكل سهم) — كفاءة عالية.
+async function fetchVixRank() {
+  try {
+    const to = new Date().toISOString().split("T")[0];
+    const from = new Date(Date.now() - 370 * 86400000).toISOString().split("T")[0];   // ~سنة
+    const url = `https://api.polygon.io/v2/aggs/ticker/I:VIX/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=400&apiKey=${POLYGON_KEY}`;
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) return { rank: null, value: null, available: false };
+    const data = await res.json();
+    const bars = data.results || [];
+    if (bars.length < 30) return { rank: null, value: null, available: false };
+    const closes = bars.map(b => b.c).filter(v => v != null);
+    const current = closes[closes.length - 1];
+    // البيرسنتايل: كم % من القيم التاريخية أقل من الحالية
+    const below = closes.filter(v => v < current).length;
+    const rank = Math.round((below / closes.length) * 100);
+    return { rank, value: +current.toFixed(2), available: true };
+  } catch { return { rank: null, value: null, available: false }; }
+}
+
 // ════════════════ الحفظ في Supabase (UPSERT — يمنع التكرار) ════════
 // المفتاح الفريد: (symbol, signal_date).
 // ignore-duplicates: أول رصد للسهم في اليوم يُحفظ ويثبت (سعر الدخول/الأهداف/الوقت)،
@@ -599,8 +669,12 @@ export default async function handler(req, res) {
     const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
     const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
 
-    // 1) جلب كامل السوق
-    const allTickers = await fetchFullMarket();
+    // 1) جلب كامل السوق + VIX Rank (لفلتر الارتداد) بالتوازي
+    const [allTickers, vixData] = await Promise.all([
+      fetchFullMarket(),
+      fetchVixRank(),
+    ]);
+    const vixRank = vixData.available ? vixData.rank : null;
     const t1 = Date.now();
 
     // 2) فلترة أساسية
@@ -690,6 +764,16 @@ export default async function handler(req, res) {
           if (smart.smart_structure) { s.levels = smart; s.levels_source += "+structure"; }
         } else s.levels_source = "atr_basic";
         s.week_max_jump = tech.recentMaxJump;
+
+        // 🔄 تصنيف الارتداد: سهم قوي + RSI≤30 = فرصة ارتداد (له أهداف خاصة +3%)
+        if (isReboundCandidate(s, vixRank)) {
+          s.type = "ارتداد";
+          s.trade_style = "ارتداد";
+          s.levels = calcReboundLevels(s.price);
+          s.levels_source = "rebound_3pct";
+          s.is_rebound = true;
+          s.ep = Math.min(99, s.ep + 6);   // مكافأة: استراتيجية موثّقة (81% فوز تاريخياً)
+        }
       } else {
         s.ma_signal = null; s.rsi = s.rsi ?? null; s.levels_source = "atr_basic"; s.week_max_jump = null;
       }
@@ -899,6 +983,8 @@ export default async function handler(req, res) {
         hot:    survivors.filter(s => s.is_hot).length,
         target: survivors.filter(s => s.is_target).length,
         early:  survivors.filter(s => s.early_watch).length,
+        rebound: survivors.filter(s => s.is_rebound).length,   // 🔄 عدد إشارات الارتداد
+        vix:    vixData.available ? { rank: vixRank, value: vixData.value } : { available: false },
         saved:  saveResult.saved || 0, saveResult,
         timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
         market_scanned: allTickers.length, after_filter: candidates.length,
