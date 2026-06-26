@@ -41,6 +41,19 @@ export default async function handler(req, res) {
       fallback = true;
     }
 
+    // 2.5) 🔄 إشارات الارتداد تبقى أياماً (صفقة swing): نجلبها منفصلة لآخر 10 أيام.
+    //      الارتداد يبقى ظاهراً لين يحقق الهدف +3% أو تمر 10 أيام (حسب الاستراتيجية).
+    const tenDaysAgo = new Date(Date.now() - 10 * 86400000).toISOString().split("T")[0];
+    const rebResp = await query(
+      `signals?type=eq.${encodeURIComponent("ارتداد")}&signal_date=gte.${tenDaysAgo}&order=created_at.desc&limit=60`
+    );
+    let reboundRows = (rebResp.ok ? rebResp.rows : []).filter(r => {
+      // أخفِ المُنتهية: حقّقت الهدف الأول، أو ضُرب وقفها، أو مرّت 10 أيام
+      if (r.target1_hit || r.stop_hit) return false;
+      const ageDays = (Date.now() - new Date(r.created_at || 0).getTime()) / 86400000;
+      return ageDays <= 10;
+    });
+
     // 3) 🆕 نعرض "آخر مسح فقط" — لا كل إشارات اليوم المتراكمة.
     //    نأخذ أحدث وقت رصد ونُبقي ما رُصد خلال آخر 90 دقيقة منه (نافذة مسح واحدة تقريباً).
     //    هذا يمنع القفزة المربكة (123 متراكمة → 19 حيّة) ويُظهر الحالة الحيّة الحالية فقط.
@@ -57,6 +70,14 @@ export default async function handler(req, res) {
       });
       if (fresh.length) rows = fresh;
       // ترتيب نهائي بالأعلى نقاطاً (للعرض)
+      rows.sort((a, b) => (b.score || 0) - (a.score || 0));
+    }
+
+    // 3.5) 🔄 ندمج الارتداد (الباقي أياماً) مع النافذة الحيّة — بلا تكرار
+    if (reboundRows.length) {
+      const seen = new Set(rows.map(r => r.symbol));
+      const extraReb = reboundRows.filter(r => !seen.has(r.symbol));
+      rows = [...rows, ...extraReb];
       rows.sort((a, b) => (b.score || 0) - (a.score || 0));
     }
 
