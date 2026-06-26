@@ -271,31 +271,43 @@ const SMART_STOP = {
 const REBOUND = {
   ENABLED:        true,
   RSI_MAX:        30,      // الدخول لما RSI ≤ 30 (متشبّع بيعاً = تصحيح مؤقت)
-  MIN_PRICE:      5,       // تجنّب الأسهم الرخيصة جداً
-  MIN_DOLLAR_VOL: 20_000_000,  // سيولة كافية (تقريب عملي لسوق ≥ $2B)
-  STRONG_JUMP:    8,       // قوة: أقصى قفزة حديثة ≥ 8% (بديل عملي متاح لعائد 3 شهور)
+  MIN_PRICE:      10,      // 🆕 سعر ≥ $10 (شركة جادة، مو سهم رخيص ضعيف)
+  MIN_DOLLAR_VOL: 50_000_000,  // 🆕 سيولة ≥ $50M (شركة كبيرة قوية، مو ضعيفة رأس المال)
+  MIN_RET_3M:     20,      // 🆕 عائد 3 شهور ≥ 20% (سهم قوي فعلاً — جوهر الاستراتيجية)
+  STRONG_JUMP:    8,       // قوة إضافية: أقصى قفزة حديثة ≥ 8%
   TARGET_PCT:     3.0,     // هدف الربح +3% (حسب البحث الأصلي)
   MAX_HOLD_DAYS:  10,      // أقصى مدة احتفاظ 10 أيام
   STOP_PCT:       7,       // 🛡️ وقف 7% (البحث بلا وقف — نضيفه للحماية)
   MAX_VIX_RANK:   70,      // 🔄 الابتكار الأساسي: ندخل فقط لو VIX Rank < 70 (تقلّب معتدل)
 };
 
+// عائد آخر ~3 شهور من شموع يومية (يثبت أن السهم قوي فعلاً، مو ضعيف رأس المال)
+function return3M(dailyCloses) {
+  if (!dailyCloses || dailyCloses.length < 40) return null;
+  const now = dailyCloses[dailyCloses.length - 1];
+  // ~63 يوم تداول = 3 شهور (أو أقدم متاح إن أقل)
+  const idx = Math.max(0, dailyCloses.length - 63);
+  const then = dailyCloses[idx];
+  if (!then || then <= 0) return null;
+  return ((now - then) / then) * 100;
+}
+
 // يحدّد إن كان السهم مرشّحاً لفلتر الارتداد:
-//   سهم قوي + RSI≤30 (متشبّع بيعاً) + VIX معتدل + تأكيد تقاطع MA9>MA21 على الساعة
-function isReboundCandidate(s, vixRank, closes) {
+//   سهم قوي فعلاً (عائد 3 شهور عالٍ) + RSI≤30 + VIX معتدل + تقاطع MA9>MA21 على الساعة
+function isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses) {
   if (!REBOUND.ENABLED) return false;
-  if (s.rsi == null || s.rsi > REBOUND.RSI_MAX) return false;     // لازم RSI ≤ 30
-  if (s.price < REBOUND.MIN_PRICE) return false;
+  if (s.rsi == null || s.rsi > REBOUND.RSI_MAX) return false;     // RSI ≤ 30 (متشبّع بيعاً)
+  if (s.price < REBOUND.MIN_PRICE) return false;                  // سعر ≥ $10 (شركة جادة)
   const dvol = s.price * (s.volume || 0);
-  if (dvol < REBOUND.MIN_DOLLAR_VOL) return false;
-  // 🔄 فلتر VIX: لو متاح وفوق العتبة → نرفض (تقلّب عالٍ = حتى المتشبّع بيعاً يستمر بالهبوط)
+  if (dvol < REBOUND.MIN_DOLLAR_VOL) return false;                // سيولة ≥ $50M (قوية)
+  // 🔄 فلتر VIX: تقلّب عالٍ → نرفض (حتى المتشبّع بيعاً يستمر بالهبوط)
   if (vixRank != null && vixRank >= REBOUND.MAX_VIX_RANK) return false;
-  // قوة السهم: ارتفاع تاريخي ملموس (أقصى قفزة حديثة أو فوق المتوسطات)
-  const strong = (s.week_max_jump != null && s.week_max_jump >= REBOUND.STRONG_JUMP)
-              || (s.ma_signal && /صاعد|فوق/.test(s.ma_signal));
-  if (!strong) return false;
-  // 🔄 تأكيد الارتداد: لازم تقاطع MA9 فوق MA21 حديثاً على شمعة الساعة (الارتداد بدأ فعلاً)
-  if (!emaCrossedUp(closes, 9, 21, 2)) return false;
+  // 💪 الأهم: السهم قوي فعلاً — عائد 3 شهور ≥ 20% (مو ضعيف رأس المال)
+  const ret3 = return3M(dailyCloses);
+  if (ret3 == null || ret3 < REBOUND.MIN_RET_3M) return false;
+  s._ret3m = +ret3.toFixed(1);   // نحفظه للعرض
+  // 🔄 تأكيد الارتداد: تقاطع MA9 فوق MA21 حديثاً على شمعة الساعة (الارتداد بدأ فعلاً)
+  if (!emaCrossedUp(hourlyCloses, 9, 21, 2)) return false;
   return true;
 }
 
@@ -798,20 +810,33 @@ export default async function handler(req, res) {
         const dvolOK = s.price * (s.volume || 0) >= REBOUND.MIN_DOLLAR_VOL && s.price >= REBOUND.MIN_PRICE;
         const vixOK = vixRank == null || vixRank < REBOUND.MAX_VIX_RANK;
         if (rsiOK && dvolOK && vixOK) {
-          // نحتاج شموع ساعة للتقاطع. المضاربة عندها 60د أصلاً؛ غيرها نجلب ساعة سريعاً.
-          let hourlyCloses = null;
-          if (fr.mult === 60 && fr.span === "minute" && tech.bars) {
-            hourlyCloses = tech.bars.map(b => b.c);
-          } else {
-            const hb = await fetchAggs(s.symbol, 60, "minute", 30, 600);   // شموع ساعة
+          // الاكتشاف على شمعة ساعة (التقاطع) + القوة/البنية على شمعة يوم (العائد 3 شهور)
+          const isHourly = fr.mult === 60 && fr.span === "minute";
+          const isDaily  = fr.mult === 1  && fr.span === "day";
+          let hourlyCloses = isHourly && tech.bars ? tech.bars.map(b => b.c) : null;
+          let dailyCloses  = isDaily  && tech.bars ? tech.bars.map(b => b.c) : null;
+          // اجلب الناقص (نوع واحد فقط متاح من التحليل الأساسي)
+          if (!hourlyCloses) {
+            const hb = await fetchAggs(s.symbol, 60, "minute", 30, 600);
             hourlyCloses = (hb && hb.length) ? hb.map(b => b.c) : null;
           }
-          if (isReboundCandidate(s, vixRank, hourlyCloses)) {
+          if (!dailyCloses) {
+            const db = await fetchAggs(s.symbol, 1, "day", 100, 120);   // ~3 شهور للعائد + البنية اليومية
+            dailyCloses = (db && db.length) ? db.map(b => b.c) : null;
+            if (db && db.length >= 15) s._dailyBars = db;   // للبنية اليومية في العرض
+          } else {
+            s._dailyBars = tech.bars;
+          }
+          if (isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses)) {
             s.type = "ارتداد";
             s.trade_style = "ارتداد";
             s.levels = calcReboundLevels(s.price);
             s.levels_source = "rebound_3pct";
             s.is_rebound = true;
+            // 🆕 بنية السوق على شمعة اليوم (حسب طلبك)
+            if (s._dailyBars && s._dailyBars.length >= 15) {
+              s.structure = computeStructureLevels(s.price, s._dailyBars);
+            }
             s.ep = Math.min(99, s.ep + 6);   // مكافأة: استراتيجية موثّقة (81% فوز تاريخياً)
           }
         }
