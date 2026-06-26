@@ -95,8 +95,10 @@ export default async function handler(req, res) {
         const t3_reached = high >= sig.target3;
         const stop_reached = low <= sig.stop_loss;
 
-        // ⏱️ حسم الترتيب: أول دقيقة لمس فيها السعر الهدف، وأول دقيقة لمس فيها الوقف
+        // ⏱️ حسم الترتيب: أول دقيقة لمس فيها السعر كل هدف، وأول دقيقة لمس فيها الوقف
         const tHitBar  = t1_reached  ? bars.find(b => b.h >= sig.target1)  : null;
+        const t2HitBar = t2_reached  ? bars.find(b => b.h >= sig.target2)  : null;
+        const t3HitBar = t3_reached  ? bars.find(b => b.h >= sig.target3)  : null;
         const stopBar  = stop_reached ? bars.find(b => b.l <= sig.stop_loss) : null;
         const tHitTime = tHitBar ? tHitBar.t : Infinity;
         const stopTime = stopBar ? stopBar.t : Infinity;
@@ -117,14 +119,16 @@ export default async function handler(req, res) {
         const max_gain_pct = +(((effHigh - sig.entry_price) / sig.entry_price) * 100).toFixed(2);
         const close_gain_pct = +(((close - sig.entry_price) / sig.entry_price) * 100).toFixed(2);
 
-        // وقت إصابة الهدف الأول (للرابح الفعلي فقط)
-        const target1_hit_at = (t1_hit && tHitBar) ? new Date(tHitBar.t).toISOString() : null;
+        // وقت إصابة كل هدف (للرابح الفعلي فقط) + سعر الهدف نفسه
+        const target1_hit_at = (t1_hit && tHitBar)  ? new Date(tHitBar.t).toISOString()  : null;
+        const target2_hit_at = (t2_hit && t2HitBar) ? new Date(t2HitBar.t).toISOString() : null;
+        const target3_hit_at = (t3_hit && t3HitBar) ? new Date(t3HitBar.t).toISOString() : null;
 
         return {
           id: sig.id,
           high_price: high, low_price: low, close_price: close,
           target1_hit: t1_hit, target2_hit: t2_hit, target3_hit: t3_hit, stop_hit,
-          target1_hit_at,
+          target1_hit_at, target2_hit_at, target3_hit_at,
           max_gain_pct, close_gain_pct,
           evaluated_at: new Date().toISOString(),
           status: "CLOSED",
