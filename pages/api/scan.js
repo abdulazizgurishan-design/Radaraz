@@ -87,6 +87,27 @@ function calcSMA(prices, period) {
   return slice.reduce((a, b) => a + b, 0) / period;
 }
 
+// 🔄 كشف تقاطع MA9 فوق MA21 حديثاً (تأكيد بدء الارتداد على شمعة الساعة)
+// يرجّع true لو MA9 تجاوز MA21 صعوداً خلال آخر شمعتين (تقاطع طازج، مو قديم).
+function emaCrossedUp(closes, fast = 9, slow = 21, lookback = 2) {
+  if (!closes || closes.length < slow + lookback + 1) return false;
+  const fastSeries = emaSeries(closes, fast);
+  const slowSeries = emaSeries(closes, slow);
+  if (!fastSeries.length || !slowSeries.length) return false;
+  // محاذاة السلسلتين من النهاية (لهما أطوال مختلفة لاختلاف الفترة)
+  const n = Math.min(fastSeries.length, slowSeries.length);
+  const f = fastSeries.slice(-n);
+  const s = slowSeries.slice(-n);
+  if (n < lookback + 1) return false;
+  // تقاطع طازج: كان MA9 ≤ MA21 قبل ≤lookback شمعة، والآن MA9 > MA21
+  const nowAbove = f[n - 1] > s[n - 1];
+  let wasBelow = false;
+  for (let i = 2; i <= lookback + 1 && n - i >= 0; i++) {
+    if (f[n - i] <= s[n - i]) { wasBelow = true; break; }
+  }
+  return nowAbove && wasBelow;
+}
+
 // ATR14 بتمهيد Wilder (مطابق TradingView)
 function calcATR14(bars) {
   if (!bars || bars.length < 15) return null;
@@ -259,8 +280,9 @@ const REBOUND = {
   MAX_VIX_RANK:   70,      // 🔄 الابتكار الأساسي: ندخل فقط لو VIX Rank < 70 (تقلّب معتدل)
 };
 
-// يحدّد إن كان السهم مرشّحاً لفلتر الارتداد: سهم قوي + متشبّع بيعاً مؤقتاً + تقلّب معتدل
-function isReboundCandidate(s, vixRank) {
+// يحدّد إن كان السهم مرشّحاً لفلتر الارتداد:
+//   سهم قوي + RSI≤30 (متشبّع بيعاً) + VIX معتدل + تأكيد تقاطع MA9>MA21 على الساعة
+function isReboundCandidate(s, vixRank, closes) {
   if (!REBOUND.ENABLED) return false;
   if (s.rsi == null || s.rsi > REBOUND.RSI_MAX) return false;     // لازم RSI ≤ 30
   if (s.price < REBOUND.MIN_PRICE) return false;
@@ -271,7 +293,10 @@ function isReboundCandidate(s, vixRank) {
   // قوة السهم: ارتفاع تاريخي ملموس (أقصى قفزة حديثة أو فوق المتوسطات)
   const strong = (s.week_max_jump != null && s.week_max_jump >= REBOUND.STRONG_JUMP)
               || (s.ma_signal && /صاعد|فوق/.test(s.ma_signal));
-  return strong;
+  if (!strong) return false;
+  // 🔄 تأكيد الارتداد: لازم تقاطع MA9 فوق MA21 حديثاً على شمعة الساعة (الارتداد بدأ فعلاً)
+  if (!emaCrossedUp(closes, 9, 21, 2)) return false;
+  return true;
 }
 
 // أهداف الارتداد: هدف +3% ثابت + وقف 7% (حسب الاستراتيجية الموثّقة)
@@ -767,14 +792,28 @@ export default async function handler(req, res) {
         } else s.levels_source = "atr_basic";
         s.week_max_jump = tech.recentMaxJump;
 
-        // 🔄 تصنيف الارتداد: سهم قوي + RSI≤30 = فرصة ارتداد (له أهداف خاصة +3%)
-        if (isReboundCandidate(s, vixRank)) {
-          s.type = "ارتداد";
-          s.trade_style = "ارتداد";
-          s.levels = calcReboundLevels(s.price);
-          s.levels_source = "rebound_3pct";
-          s.is_rebound = true;
-          s.ep = Math.min(99, s.ep + 6);   // مكافأة: استراتيجية موثّقة (81% فوز تاريخياً)
+        // 🔄 تصنيف الارتداد: سهم قوي + RSI≤30 + تقاطع MA9>MA21 على الساعة = ارتداد مؤكّد
+        //    نتحقق فقط للمرشّحين الأوليين (RSI≤30 + سعر/سيولة) لتوفير الطلبات.
+        const rsiOK = s.rsi != null && s.rsi <= REBOUND.RSI_MAX;
+        const dvolOK = s.price * (s.volume || 0) >= REBOUND.MIN_DOLLAR_VOL && s.price >= REBOUND.MIN_PRICE;
+        const vixOK = vixRank == null || vixRank < REBOUND.MAX_VIX_RANK;
+        if (rsiOK && dvolOK && vixOK) {
+          // نحتاج شموع ساعة للتقاطع. المضاربة عندها 60د أصلاً؛ غيرها نجلب ساعة سريعاً.
+          let hourlyCloses = null;
+          if (fr.mult === 60 && fr.span === "minute" && tech.bars) {
+            hourlyCloses = tech.bars.map(b => b.c);
+          } else {
+            const hb = await fetchAggs(s.symbol, 60, "minute", 30, 600);   // شموع ساعة
+            hourlyCloses = (hb && hb.length) ? hb.map(b => b.c) : null;
+          }
+          if (isReboundCandidate(s, vixRank, hourlyCloses)) {
+            s.type = "ارتداد";
+            s.trade_style = "ارتداد";
+            s.levels = calcReboundLevels(s.price);
+            s.levels_source = "rebound_3pct";
+            s.is_rebound = true;
+            s.ep = Math.min(99, s.ep + 6);   // مكافأة: استراتيجية موثّقة (81% فوز تاريخياً)
+          }
         }
       } else {
         s.ma_signal = null; s.rsi = s.rsi ?? null; s.levels_source = "atr_basic"; s.week_max_jump = null;
