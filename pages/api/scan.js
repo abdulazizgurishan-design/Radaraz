@@ -598,14 +598,16 @@ async function fetchNews(symbol) {
 }
 
 // ════════════════ 🔄 VIX Rank (لفلتر الارتداد) ════════════════════
-// يجلب VIX التاريخي (سنة) ويحسب أين VIX الحالي ضمنها كبيرسنتايل (0-100).
-// VIX Rank < 70 = بيئة تقلّب معتدلة → الارتداد يعمل جيداً (حسب البحث).
+// يجلب تقلّب السوق التاريخي (سنة) ويحسب أين القيمة الحالية ضمنها كبيرسنتايل (0-100).
+// Rank < 70 = بيئة تقلّب معتدلة → الارتداد يعمل جيداً (حسب البحث).
+// نستخدم VIXY (ETF يتبع VIX) لأنه سهم عادي تغطّيه باقة Polygon Stocks،
+// بينما مؤشر I:VIX يتطلب باقة Indices منفصلة. VIXY يتبع VIX بدقة عالية.
 // يُحسب مرة واحدة لكل مسح (مو لكل سهم) — كفاءة عالية.
 async function fetchVixRank() {
   try {
     const to = new Date().toISOString().split("T")[0];
     const from = new Date(Date.now() - 370 * 86400000).toISOString().split("T")[0];   // ~سنة
-    const url = `https://api.polygon.io/v2/aggs/ticker/I:VIX/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=400&apiKey=${POLYGON_KEY}`;
+    const url = `https://api.polygon.io/v2/aggs/ticker/VIXY/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=400&apiKey=${POLYGON_KEY}`;
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), 4000);
     const res = await fetch(url, { signal: controller.signal });
@@ -619,7 +621,7 @@ async function fetchVixRank() {
     // البيرسنتايل: كم % من القيم التاريخية أقل من الحالية
     const below = closes.filter(v => v < current).length;
     const rank = Math.round((below / closes.length) * 100);
-    return { rank, value: +current.toFixed(2), available: true };
+    return { rank, value: +current.toFixed(2), available: true, proxy: "VIXY" };
   } catch { return { rank: null, value: null, available: false }; }
 }
 
