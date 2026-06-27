@@ -481,6 +481,39 @@ function computeStructureLevels(price, bars) {
 }
 
 // ════════════════ EP MODEL ════════════════
+// ════════════════ 📊 حركة السوق (Top Movers) ════════════════════
+// 4 قوائم سريعة من بيانات السوق الخام (بلا تحليل بنية — تُجلب عند الضغط).
+// فلتر سيولة يستبعد أسهم الزبالة (سعر منخفض/سيولة صفر) لحماية الجودة.
+function buildMovers(tickers, n = 15) {
+  const MIN_PRICE = 1;            // سعر ≥ $1 (نستبعد الوهمي الرخيص)
+  const MIN_DOLLAR_VOL = 1e6;     // قيمة تداول ≥ $1M (سيولة حقيقية)
+  const rows = [];
+  for (const tk of tickers) {
+    if (!tk.ticker || tk.ticker.includes(".")) continue;
+    if (!/^[A-Z]{1,6}$/.test(tk.ticker)) continue;
+    const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
+    const price  = min.vw || min.c || tk.lastTrade?.p || day.c || prev.c || 0;
+    const volume = day.v || min.av || 0;
+    if (price < MIN_PRICE) continue;
+    const dollarVol = price * volume;
+    if (dollarVol < MIN_DOLLAR_VOL) continue;
+    let changePct = tk.todaysChangePerc;
+    if (changePct == null && prev.c) changePct = ((price - prev.c) / prev.c) * 100;
+    rows.push({
+      symbol: tk.ticker,
+      price: +price.toFixed(2),
+      change_pct: +(changePct || 0).toFixed(2),
+      volume,
+      dollar_vol: Math.round(dollarVol),
+    });
+  }
+  const byChangeDesc = [...rows].sort((a, b) => b.change_pct - a.change_pct).slice(0, n);
+  const byChangeAsc  = [...rows].sort((a, b) => a.change_pct - b.change_pct).slice(0, n);
+  const byVolume     = [...rows].sort((a, b) => b.volume - a.volume).slice(0, n);
+  const byValue      = [...rows].sort((a, b) => b.dollar_vol - a.dollar_vol).slice(0, n);
+  return { gainers: byChangeDesc, losers: byChangeAsc, volume: byVolume, value: byValue };
+}
+
 function calcEP(s) {
   let t = 0;
   const W = { rvol: 30, change: 25, gap: 15, vwap: 10, range: 10, volume: 10 };
@@ -1074,6 +1107,9 @@ export default async function handler(req, res) {
     const speculation = results.filter(s => s.type !== "استثمار");
     const early       = results.filter(s => s.early_watch);
 
+    // 📊 حركة السوق (Top Movers) — 15 سهم لكل قائمة من السوق الخام
+    const movers = buildMovers(allTickers, 15);
+
     return res.status(200).json({
       success: true, total: results.length,
       hot: results.filter(s => s.is_hot).length,
@@ -1083,6 +1119,7 @@ export default async function handler(req, res) {
       market_scanned: allTickers.length, after_filter: candidates.length,
       debug,
       results, leaders, speculation, earlyWatch: early,
+      movers,   // 📊 { gainers, losers, volume, value } — 15 سهم لكل
     });
 
   } catch (error) {
