@@ -43,11 +43,12 @@ export default async function handler(req, res) {
   if (!isAuthorized) return res.status(401).json({ error: "Unauthorized" });
 
   try {
-    // تخطّي عطلة نهاية الأسبوع
+    // تخطّي عطلة نهاية الأسبوع (إلا لو تشغيل يدوي بـ ?force=1 لتقييم المتراكم)
     const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
     const dow = etNow.getDay();
-    if (dow === 0 || dow === 6) {
-      return res.status(200).json({ success: true, message: "عطلة نهاية الأسبوع — لا تقييم", evaluated: 0 });
+    const force = req.query.force === "1";
+    if ((dow === 0 || dow === 6) && !force) {
+      return res.status(200).json({ success: true, message: "عطلة نهاية الأسبوع — لا تقييم (أضف ?force=1 للتقييم اليدوي)", evaluated: 0 });
     }
 
     // 1) كل الإشارات المفتوحة
