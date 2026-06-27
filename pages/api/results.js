@@ -99,7 +99,7 @@ function html(r, view) {
 + '</div>'
 + '<div class="grid">'
 + '<div class="box"><div class="big" style="color:' + netCol + '">' + (r.netClose >= 0 ? "+" : "") + r.netClose.toLocaleString() + '$</div><div class="lbl">المحصلة عند الإغلاق</div></div>'
-+ '<div class="box"><div class="big" style="color:#fbbf24">+' + r.netMax.toLocaleString() + '$</div><div class="lbl">لو خرجت عند أعلى سعر</div></div>'
++ '<div class="box"><div class="big" style="color:#fbbf24">' + (r.netMax >= 0 ? "+" : "") + r.netMax.toLocaleString() + '$</div><div class="lbl">لو خرجت عند أعلى سعر</div></div>'
 + '</div>'
 + '<div class="grid">'
 + '<div class="box"><div class="big" style="color:#a5b4fc">' + r.winRate + '%</div><div class="lbl">نسبة الربح (إغلاق)</div></div>'
