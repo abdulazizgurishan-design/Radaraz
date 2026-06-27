@@ -37,6 +37,8 @@ const T = {
     reboundTarget3: "الهدف +3%",
     reboundStrong: "💪 سهم قوي",
     reboundReturn: "عائد 3 شهور",
+    marketMovers: "📊 حركة السوق",
+    marketMoversSub: "أعلى الأسهم حركة في السوق · اضغط أي سهم لتحليل بنيته",
     opportunities: "فرصة",
     noOpps: "لا توجد فرص حالياً",
     marketClosed: "سيتم تحديث الإشارات بعد مسح الأدمن",
@@ -113,6 +115,8 @@ const T = {
     reboundTarget3: "Target +3%",
     reboundStrong: "💪 Strong",
     reboundReturn: "3M return",
+    marketMovers: "📊 Market Movers",
+    marketMoversSub: "Most active stocks · tap any to analyze its structure",
     opportunities: "opportunities",
     noOpps: "No opportunities found",
     marketClosed: "Signals will appear after admin scan",
@@ -772,6 +776,112 @@ function LoginScreen({ onLogin, t, lang, setLang }) {
   );
 }
 
+// 📊 حركة السوق (Top Movers) — 4 قوائم + بنية AI عند الضغط
+function MarketMovers({ movers, t, lang }) {
+  const en = lang === "en";
+  const [tab, setTab] = useState("gainers");
+  const [openSym, setOpenSym] = useState(null);
+  const [structData, setStructData] = useState({});   // { SYM: {loading, structure, price, ret3m} }
+
+  const tabs = [
+    { id: "gainers", label: en ? "📈 Top Gainers" : "📈 أعلى ارتفاع", color: "#00d4aa" },
+    { id: "losers",  label: en ? "📉 Top Losers"  : "📉 أعلى انخفاض", color: "#ff4757" },
+    { id: "volume",  label: en ? "📊 Most Active"  : "📊 أعلى كمية",   color: "#fbbf24" },
+    { id: "value",   label: en ? "💰 Top Value"    : "💰 أعلى قيمة",   color: "#818cf8" },
+  ];
+  const list = (movers && movers[tab]) || [];
+  const activeColor = tabs.find(x => x.id === tab)?.color || "#6366f1";
+
+  const fmtVol = (v) => v >= 1e9 ? (v/1e9).toFixed(1)+"B" : v >= 1e6 ? (v/1e6).toFixed(1)+"M" : v >= 1e3 ? (v/1e3).toFixed(0)+"K" : String(v);
+
+  const toggleStruct = async (sym) => {
+    if (openSym === sym) { setOpenSym(null); return; }
+    setOpenSym(sym);
+    if (structData[sym]) return;   // محمّل مسبقاً
+    setStructData(p => ({ ...p, [sym]: { loading: true } }));
+    try {
+      const res = await fetch(`/api/structure?symbol=${encodeURIComponent(sym)}`);
+      const data = await res.json();
+      setStructData(p => ({ ...p, [sym]: { loading: false, ...data } }));
+    } catch {
+      setStructData(p => ({ ...p, [sym]: { loading: false, structure: null } }));
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 8, marginBottom: 16 }}>
+      {/* التبويبات */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+        {tabs.map(x => (
+          <button key={x.id} onClick={() => { setTab(x.id); setOpenSym(null); }}
+            style={{
+              flex: 1, minWidth: 70, background: tab === x.id ? `${x.color}22` : "rgba(255,255,255,0.04)",
+              border: `1px solid ${tab === x.id ? x.color + "88" : "rgba(255,255,255,0.08)"}`,
+              borderRadius: 10, padding: "9px 6px", color: tab === x.id ? x.color : "rgba(255,255,255,0.45)",
+              fontSize: 11, fontWeight: 700, cursor: "pointer", transition: "all 0.2s", fontFamily: "inherit",
+            }}>{x.label}</button>
+        ))}
+      </div>
+
+      {/* القائمة */}
+      <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, overflow: "hidden" }}>
+        {list.length === 0 && (
+          <div style={{ padding: "24px", textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
+            {en ? "No data yet — scan first" : "لا توجد بيانات — امسح أولاً"}
+          </div>
+        )}
+        {list.map((m, i) => {
+          const up = m.change_pct >= 0;
+          const isOpen = openSym === m.symbol;
+          const sd = structData[m.symbol];
+          return (
+            <div key={m.symbol} style={{ borderBottom: i < list.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+              <div onClick={() => toggleStruct(m.symbol)} role="button" tabIndex={0}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer" }}>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", minWidth: 20, fontFamily: "monospace" }}>{i + 1}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: "monospace", minWidth: 56 }}>{m.symbol}</span>
+                <span style={{ fontSize: 13, color: "#e8edf6", fontFamily: "monospace", flex: 1 }}>${m.price.toFixed(2)}</span>
+                {(tab === "volume" || tab === "value") && (
+                  <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: "monospace" }}>
+                    {tab === "volume" ? fmtVol(m.volume) : "$" + fmtVol(m.dollar_vol)}
+                  </span>
+                )}
+                <span style={{ fontSize: 13, fontWeight: 700, color: up ? "#00d4aa" : "#ff4757", fontFamily: "monospace", minWidth: 64, textAlign: "right", direction: "ltr" }}>
+                  {up ? "+" : ""}{m.change_pct.toFixed(2)}%
+                </span>
+                <span style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▼</span>
+              </div>
+              {isOpen && (
+                <div style={{ padding: "4px 14px 14px", background: "rgba(6,10,20,0.5)" }}>
+                  {sd?.loading && (
+                    <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
+                      ⟳ {en ? "Loading structure..." : "جاري تحليل البنية..."}
+                    </div>
+                  )}
+                  {sd && !sd.loading && sd.structure && (
+                    <div style={{ background: "rgba(6,10,20,0.6)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6, display: "flex", alignItems: "center", gap: 7, color: "#dbe2ff" }}>
+                        🤖 {en ? "AI-Az Structure" : "تحليل بنية AI-Az"}
+                        {sd.ret3m != null && <span style={{ fontSize: 10, color: sd.ret3m >= 0 ? "#00d4aa" : "#ff4757" }}>({en ? "3M" : "3 شهور"} {sd.ret3m >= 0 ? "+" : ""}{sd.ret3m}%)</span>}
+                      </div>
+                      <StructureMap r={{ price: sd.price || m.price, structure: sd.structure }} lang={lang} />
+                    </div>
+                  )}
+                  {sd && !sd.loading && !sd.structure && (
+                    <div style={{ padding: "12px", textAlign: "center", fontSize: 11, color: "rgba(255,255,255,0.35)" }}>
+                      {en ? "Not enough data for structure analysis." : "لا تتوفر بيانات كافية لتحليل البنية."}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Radar() {
   const [lang, setLang]               = useState("ar");
   const t = T[lang];
@@ -783,6 +893,7 @@ export default function Radar() {
   const [leaders, setLeaders]         = useState([]);
   const [speculation, setSpeculation] = useState([]);
   const [rebound, setRebound]         = useState([]);
+  const [movers, setMovers]           = useState(null);
   const [earlyWatch, setEarlyWatch]   = useState([]);
   const [favorites, setFavorites]     = useState([]);
   const [loading, setLoading]         = useState(false);
@@ -926,6 +1037,7 @@ export default function Radar() {
       setLeaders(lead.map(toCard));
       setSpeculation(spec.map(toCard));
       setEarlyWatch(early.map(toCard));
+      if (data.movers) setMovers(data.movers);   // 📊 حركة السوق
       setTotal(raw.length);
       setLastUpdate(new Date());
 
@@ -1135,6 +1247,13 @@ export default function Radar() {
         {loading && <div style={S.progressBar}><div style={S.progressFill} /></div>}
         {loading && <SkeletonCards />}
         {(done || loading) && <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} t={t} />}
+
+        {/* 📊 حركة السوق — قوائم top movers مع بنية عند الضغط */}
+        {!loading && done && filter === "all" && movers && (
+          <CollapsibleSection title={t.marketMovers} subtitle={t.marketMoversSub} count={60} color="#22d3ee" bg="rgba(34,211,238,0.08)" border="rgba(34,211,238,0.3)" t={t} defaultOpen={false}>
+            <MarketMovers movers={movers} t={t} lang={lang} />
+          </CollapsibleSection>
+        )}
 
         {/* 🔄 قسم ارتداد الأسهم القوية — يظهر في الأعلى */}
         {!loading && done && filter === "all" && rebound.length > 0 && (
