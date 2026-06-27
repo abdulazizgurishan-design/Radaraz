@@ -842,7 +842,10 @@ export default async function handler(req, res) {
         const rsiOK = s.rsi != null && s.rsi <= REBOUND.RSI_MAX;
         const dvolOK = s.price * (s.volume || 0) >= REBOUND.MIN_DOLLAR_VOL && s.price >= REBOUND.MIN_PRICE;
         const vixOK = vixRank == null || vixRank < REBOUND.MAX_VIX_RANK;
+        if (rsiOK) s._rebRsi = true;            // 🔬 تشخيص: عدّ من اجتاز كل مرحلة
+        if (rsiOK && dvolOK) s._rebDvol = true;
         if (rsiOK && dvolOK && vixOK) {
+          s._rebVix = true;
           // الاكتشاف على شمعة ساعة (التقاطع) + القوة/البنية على شمعة يوم (العائد 3 شهور)
           const isHourly = fr.mult === 60 && fr.span === "minute";
           const isDaily  = fr.mult === 1  && fr.span === "day";
@@ -860,6 +863,10 @@ export default async function handler(req, res) {
           } else {
             s._dailyBars = tech.bars;
           }
+          // 🔬 تشخيص: هل اجتاز العائد 3 شهور؟ والتقاطع؟
+          const ret3 = return3M(dailyCloses);
+          if (ret3 != null && ret3 >= REBOUND.MIN_RET_3M) s._rebRet3 = true;
+          if (s._rebRet3 && emaCrossedUp(hourlyCloses, 9, 21, 2)) s._rebCross = true;
           if (isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses)) {
             s.type = "ارتداد";
             s.trade_style = "ارتداد";
@@ -1060,6 +1067,15 @@ export default async function handler(req, res) {
       survivors:        survivors.length,
       below_save_ep:    survivors.filter(s => s.ep < FILTER.SAVE_MIN_EP).length,
       saved:            saveResult.saved || 0,
+      // 🔬 قمع تشخيص الارتداد — وين تسقط الأسهم في مسار الارتداد؟
+      rebound_funnel: {
+        rsi_pass:   top.filter(s => s._rebRsi).length,    // RSI ≤ 30
+        dvol_pass:  top.filter(s => s._rebDvol).length,   // + سعر/سيولة
+        vix_pass:   top.filter(s => s._rebVix).length,    // + VIX معتدل
+        ret3_pass:  top.filter(s => s._rebRet3).length,   // + عائد 3 شهور ≥20%
+        cross_pass: top.filter(s => s._rebCross).length,  // + تقاطع MA9>21 (= ارتداد مؤكّد)
+        final:      top.filter(s => s.is_rebound).length, // النهائي
+      },
     };
     // نِسب جاهزة للقراءة السريعة (%) — تشخّص بنظرة وين الخلل بدون حساب يدوي
     const pctOf = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
