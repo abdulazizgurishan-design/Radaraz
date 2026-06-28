@@ -122,6 +122,47 @@ function calcATR14(bars) {
   return atr;
 }
 
+// 🆕 VCP (Volatility Contraction Pattern) — مينرفيني:
+//   يكتشف انكماش التذبذب: السهم يهدأ تدريجياً (موجات تصحيح أصغر فأصغر) =
+//   البائعون ينضبون، استعداد للانفجار. هذا مؤشر جودة (يرفع السكور، لا يرفض).
+//   نقسّم آخر 30 شمعة لـ3 نوافذ، نقيس مدى كل نافذة (high-low)/price.
+//   لو المدى ينكمش نافذة بعد نافذة = VCP موجب.
+function detectVCP(bars) {
+  if (!bars || bars.length < 30) return { vcp: false, score: 0, contraction: 0 };
+  const recent = bars.slice(-30);
+  const windows = [recent.slice(0, 10), recent.slice(10, 20), recent.slice(20, 30)];
+  const ranges = windows.map(w => {
+    const hi = Math.max(...w.map(b => b.h));
+    const lo = Math.min(...w.map(b => b.l));
+    const mid = (hi + lo) / 2 || 1;
+    return (hi - lo) / mid;   // المدى النسبي للنافذة
+  });
+  // VCP حقيقي: كل نافذة مداها أضيق من السابقة (انكماش متتالٍ)
+  const r0 = ranges[0], r1 = ranges[1], r2 = ranges[2];   // r2 = الأحدث
+  const contracting = r2 < r1 && r1 < r0;                  // انكماش متتالٍ
+  const tightening = r0 > 0 ? (r0 - r2) / r0 : 0;          // كم انكمش (0-1)
+  // قوة الانكماش: لازم الأحدث أضيق بـ30%+ من الأقدم ليُعتبر VCP قوي
+  const vcp = contracting && tightening >= 0.30;
+  // سكور إضافي (0-8) حسب قوة الانكماش — يُضاف للسكور الأساسي
+  const score = vcp ? Math.min(Math.round(tightening * 12), 8) : 0;
+  return { vcp, score, contraction: +(tightening * 100).toFixed(0) };
+}
+
+// 🆕 Fresh Zone — العرض/الطلب:
+//   الدعم "الطازج" (الذي لم يُختبر كثيراً) أقوى من المُختبَر مراراً.
+//   نعدّ كم مرة لامس السعر منطقة الدعم: لمسة واحدة = طازج (قوي)، لمسات كثيرة = مستهلَك.
+function freshZoneBonus(bars, support) {
+  if (!bars || bars.length < 10 || !support) return { fresh: false, touches: 0, bonus: 0 };
+  const tol = support * 0.015;   // هامش 1.5% حول الدعم
+  let touches = 0;
+  for (const b of bars.slice(-40)) {
+    if (b.l <= support + tol && b.l >= support - tol) touches++;
+  }
+  const fresh = touches <= 2;                 // ≤2 لمسة = طازج
+  const bonus = fresh ? 4 : (touches >= 5 ? -3 : 0);   // طازج +4، مستهلَك -3
+  return { fresh, touches, bonus };
+}
+
 // RSI14 بتمهيد Wilder
 function calcRSI14(bars) {
   if (!bars || bars.length < 15) return null;
@@ -732,6 +773,8 @@ async function saveSignals(signals) {
     status: "OPEN", ma_signal: s.ma_signal || null, rsi: s.rsi ?? null,
     atr14: s.levels?.atr14 ?? null, early_watch: s.early_watch || false,
     is_target: s.is_target || false, news_age_h: s.news_age_h ?? null,
+    vcp: s.vcp || false, vcp_contraction: s.vcp_contraction ?? null,   // 🆕 VCP (انكماش التذبذب)
+    fresh_zone: s.fresh_zone || false,                                  // 🆕 دعم طازج
     structure: s.structure || null,   // 🆕 خريطة البنية كاملة (للبوت) — يتطلب عمود jsonb
     created_at: nowISO,   // وقت أول رصد — يثبت (يُكتب مرة واحدة عند أول إدخال)
   }));
@@ -846,11 +889,28 @@ export default async function handler(req, res) {
         } else s.rsi = null;
         // MACD
         if (tech.macd && tech.macd.bullish) s.ep = Math.min(99, s.ep + (tech.macd.rising ? 7 : 5));
+
+        // 🆕 VCP (مينرفيني): انكماش التذبذب = جودة أعلى → مكافأة سكور (لا يرفض، يُعلّي القوي)
+        if (tech.bars && tech.bars.length >= 30) {
+          const vcpRes = detectVCP(tech.bars);
+          if (vcpRes.vcp) {
+            s.ep = Math.min(99, s.ep + vcpRes.score);   // +حتى 8 نقاط حسب قوة الانكماش
+            s.vcp = true;
+            s.vcp_contraction = vcpRes.contraction;     // نسبة الانكماش (للعرض)
+          }
+        }
         // أهداف واقعية بالفريم الصحيح
         if (tech.bars && tech.bars.length >= 15) {
           s.levels = s.trade_style === "مضاربة" ? calcScalpLevels(s.price, tech.bars) : calcSmartLevels(s.price, tech.bars);
           s.levels_source = s.trade_style === "مضاربة" ? "scalp_60m" : "smart_daily";
           s.structure = computeStructureLevels(s.price, tech.bars);   // 🆕 مستويات البنية (إضافية)
+          // 🆕 Fresh Zone (العرض/الطلب): الدعم الطازج (غير المُختبَر) أقوى → مكافأة؛ المستهلَك → خصم بسيط
+          if (s.structure && s.structure.support) {
+            const fz = freshZoneBonus(tech.bars, s.structure.support);
+            if (fz.bonus !== 0) s.ep = Math.min(99, Math.max(0, s.ep + fz.bonus));
+            s.fresh_zone = fz.fresh;
+            s.zone_touches = fz.touches;
+          }
           // 🆕 وقف/أهداف ذكية مشتقّة من البنية (تحت الارتكاز الحقيقي + حارس ضجيج/سقف)
           const smart = applyStructureLevels(s.price, s.levels, s.structure, s.trade_style);
           if (smart.smart_structure) { s.levels = smart; s.levels_source += "+structure"; }
