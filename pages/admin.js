@@ -161,6 +161,33 @@ function Toast({ msg, type }) {
   );
 }
 
+// ─── Dashboard KPI Components ──────────────────────────────────────
+function KpiCard({ label, value, sub, good, target, color }) {
+  return (
+    <div style={{
+      background: good ? `${color}14` : "rgba(255,255,255,.03)",
+      border: `1px solid ${good ? color + "55" : "rgba(255,255,255,.08)"}`,
+      borderRadius: 16, padding: 18, position: "relative",
+    }}>
+      <div style={{ fontSize: 12, color: "rgba(255,255,255,.5)", marginBottom: 8 }}>{label}</div>
+      <div style={{ fontSize: 30, fontWeight: 900, color, lineHeight: 1, marginBottom: 6 }}>{value}</div>
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,.35)", marginBottom: 4 }}>{sub}</div>
+      <div style={{ fontSize: 10, color: good ? color : "rgba(255,255,255,.3)", fontWeight: 700 }}>
+        {good ? "✓ " : ""}{target}
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, color }) {
+  return (
+    <div style={{ background: "rgba(255,255,255,.03)", borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
+      <div style={{ fontSize: 20, fontWeight: 800, color: color || "#fff", marginBottom: 4 }}>{value}</div>
+      <div style={{ fontSize: 10.5, color: "rgba(255,255,255,.45)" }}>{label}</div>
+    </div>
+  );
+}
+
 // ─── Signal Card ──────────────────────────────────────────────────
 function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
   const ep  = s.ep || s.score || 0;
@@ -357,6 +384,9 @@ export default function Admin() {
   const [scanning,  setScanning]  = useState(false);
   const [copiedId,  setCopiedId]  = useState(null);
   const [activeTab, setActiveTab] = useState("signals");
+  const [dash,      setDash]      = useState(null);
+  const [dashLoading, setDashLoading] = useState(false);
+  const [cacInput,  setCacInput]  = useState("");      // مصاريف إعلانات (يدوي لحساب CAC)
   const [date,      setDate]      = useState("");
   const [toast,     setToast]     = useState({ msg: "", type: "" });
   const [tweetText, setTweetText] = useState(null);
@@ -401,6 +431,9 @@ export default function Admin() {
   useEffect(() => {
     if (auth && activeTab === "affiliates" && affiliates.length === 0) {
       loadAffiliates();
+    }
+    if (auth && activeTab === "dashboard" && !dash) {
+      fetchDash();
     }
   }, [auth, activeTab]);
 
@@ -449,6 +482,16 @@ export default function Admin() {
       setSummary(data);
     } catch (err) { console.error(err); }
     setLoading(false);
+  };
+
+  const fetchDash = async () => {
+    setDashLoading(true);
+    try {
+      const res  = await fetch("/api/dashboard?pw=123451");
+      const data = await res.json();
+      setDash(data);
+    } catch (err) { console.error(err); }
+    setDashLoading(false);
   };
 
   const runScan = async () => {
@@ -710,6 +753,7 @@ export default function Admin() {
         {/* ── Tabs ── */}
         <div style={{ display: "flex", gap: 0, marginBottom: 24, borderBottom: "1px solid rgba(255,255,255,.08)" }}>
           {[
+            { id: "dashboard", label: "🎯 لوحة القيادة" },
             { id: "signals", label: `📡 الإشارات${signals.length ? ` (${signals.length})` : ""}` },
             { id: "results", label: "📊 النتائج" },
             { id: "subscribers", label: "👥 المشتركين" },
@@ -723,6 +767,113 @@ export default function Admin() {
             }}>{t.label}</button>
           ))}
         </div>
+
+        {/* ════════ TAB: DASHBOARD (لوحة القيادة) ════════ */}
+        {activeTab === "dashboard" && (
+          <>
+            {dashLoading && <div style={{ textAlign: "center", color: "rgba(255,255,255,.4)", padding: 40 }}>⟳ جاري تحميل المؤشرات...</div>}
+            {!dashLoading && dash && dash.error && (
+              <div style={{ textAlign: "center", color: "#f87171", padding: 40 }}>تعذّر التحميل: {dash.error}</div>
+            )}
+            {!dashLoading && dash && dash.success && (
+              <div style={{ maxWidth: 760, margin: "0 auto" }}>
+
+                {/* تنبيه البيانات */}
+                {dash.signals.evaluated < 10 && (
+                  <div style={{ background: "rgba(251,191,36,.08)", border: "1px solid rgba(251,191,36,.25)", borderRadius: 14, padding: "14px 16px", fontSize: 13, color: "rgba(255,255,255,.6)", marginBottom: 20, lineHeight: 1.7 }}>
+                    ⏳ <b style={{ color: "#fbbf24" }}>عيّنة صغيرة ({dash.signals.evaluated} إشارة مُقيّمة).</b> الأرقام تصير ذات دلالة بعد تجمّع بيانات أسبوع من التقييم التلقائي.
+                  </div>
+                )}
+
+                {/* ── المعايير الحاسمة (4 بطاقات) ── */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                  <KpiCard label="نسبة نجاح الإشارات" value={`${dash.signals.win_rate}%`}
+                    sub={`${dash.signals.hit}/${dash.signals.evaluated} أصابت الهدف`} good={dash.signals.win_rate >= 55}
+                    target="الهدف ≥55%" color="#34d399" />
+                  <KpiCard label="Profit Factor" value={dash.signals.profit_factor}
+                    sub="مكاسب ÷ خسائر" good={dash.signals.profit_factor >= 1.5}
+                    target="الهدف ≥1.5" color="#60a5fa" />
+                  <KpiCard label="Retention (التجديد)" value={`${dash.retention_pct}%`}
+                    sub={`${dash.subscribers.active_paid} نشط من ${dash.subscribers.active_paid + dash.subscribers.expired}`} good={dash.retention_pct >= 40}
+                    target="الهدف ≥40%" color="#a78bfa" />
+                  <KpiCard label="التحويل trial→مدفوع" value={`${dash.conversion_pct}%`}
+                    sub="من جرّب ثم اشترك" good={dash.conversion_pct >= 25}
+                    target="الهدف ≥25%" color="#f59e0b" />
+                </div>
+
+                {/* ── المشتركون ── */}
+                <div style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 16, padding: 18, marginBottom: 14 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 14, color: "#fff" }}>👥 المشتركون</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                    <MiniStat label="نشط مدفوع" value={dash.subscribers.active_paid} color="#34d399" />
+                    <MiniStat label="تجربة نشطة" value={dash.subscribers.active_trial} color="#60a5fa" />
+                    <MiniStat label="منتهي" value={dash.subscribers.expired} color="#f87171" />
+                    <MiniStat label="جدد هذا الشهر" value={dash.subscribers.new_this_month} color="#a78bfa" />
+                    <MiniStat label="جدد مدفوعين" value={dash.subscribers.new_paid_this_month} color="#34d399" />
+                    <MiniStat label="النمو الشهري" value={`${dash.subscribers.growth_pct >= 0 ? "+" : ""}${dash.subscribers.growth_pct}%`} color={dash.subscribers.growth_pct >= 0 ? "#34d399" : "#f87171"} />
+                  </div>
+                </div>
+
+                {/* ── الإيراد ── */}
+                <div style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 16, padding: 18, marginBottom: 14 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 14, color: "#fff" }}>💰 الإيراد</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <MiniStat label="إيراد شهري نشط" value={`$${dash.revenue.monthly_active}`} color="#34d399" />
+                    <MiniStat label="متوسط لكل مشترك" value={`$${dash.revenue.arpu}`} color="#60a5fa" />
+                  </div>
+                </div>
+
+                {/* ── CAC / LTV (إدخال يدوي) ── */}
+                <div style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 16, padding: 18, marginBottom: 14 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6, color: "#fff" }}>📊 CAC مقابل LTV</div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,.4)", marginBottom: 12, lineHeight: 1.6 }}>
+                    أدخل مصاريف إعلاناتك هذا الشهر، نحسب لك تكلفة اكتساب العميل (CAC) ونقارنها بقيمته (LTV).
+                  </div>
+                  <input
+                    style={{ width: "100%", padding: "12px 14px", background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 10, color: "#fff", fontSize: 15, marginBottom: 12, outline: "none", boxSizing: "border-box", direction: "rtl" }}
+                    type="number" placeholder="مصاريف الإعلانات هذا الشهر ($)"
+                    value={cacInput} onChange={(e) => setCacInput(e.target.value)}
+                  />
+                  {(() => {
+                    const spend = Number(cacInput) || 0;
+                    const newPaid = dash.subscribers.new_paid_this_month || 0;
+                    const cac = newPaid > 0 ? +(spend / newPaid).toFixed(1) : 0;
+                    const estMonths = dash.retention_pct >= 40 ? 4 : 2.5;
+                    const ltv = +(dash.revenue.arpu * estMonths).toFixed(1);
+                    const ratio = cac > 0 ? +(ltv / cac).toFixed(1) : 0;
+                    if (spend === 0) return <div style={{ fontSize: 12, color: "rgba(255,255,255,.3)" }}>أدخل المصاريف لرؤية الحساب</div>;
+                    return (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                        <MiniStat label="CAC" value={`$${cac}`} color="#f59e0b" />
+                        <MiniStat label="LTV تقديري" value={`$${ltv}`} color="#60a5fa" />
+                        <MiniStat label="LTV/CAC" value={`${ratio}×`} color={ratio >= 3 ? "#34d399" : "#f87171"} />
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* ── نسبة النجاح حسب النوع ── */}
+                <div style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 16, padding: 18, marginBottom: 14 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 14, color: "#fff" }}>🎯 نسبة النجاح حسب النوع</div>
+                  {["استثمار", "مضاربة", "ارتداد"].map((t) => {
+                    const d = dash.signals.by_type[t] || { total: 0, win: 0, rate: 0 };
+                    return (
+                      <div key={t} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,.05)" }}>
+                        <span style={{ fontSize: 14, color: "rgba(255,255,255,.7)" }}>{t}</span>
+                        <span style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{d.win}/{d.total}</span>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: d.rate >= 55 ? "#34d399" : d.rate >= 40 ? "#fbbf24" : "#f87171" }}>{d.rate}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button onClick={fetchDash} style={{ width: "100%", padding: 13, background: "rgba(99,102,241,.15)", border: "1px solid rgba(99,102,241,.3)", borderRadius: 12, color: "#a5b4fc", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "system-ui" }}>
+                  ⟳ تحديث المؤشرات
+                </button>
+              </div>
+            )}
+          </>
+        )}
 
         {/* ════════ TAB: SIGNALS ════════ */}
         {activeTab === "signals" && (
