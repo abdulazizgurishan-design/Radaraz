@@ -694,6 +694,7 @@ function computeTech(bars) {
     rsi: rsiRaw != null ? Math.round(rsiRaw) : null,
     maSignal, maBonus: Math.min(maBonus, 20),
     priceAboveMA21: !!(sma21 && price > sma21),
+    sma21: sma21 || null,                            // 🆕 لبوابة الاتجاه الأوسع (قرب MA21)
     priceAboveEMA20: !!(ema20 && price > ema20),    // 🆕 للبوابة الأذكى (ارتداد مبكّر)
     aligned: !!(sma9 && sma21 && price > sma21 && sma9 > sma21), // اصطفاف صاعد كامل (كما هو)
     strongAligned,                                               // 🆕 اصطفاف EMA قوي (لرفع جودة 🎯)
@@ -1051,9 +1052,12 @@ export default async function handler(req, res) {
           // ✅ عندنا تحليل فني كامل (من الشموع التاريخية — متاح حتى في pre-market):
           //    نطبّق نفس بوابة الاتجاه الصارمة. هذا ما يميّزنا عن المواقع التي تفرز
           //    "الأعلى ارتفاعاً/كمية" فقط — نحن نرصد القوة الفنية الحقيقية في أي وقت.
-          const trendPass = tech.priceAboveMA21 || (tech.priceAboveEMA20 && tech.macd && tech.macd.bullish);
+          // بوابة الاتجاه: فوق MA21، أو قريب منها (±2%) مع زخم صاعd، أو ارتداد مبكر مؤكd
+          const nearMA21 = tech.sma21 && s.price >= tech.sma21 * 0.98;   // قريب من MA21 (تحتها بـ2% كحد)
+          const trendPass = tech.priceAboveMA21
+                         || (nearMA21 && tech.macd && tech.macd.bullish)
+                         || (tech.priceAboveEMA20 && tech.macd && tech.macd.bullish);
           if (!trendPass) { s._drop = true; if (!s._dropReason) s._dropReason = "trend_gate"; }
-          // وسم الرصد المبكر (نفس الجودة الفنية، بس قبل الفتح = ميزة توقيت للايف)
           else if (isPreMarket) { s.premarket_watch = true; }
         } else {
           // لا شموع تاريخية كافية (سهم جديد/قليل التداول) → نرفض دائماً.
