@@ -20,7 +20,7 @@
 //     في جدول signals أولاً (SQL في الأسفل) قبل الرفع، وإلا يفشل الحفظ.
 // ═══════════════════════════════════════════════════════════════════
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 10 };   // Hobby: الحد الأقصى 10ث
 
 const POLYGON_KEY  = process.env.POLYGON_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -35,7 +35,7 @@ const FILTER = {
   MAX_CHANGE:     40,            // فوق 40% = دخول متأخر/pump → استبعاد نهائي
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
-  HEAVY_LIMIT:    45,            // خُفّض 55→45: analyze_pct كان 53% (نصف الأسهم بلا تحليل). أقل عدداً = كلٌّ يُحلّل كاملاً.
+  HEAVY_LIMIT:    60,            // رُفع 55→60 (توسعة آمنة على Hobby — لا تزيد الوقت كثيراً)
   SAVE_MIN_EP:    60,            // رفعناه من 50 → 60 (جودة أعلى للحفظ والبوت)
   STRICT_PRICE:   1.00,          // تحت هذا السعر = غربال صارم
 };
@@ -43,15 +43,15 @@ const FILTER = {
 // ─── مزج البنية (Swing) في الاختيار — كله قابل للضبط ───────────────
 // الهدف: نعرض دخولات صحيحة، لا كل سهم مرتفع.
 const STRUCT = {
-  MIN_RR:        1.5,   // أدنى عائد/مخاطرة بنيوي ليُعدّ "دخول صحيح"
-  MAX_POS:       0.66,  // أقصى موضع داخل المدى (0=دعم،1=مقاومة) ليُعدّ دخولاً مبكراً
+  MIN_RR:        1.3,   // خُفّض 1.5→1.3 (إشارات أكثر، R:R لا يزال مجزياً)
+  MAX_POS:       0.72,  // خُفّض 0.66→0.72 (يسمح بدخول أوسع قليلاً دون ملاحقة)
   BONUS_VALID:   7,     // مكافأة الدخول الصحيح (يرفعه للأعلى)
   BONUS_OK:      2,     // مكافأة المقبول
   PENALTY_LATE:  6,     // خصم الملاحقة/غير المؤكد (يُنزّله)
   PENALTY_BADRR: 4,     // خصم إضافي لـ R:R < 1
   // إسقاط الملاحقة الواضحة فقط: سهم ارتفع كثير + دخوله سيء
   DROP_LATE:     true,  // فعّل/عطّل الإسقاط
-  DROP_CHANGE:   10,    // لا نُسقط إلا إذا ارتفع أكثر من هذا
+  DROP_CHANGE:   12,    // رُفع 10→12: لا نُسقط إلا إذا ارتفع أكثر من 12% (يسمح بأسهsم قوية)
   DROP_POS:      0.80,  // + قريب من القمة (دخول متأخر)
   // 💎 حارس الجوهرة: لا نعرض سهماً هابطاً بلا تأكيد ارتداد
   STRICT_GEMS:   true,  // اعرض فقط: مؤكد صاعد أو ارتداد واضح
@@ -797,7 +797,7 @@ async function saveSignals(signals) {
 // ════════════════ MAIN HANDLER ════════════════
 export default async function handler(req, res) {
   const t0 = Date.now();
-  const DEADLINE = t0 + 6500;   // ميزانية 6.5ث (حد Hobby 10ث) — مع مهلة الجلب 3.5ث للدفعة الأخيرة نبقى تحت 10ث
+  const DEADLINE = t0 + 8500;   // 8.5ث — آمن تحت حد Hobby (10ث) مع هامش للجلب النهائي
   const isSubscriber = req.query.sub === "1";
 
   try {
@@ -1053,7 +1053,7 @@ export default async function handler(req, res) {
           //    نطبّق نفس بوابة الاتجاه الصارمة. هذا ما يميّزنا عن المواقع التي تفرز
           //    "الأعلى ارتفاعاً/كمية" فقط — نحن نرصد القوة الفنية الحقيقية في أي وقت.
           // بوابة الاتجاه: فوق MA21، أو قريب منها (±2%) مع زخم صاعd، أو ارتداد مبكر مؤكd
-          const nearMA21 = tech.sma21 && s.price >= tech.sma21 * 0.98;   // قريب من MA21 (تحتها بـ2% كحد)
+          const nearMA21 = tech.sma21 && s.price >= tech.sma21 * 0.96;   // قريب من MA21 (تحتها بـ4% كحد)
           const trendPass = tech.priceAboveMA21
                          || (nearMA21 && tech.macd && tech.macd.bullish)
                          || (tech.priceAboveEMA20 && tech.macd && tech.macd.bullish);
