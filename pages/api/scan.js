@@ -775,6 +775,7 @@ async function saveSignals(signals) {
     is_target: s.is_target || false, news_age_h: s.news_age_h ?? null,
     vcp: s.vcp || false, vcp_contraction: s.vcp_contraction ?? null,   // 🆕 VCP (انكماش التذبذب)
     fresh_zone: s.fresh_zone || false,                                  // 🆕 دعم طازج
+    premarket_watch: s.premarket_watch || false,                        // 🆕 رصد مبكر (pre-market)
     structure: s.structure || null,   // 🆕 خريطة البنية كاملة (للبوت) — يتطلب عمود jsonb
     created_at: nowISO,   // وقت أول رصد — يثبت (يُكتب مرة واحدة عند أول إدخال)
   }));
@@ -1047,14 +1048,19 @@ export default async function handler(req, res) {
       } else {
         // $1 فأعلى:
         if (tech) {
-          // عندنا بيانات → اتجاه صاعد: فوق MA21، أو ارتداد مبكّر فوق EMA20 + MACD صاعد
+          // ✅ عندنا تحليل فني كامل (من الشموع التاريخية — متاح حتى في pre-market):
+          //    نطبّق نفس بوابة الاتجاه الصارمة. هذا ما يميّزنا عن المواقع التي تفرز
+          //    "الأعلى ارتفاعاً/كمية" فقط — نحن نرصد القوة الفنية الحقيقية في أي وقت.
           const trendPass = tech.priceAboveMA21 || (tech.priceAboveEMA20 && tech.macd && tech.macd.bullish);
           if (!trendPass) { s._drop = true; if (!s._dropReason) s._dropReason = "trend_gate"; }
+          // وسم الرصد المبكر (نفس الجودة الفنية، بس قبل الفتح = ميزة توقيت للايف)
+          else if (isPreMarket) { s.premarket_watch = true; }
         } else {
-          // لا بيانات فنية (سهم جديد/تاريخ قصير) → ما نثق إلا بالمبكر
-          s.ep = Math.min(s.ep, 72);                 // سقف بدون تأكيد
-          if (s.changePct > 15) { s._drop = true; if (!s._dropReason) s._dropReason = "no_tech_ext"; }
-          else if (s.ep < 60) { s._drop = true; if (!s._dropReason) s._dropReason = "no_tech_lowep"; }
+          // لا شموع تاريخية كافية (سهم جديد/قليل التداول) → نرفض دائماً.
+          //    هؤلاء بالضبط من نتجنّبهم (لا تاريخ = لا تحليل = مخاطرة عمياء).
+          //    لا نخفّف هنا أبداً — الجودة الفنية شرط، لا استثناء حتى في pre-market.
+          s.ep = Math.min(s.ep, 60);
+          s._drop = true; if (!s._dropReason) s._dropReason = "no_tech";
         }
       }
 
