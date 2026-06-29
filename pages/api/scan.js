@@ -1,427 +1,1234 @@
-// pages/api/trade.js — v12 (FIXED: رفع عتبة "سعر مرتفع" من 5% → 10%)
-// ════════════════════════════════════════════════════════════════════════
-//  ✅ رفع عتبة "سعر مرتفع" من 5% → 10% (يسمح بدخول أسهم تحركت قليلاً)
-//  ✅ minRR: 1.0, maxLossPct: 5%, فلتر الأخبار: 0.5 ساعة
-//  ✅ تحسين الـ Debug وعرض أسباب الرفض
-// ════════════════════════════════════════════════════════════════════════
+// pages/api/scan.js — STANDALONE EDITION v3 (Multi-Timeframe + MACD + News + Target)
+// ═══════════════════════════════════════════════════════════════════
+//  مسح مستقل تماماً — صفر اعتماد على جداول أخرى
+//  ─────────────────────────────────────────────────────────────────
+//  ترقيات هذا الإصدار:
+//   ✅ المتوسطات/RSI/ATR/MACD حسب نوع الصفقة:
+//        ⚡ مضاربة → فريم 60 دقيقة (سريع، يناسب اليوم)
+//        📈 استثمار → فريم يومي (يناسب المستثمر)
+//   ✅ إضافة MA50 + MACD(12,26,9) لتأكيد الاتجاه
+//   ✅ المتوسطات صارت "بوابة" (gate) لا مجرد بونص
+//   ✅ غربال صارم للأسهم أقل من $1
+//   ✅ طبقة الأخبار اللحظية (Polygon News) — تفصل الكاتشي عن الوهمي
+//   ✅ شارة 🎯 "الهدف" — التقاء كامل على الفريمين (نخبة)
+//   ✅ أهداف واقعية (مضاربة على ATR 60د = أضيق وأقرب للتحقق)
+//   ✅ إصلاح bug قسم الاستثمار (كان يستخدم "قيادي" بدل "استثمار")
+//
+//  ⚠️ ملاحظة توافق: شكل الرد للواجهة لم يتغيّر (نفس الحقول والأقسام).
+//     شارة "الهدف" تُعرض عبر حقل signal الموجود أصلاً — لا تعديل واجهة.
+//  ⚠️ هذا الإصدار يحفظ عمودين جديدين (is_target, news_age_h) — لازم تضيفهما
+//     في جدول signals أولاً (SQL في الأسفل) قبل الرفع، وإلا يفشل الحفظ.
+// ═══════════════════════════════════════════════════════════════════
 
-const ALPACA_KEY    = process.env.ALPACA_KEY;
-const ALPACA_SECRET = process.env.ALPACA_SECRET;
-const ALPACA_BASE   = "https://paper-api.alpaca.markets";
-const ALPACA_DATA   = "https://data.alpaca.markets";
+export const config = { maxDuration: 60 };
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.RADARAZ_SUPABASE_KEY;
+const POLYGON_KEY  = process.env.POLYGON_API_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
 
-const STRATEGY = {
-  engine: "smart",
-  addEnabled: true,
-
-  minScore: 68,
-  minPrice: 3,
-  minChangePct: 1,
-  maxChangePct: 40,
-  minVolume: 100_000,
-  
-  maxRSI: 70,
-  skipChasers: true,
-  minRR: 1.0,
-  entryBuffer: 1.01,
-  minRoomPct: 0.015,
-
-  maxLossPct: 0.05,
-  maxDriftPct: 0.03,
-  riskPerTradePct: 0.015,
-  maxPositionPct: 0.22,
-  minPositionPct: 0.04,
-  maxDeployedPct: 0.85,
-
-  initialFraction: 0.60,
-  tp1Fraction: 1.0,
-  tp1FillNudge: 0.998,
-  breakevenAfterTp1: true,
-
-  tieredExit: true,
-  scalpT1Sell: 0.50,
-  investT1Sell: 0.33,
-
-  trailEnabled: true,
-  trailTiers: [
-    { gain: 0.03, lock: 0.00 },
-    { gain: 0.06, lock: 0.03 },
-    { gain: 0.10, lock: 0.06 },
-    { gain: 0.15, lock: 0.10 },
-    { gain: 0.22, lock: 0.15 },
-  ],
-  maxTrades: 6,
+// ─── إعدادات الفلترة ───────────────────────────────────────────────
+const FILTER = {
+  MIN_PRICE:      0.30,
+  MAX_PRICE:      500,
+  MIN_VOLUME:     300_000,
+  MIN_CHANGE:     3,
+  MAX_CHANGE:     40,            // فوق 40% = دخول متأخر/pump → استبعاد نهائي
+  MAX_RVOL:       100,
+  MAX_RESULTS:    60,
+  HEAVY_LIMIT:    45,            // خُفّض 55→45: analyze_pct كان 53% (نصف الأسهم بلا تحليل). أقل عدداً = كلٌّ يُحلّل كاملاً.
+  SAVE_MIN_EP:    60,            // رفعناه من 50 → 60 (جودة أعلى للحفظ والبوت)
+  STRICT_PRICE:   1.00,          // تحت هذا السعر = غربال صارم
 };
 
-const H    = { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET, "Content-Type": "application/json" };
-const SB_H = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" };
+// ─── مزج البنية (Swing) في الاختيار — كله قابل للضبط ───────────────
+// الهدف: نعرض دخولات صحيحة، لا كل سهم مرتفع.
+const STRUCT = {
+  MIN_RR:        1.5,   // أدنى عائد/مخاطرة بنيوي ليُعدّ "دخول صحيح"
+  MAX_POS:       0.66,  // أقصى موضع داخل المدى (0=دعم،1=مقاومة) ليُعدّ دخولاً مبكراً
+  BONUS_VALID:   7,     // مكافأة الدخول الصحيح (يرفعه للأعلى)
+  BONUS_OK:      2,     // مكافأة المقبول
+  PENALTY_LATE:  6,     // خصم الملاحقة/غير المؤكد (يُنزّله)
+  PENALTY_BADRR: 4,     // خصم إضافي لـ R:R < 1
+  // إسقاط الملاحقة الواضحة فقط: سهم ارتفع كثير + دخوله سيء
+  DROP_LATE:     true,  // فعّل/عطّل الإسقاط
+  DROP_CHANGE:   10,    // لا نُسقط إلا إذا ارتفع أكثر من هذا
+  DROP_POS:      0.80,  // + قريب من القمة (دخول متأخر)
+  // 💎 حارس الجوهرة: لا نعرض سهماً هابطاً بلا تأكيد ارتداد
+  STRICT_GEMS:   true,  // اعرض فقط: مؤكد صاعد أو ارتداد واضح
+};
 
-// ───────── Alpaca ─────────
-async function getAccount()        { const r = await fetch(`${ALPACA_BASE}/v2/account`, { headers: H }); return r.json(); }
-async function getAllPositions()   { try { const r = await fetch(`${ALPACA_BASE}/v2/positions`, { headers: H }); const d = await r.json(); return Array.isArray(d) ? d : []; } catch { return []; } }
-async function getPositionQty(sym) { try { const r = await fetch(`${ALPACA_BASE}/v2/positions/${sym}`, { headers: H }); if (!r.ok) return 0; const d = await r.json(); return Math.abs(parseInt(d.qty)) || 0; } catch { return 0; } }
-async function getLatestPrice(sym) { try { const r = await fetch(`${ALPACA_DATA}/v2/stocks/${sym}/trades/latest`, { headers: H }); if (!r.ok) return null; const d = await r.json(); return d?.trade?.p ?? null; } catch { return null; } }
-async function getOpenOrders(sym)  { try { const r = await fetch(`${ALPACA_BASE}/v2/orders?status=open&symbols=${sym}&nested=true`, { headers: H }); const d = await r.json(); return Array.isArray(d) ? d : []; } catch { return []; } }
-async function cancelOrder(id)     { try { await fetch(`${ALPACA_BASE}/v2/orders/${id}`, { method: "DELETE", headers: H }); } catch {} }
-async function cancelAll(sym)      { const oo = await getOpenOrders(sym); for (const o of oo) await cancelOrder(o.id); }
-async function buyMarket(sym, qty) { const r = await fetch(`${ALPACA_BASE}/v2/orders`, { method: "POST", headers: H, body: JSON.stringify({ symbol: sym, qty: String(qty), side: "buy", type: "market", time_in_force: "day" }) }); return r.json(); }
+// ════════════════ أدوات المؤشرات ════════════════
 
-async function buyBracket(sym, qty, tp, sl) {
-  const dec = (Number(tp) < 1 || Number(sl) < 1) ? 4 : 2;
-  const r = await fetch(`${ALPACA_BASE}/v2/orders`, {
-    method: "POST", headers: H,
-    body: JSON.stringify({
-      symbol: sym, qty: String(qty), side: "buy", type: "market", time_in_force: "day",
-      order_class: "bracket",
-      take_profit: { limit_price: Number(tp).toFixed(dec) },
-      stop_loss:   { stop_price:  Number(sl).toFixed(dec) },
-    }),
-  });
-  return r.json();
+function calcEMA(prices, period) {
+  if (!prices || prices.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < prices.length; i++) ema = prices[i] * k + ema * (1 - k);
+  return ema;
 }
 
-async function stopSell(sym, qty, sl) {
-  try {
-    const r = await fetch(`${ALPACA_BASE}/v2/orders`, {
-      method: "POST", headers: H,
-      body: JSON.stringify({ symbol: sym, qty: String(qty), side: "sell", type: "stop",
-        stop_price: Number(sl).toFixed(Number(sl) < 1 ? 4 : 2), time_in_force: "day" }),
-    });
-    return r.json();
-  } catch { return null; }
-}
-
-async function ocoSell(sym, qty, tp, sl) {
-  const r = await fetch(`${ALPACA_BASE}/v2/orders`, {
-    method: "POST", headers: H,
-    body: JSON.stringify({
-      symbol: sym, qty: String(qty), side: "sell", type: "limit", time_in_force: "day",
-      order_class: "oco",
-      take_profit: { limit_price: tp.toFixed(2) },
-      stop_loss:   { stop_price: sl.toFixed(2) },
-    }),
-  });
-  return r.json();
-}
-
-async function placeExits(sym, qty, p) {
-  const raw = Number(p.t1) * STRATEGY.tp1FillNudge;
-  const t1px = +raw.toFixed(Number(p.t1) < 1 ? 4 : 2);
-  const resp = await ocoSell(sym, qty, t1px, Number(p.stop));
-  if (resp && (resp.code || resp.status === "rejected")) {
-    await stopSell(sym, qty, Number(p.stop));
-    return { ok: false, fallback: true };
+// سلسلة EMA كاملة (نحتاجها للماكد)
+function emaSeries(values, period) {
+  if (!values || values.length < period) return [];
+  const k = 2 / (period + 1);
+  const out = new Array(period - 1).fill(null);
+  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  out.push(ema);
+  for (let i = period; i < values.length; i++) {
+    ema = values[i] * k + ema * (1 - k);
+    out.push(ema);
   }
-  return { ok: true };
+  return out;
 }
 
-// ───────── Supabase ─────────
-async function planList() { try { const r = await fetch(`${SUPABASE_URL}/rest/v1/bot_positions?status=eq.active&select=*`, { headers: SB_H }); const d = await r.json(); return Array.isArray(d) ? d : []; } catch { return []; } }
-async function planSave(p) {
-  p.updated_at = new Date().toISOString();
-  await fetch(`${SUPABASE_URL}/rest/v1/bot_positions?on_conflict=symbol`, {
-    method: "POST", headers: { ...SB_H, Prefer: "resolution=merge-duplicates" }, body: JSON.stringify(p),
+function calcSMA(prices, period) {
+  if (!prices || prices.length < period) return null;
+  const slice = prices.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / period;
+}
+
+// 🔄 كشف تقاطع MA9 فوق MA21 حديثاً (تأكيد بدء الارتداد على شمعة الساعة)
+// يرجّع true لو MA9 تجاوز MA21 صعوداً خلال آخر شمعتين (تقاطع طازج، مو قديم).
+function emaCrossedUp(closes, fast = 9, slow = 21, lookback = 2) {
+  if (!closes || closes.length < slow + lookback + 1) return false;
+  const fastSeries = emaSeries(closes, fast);
+  const slowSeries = emaSeries(closes, slow);
+  if (!fastSeries.length || !slowSeries.length) return false;
+  // محاذاة السلسلتين من النهاية (لهما أطوال مختلفة لاختلاف الفترة)
+  const n = Math.min(fastSeries.length, slowSeries.length);
+  const f = fastSeries.slice(-n);
+  const s = slowSeries.slice(-n);
+  if (n < lookback + 1) return false;
+  // تقاطع طازج: كان MA9 ≤ MA21 قبل ≤lookback شمعة، والآن MA9 > MA21
+  const nowAbove = f[n - 1] > s[n - 1];
+  let wasBelow = false;
+  for (let i = 2; i <= lookback + 1 && n - i >= 0; i++) {
+    if (f[n - i] <= s[n - i]) { wasBelow = true; break; }
+  }
+  return nowAbove && wasBelow;
+}
+
+// ATR14 بتمهيد Wilder (مطابق TradingView)
+function calcATR14(bars) {
+  if (!bars || bars.length < 15) return null;
+  const trs = [];
+  for (let i = 1; i < bars.length; i++) {
+    const h = bars[i].h, l = bars[i].l, pc = bars[i - 1].c;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  if (trs.length < 14) return null;
+  let atr = trs.slice(0, 14).reduce((a, b) => a + b, 0) / 14;
+  for (let i = 14; i < trs.length; i++) atr = (atr * 13 + trs[i]) / 14;
+  return atr;
+}
+
+// 🆕 VCP (Volatility Contraction Pattern) — مينرفيني:
+//   يكتشف انكماش التذبذب: السهم يهدأ تدريجياً (موجات تصحيح أصغر فأصغر) =
+//   البائعون ينضبون، استعداد للانفجار. هذا مؤشر جودة (يرفع السكور، لا يرفض).
+//   نقسّم آخر 30 شمعة لـ3 نوافذ، نقيس مدى كل نافذة (high-low)/price.
+//   لو المدى ينكمش نافذة بعد نافذة = VCP موجب.
+function detectVCP(bars) {
+  if (!bars || bars.length < 30) return { vcp: false, score: 0, contraction: 0 };
+  const recent = bars.slice(-30);
+  const windows = [recent.slice(0, 10), recent.slice(10, 20), recent.slice(20, 30)];
+  const ranges = windows.map(w => {
+    const hi = Math.max(...w.map(b => b.h));
+    const lo = Math.min(...w.map(b => b.l));
+    const mid = (hi + lo) / 2 || 1;
+    return (hi - lo) / mid;   // المدى النسبي للنافذة
   });
-}
-async function planClose(sym) {
-  await fetch(`${SUPABASE_URL}/rest/v1/bot_positions?symbol=eq.${sym}`, {
-    method: "PATCH", headers: SB_H, body: JSON.stringify({ status: "closed", updated_at: new Date().toISOString() }),
-  });
-}
-
-function suitableEntry(st, price, t1, stopPx, minRR, buffer, minRoom) {
-  if (!st || !price || !t1 || !stopPx) return false;
-  const risk = price - stopPx;
-  if (risk <= 0) return false;
-  const rr = (t1 - price) / risk;
-  return price > st.support &&
-         price <= st.confirm * buffer &&
-         t1 >= price * (1 + minRoom) &&
-         rr >= minRR;
+  // VCP حقيقي: كل نافذة مداها أضيق من السابقة (انكماش متتالٍ)
+  const r0 = ranges[0], r1 = ranges[1], r2 = ranges[2];   // r2 = الأحدث
+  const contracting = r2 < r1 && r1 < r0;                  // انكماش متتالٍ
+  const tightening = r0 > 0 ? (r0 - r2) / r0 : 0;          // كم انكمش (0-1)
+  // قوة الانكماش: لازم الأحدث أضيق بـ30%+ من الأقدم ليُعتبر VCP قوي
+  const vcp = contracting && tightening >= 0.30;
+  // سكور إضافي (0-8) حسب قوة الانكماش — يُضاف للسكور الأساسي
+  const score = vcp ? Math.min(Math.round(tightening * 12), 8) : 0;
+  return { vcp, score, contraction: +(tightening * 100).toFixed(0) };
 }
 
-export default async function handler(req, res) {
+// 🆕 Fresh Zone — العرض/الطلب:
+//   الدعم "الطازج" (الذي لم يُختبر كثيراً) أقوى من المُختبَر مراراً.
+//   نعدّ كم مرة لامس السعر منطقة الدعم: لمسة واحدة = طازج (قوي)، لمسات كثيرة = مستهلَك.
+function freshZoneBonus(bars, support) {
+  if (!bars || bars.length < 10 || !support) return { fresh: false, touches: 0, bonus: 0 };
+  const tol = support * 0.015;   // هامش 1.5% حول الدعم
+  let touches = 0;
+  for (const b of bars.slice(-40)) {
+    if (b.l <= support + tol && b.l >= support - tol) touches++;
+  }
+  const fresh = touches <= 2;                 // ≤2 لمسة = طازج
+  const bonus = fresh ? 4 : (touches >= 5 ? -3 : 0);   // طازج +4، مستهلَك -3
+  return { fresh, touches, bonus };
+}
+
+// RSI14 بتمهيد Wilder
+function calcRSI14(bars) {
+  if (!bars || bars.length < 15) return null;
+  const closes = bars.map(b => b.c);
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= 14; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / 14, avgLoss = losses / 14;
+  for (let i = 15; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    avgGain = (avgGain * 13 + (diff >= 0 ? diff : 0)) / 14;
+    avgLoss = (avgLoss * 13 + (diff < 0 ? -diff : 0)) / 14;
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+// MACD(12,26,9) — يرجع حالة الاتجاه
+function calcMACD(closes) {
+  if (!closes || closes.length < 35) return null;
+  const ema12 = emaSeries(closes, 12);
+  const ema26 = emaSeries(closes, 26);
+  const macdLine = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (ema12[i] == null || ema26[i] == null) continue;
+    macdLine.push(ema12[i] - ema26[i]);
+  }
+  if (macdLine.length < 10) return null;
+  const sig = emaSeries(macdLine, 9);
+  const macdLast = macdLine[macdLine.length - 1];
+  const sigLast  = sig[sig.length - 1];
+  if (macdLast == null || sigLast == null) return null;
+  const hist = macdLast - sigLast;
+  const macdPrev = macdLine[macdLine.length - 2];
+  const sigPrev  = sig[sig.length - 2];
+  const histPrev = (macdPrev != null && sigPrev != null) ? macdPrev - sigPrev : null;
+  return {
+    bullish: macdLast > sigLast && hist > 0,
+    rising:  histPrev != null ? hist > histPrev : false,
+  };
+}
+
+function calcSupportResistance(bars, price) {
+  if (!bars || bars.length < 10) return { resistances: [], supports: [] };
+  const recent = bars.slice(-20);
+  const resistances = [...new Set(recent.map(b => b.h))].filter(h => h > price).sort((a, b) => a - b);
+  const supports    = [...new Set(recent.map(b => b.l))].filter(l => l < price).sort((a, b) => b - a);
+  return { resistances, supports };
+}
+
+function calcFibTargets(bars, price) {
+  if (!bars || bars.length < 10) return [];
+  const recent = bars.slice(-20);
+  const swingLow  = Math.min(...recent.map(b => b.l));
+  const swingHigh = Math.max(...recent.map(b => b.h));
+  const range = swingHigh - swingLow;
+  if (range <= 0) return [];
+  return [swingHigh + range * 0.272, swingHigh + range * 0.618, swingHigh + range * 1.0].filter(f => f > price);
+}
+
+// ─── أهداف الاستثمار (ATR أوسع — صبر) ─────────────────────────────
+function calcSmartLevels(price, bars) {
+  const atr = calcATR14(bars) || price * 0.05;
+  const { resistances, supports } = calcSupportResistance(bars, price);
+  const fibs = calcFibTargets(bars, price);
+
+  // الوقف أولاً
+  const atrSL = price - atr * 1.5;
+  const supportSL = supports[0] ? supports[0] * 0.985 : atrSL;
+  const sl = Math.max(Math.min(atrSL, supportSL), price * 0.88);
+  const risk = price - sl;
+
+  const atrT1 = price + atr * 1.0, atrT2 = price + atr * 2.0, atrT3 = price + atr * 3.0;
+  let t1 = resistances[0] && resistances[0] < atrT1 * 1.3 ? Math.min(resistances[0], atrT1 * 1.3) : atrT1;
+  t1 = Math.max(t1, price * 1.03, price + risk * 1.0);  // T1 لا يقل عن 1:1
+  let t2 = resistances[1] && resistances[1] > t1 ? Math.max(atrT2, Math.min(resistances[1], atrT2 * 1.2)) : atrT2;
+  t2 = Math.max(t2, t1 * 1.04);
+  let t3 = fibs[1] && fibs[1] > t2 ? Math.max(atrT3, Math.min(fibs[1], atrT3 * 1.3)) : atrT3;
+  t3 = Math.max(t3, t2 * 1.05);
+
+  const f2 = n => +n.toFixed(2), pct = n => +(((n - price) / price) * 100).toFixed(2);
+  return {
+    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
+    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
+    risk: f2(price - sl), atr14: f2(atr),
+  };
+}
+
+// ─── أهداف المضاربة (ATR 60د = أضيق وأقرب للتحقق) ─────────────────
+// + إصلاح R:R: تضييق الوقف حتى لا تكون المخاطرة ضعف الهدف
+function calcScalpLevels(price, bars) {
+  const atr = calcATR14(bars) || price * 0.03;
+  const { supports } = calcSupportResistance(bars, price);
+  const atrPct = atr / price;                       // تقلّب السهم النسبي
+
+  // الوقف: ATR×0.8 أو تحت دعم قريب (الأبعد = مساحة تنفّس)
+  const atrSL = price - atr * 0.8;
+  const supportSL = supports[0] ? supports[0] * 0.992 : atrSL;
+  let sl = Math.min(atrSL, supportSL);
+
+  // 🔧 سقف الخسارة يتكيّف مع التقلّب: هادئ ~4% ، متقلّب حتى 10%
+  //    (يمنع خنق وقف الأسهم المتقلّبة مثل البنسات عند -4% ثابتة)
+  const maxLossPct = Math.min(Math.max(0.04, atrPct), 0.10);
+  sl = Math.max(sl, price * (1 - maxLossPct));
+  const risk = price - sl;
+
+  // أهداف قريبة واقعية — نضمن R:R ≥ 1.3 على T1 (ربط الهدف بالمخاطرة)
+  let t1 = Math.max(price + atr * 0.6, price + risk * 1.3, price * 1.015);
+  let t2 = Math.max(price + atr * 1.1, t1 + risk * 0.8, t1 * 1.02);
+  let t3 = Math.max(price + atr * 1.7, t2 + risk * 0.8, t2 * 1.02);
+
+  const dec = price < 1 ? 3 : 2;                    // دقّة أعلى للأسهم تحت $1
+  const f2 = n => +n.toFixed(dec), pct = n => +(((n - price) / price) * 100).toFixed(2);
+  return {
+    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
+    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
+    risk: f2(price - sl), atr14: f2(atr),
+  };
+}
+
+// ─── الوقف/الأهداف الذكية من البنية ──────────────────────────────
+// تجعل الوقف يجلس تحت الارتكاز/الدعم البنيوي الحقيقي بدل نسبة ثابتة،
+// مع حارسين: (1) لا يكون أضيق من نطاق الضجيج (ATR) فيُضرب بسهولة،
+//            (2) لا يتجاوز سقف خسارة معقول حسب التقلّب والنوع.
+const SMART_STOP = {
+  ENABLED: true,
+  NOISE_ATR_MULT: 1.2,    // أقل مسافة للوقف = ATR×1.2 تحت السعر
+  NOISE_MIN_PCT:  0.04,   // أو 4% (الأكبر) — يمنع الوقف القريب جداً
+  SCALP_FLOOR:    0.05,   // مضاربة: أدنى سقف خسارة 5%
+  SCALP_CAP:      0.07,   //          أقصى سقف خسارة 7% (كان 13% — صارم لتقليل الخسائر الكبيرة)
+  SCALP_ATR_K:    1.2,    //          معامل التقلّب
+  SMART_FLOOR:    0.06,   // استثمار: أدنى 6%
+  SMART_CAP:      0.07,   //          أقصى 7% (كان 15%)
+  SMART_ATR_K:    1.3,
+  MIN_RR:         1.3,    // R:R مضمون على T1
+  SCALP_T1_CAP:   0.30,   // مضاربة: أقصى بُعد للهدف الأول ليُؤخذ من البنية (وإلا أهداف واقعية)
+  SMART_T1_CAP:   0.60,   // استثمار: نفس الفكرة بسقف أوسع
+};
+
+// ─── 🔄 فلتر الارتداد (Momentum + Mean-Reversion) ─────────────────
+// مبني على استراتيجية موثّقة (RSI<30 على أسهم قوية): اشترِ القوي وقت ضعفه المؤقت.
+// الفكرة: السهم القوي (عوائد عالية) لما ينزل RSI تحت 30 = تصحيح مؤقت غالباً يرتد.
+// صفقة swing (أيام)، هدف +3%، تخرج خلال 10 أيام. تُعرض في الرادار كنوع ثالث.
+const REBOUND = {
+  ENABLED:        true,
+  RSI_MAX:        30,      // الدخول لما RSI ≤ 30 (متشبّع بيعاً = تصحيح مؤقت)
+  MIN_PRICE:      10,      // 🆕 سعر ≥ $10 (شركة جادة، مو سهم رخيص ضعيف)
+  MIN_DOLLAR_VOL: 50_000_000,  // 🆕 سيولة ≥ $50M (شركة كبيرة قوية، مو ضعيفة رأس المال)
+  MIN_RET_3M:     20,      // 🆕 عائد 3 شهور ≥ 20% (سهم قوي فعلاً — جوهر الاستراتيجية)
+  STRONG_JUMP:    8,       // قوة إضافية: أقصى قفزة حديثة ≥ 8%
+  TARGET_PCT:     3.0,     // هدف الربح +3% (حسب البحث الأصلي)
+  MAX_HOLD_DAYS:  10,      // أقصى مدة احتفاظ 10 أيام
+  STOP_PCT:       7,       // 🛡️ وقف 7% (البحث بلا وقف — نضيفه للحماية)
+  MAX_VIX_RANK:   70,      // 🔄 الابتكار الأساسي: ندخل فقط لو VIX Rank < 70 (تقلّب معتدل)
+};
+
+// عائد آخر ~3 شهور من شموع يومية (يثبت أن السهم قوي فعلاً، مو ضعيف رأس المال)
+function return3M(dailyCloses) {
+  if (!dailyCloses || dailyCloses.length < 40) return null;
+  const now = dailyCloses[dailyCloses.length - 1];
+  // ~63 يوم تداول = 3 شهور (أو أقدم متاح إن أقل)
+  const idx = Math.max(0, dailyCloses.length - 63);
+  const then = dailyCloses[idx];
+  if (!then || then <= 0) return null;
+  return ((now - then) / then) * 100;
+}
+
+// يحدّد إن كان السهم مرشّحاً لفلتر الارتداد:
+//   سهم قوي فعلاً (عائد 3 شهور عالٍ) + RSI≤30 + VIX معتدل + تقاطع MA9>MA21 على الساعة
+function isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses) {
+  if (!REBOUND.ENABLED) return false;
+  if (s.rsi == null || s.rsi > REBOUND.RSI_MAX) return false;     // RSI ≤ 30 (متشبّع بيعاً)
+  if (s.price < REBOUND.MIN_PRICE) return false;                  // سعر ≥ $10 (شركة جادة)
+  const dvol = s.price * (s.volume || 0);
+  if (dvol < REBOUND.MIN_DOLLAR_VOL) return false;                // سيولة ≥ $50M (قوية)
+  // 🔄 فلتر VIX: تقلّب عالٍ → نرفض (حتى المتشبّع بيعاً يستمر بالهبوط)
+  if (vixRank != null && vixRank >= REBOUND.MAX_VIX_RANK) return false;
+  // 💪 الأهم: السهم قوي فعلاً — عائد 3 شهور ≥ 20% (مو ضعيف رأس المال)
+  const ret3 = return3M(dailyCloses);
+  if (ret3 == null || ret3 < REBOUND.MIN_RET_3M) return false;
+  s._ret3m = +ret3.toFixed(1);   // نحفظه للعرض
+  // 🔄 تأكيد الارتداد: تقاطع MA9 فوق MA21 حديثاً على شمعة الساعة (الارتداد بدأ فعلاً)
+  if (!emaCrossedUp(hourlyCloses, 9, 21, 2)) return false;
+  return true;
+}
+
+// أهداف الارتداد: هدف +3% ثابت + وقف 7% (حسب الاستراتيجية الموثّقة)
+function calcReboundLevels(price) {
+  const f = v => +v.toFixed(price < 1 ? 4 : 2);
+  const t1 = f(price * (1 + REBOUND.TARGET_PCT / 100));
+  const sl = f(price * (1 - REBOUND.STOP_PCT / 100));
+  return {
+    entry: price, t1, t2: t1, t3: t1, sl,    // هدف واحد +3% (نفس أسماء النظام)
+    t1Pct: REBOUND.TARGET_PCT, t2Pct: REBOUND.TARGET_PCT, t3Pct: REBOUND.TARGET_PCT,
+    rr: (REBOUND.TARGET_PCT / REBOUND.STOP_PCT).toFixed(2),
+    atr14: price * 0.03, source: "rebound_3pct", hold_days: REBOUND.MAX_HOLD_DAYS,
+  };
+}
+
+function applyStructureLevels(price, levels, structure, tradeStyle) {
+  if (!SMART_STOP.ENABLED || !structure) return levels;
+  if (!structure.support || !structure.stop || structure.stop >= price) return levels;
+
+  const atr = levels?.atr14 || price * 0.03;
+  const atrPct = atr / price;
+  const isScalp = tradeStyle === "مضاربة";
+
+  // 1) الوقف الذكي = تحت الارتكاز/الدعم البنيوي
+  let sl = structure.stop;
+
+  // 2) لا يكون أقرب من نطاق الضجيج (ATR) — مساحة تنفّس ضد الاهتزاز
+  const noiseSL = price - Math.max(atr * SMART_STOP.NOISE_ATR_MULT, price * SMART_STOP.NOISE_MIN_PCT);
+  sl = Math.min(sl, noiseSL);   // الأبعد (سعر أقل) = أصعب أن يُضرب
+
+  // 3) سقف الخسارة حسب التقلّب والنوع — لا تكون المخاطرة جنونية
+  const floor = isScalp ? SMART_STOP.SCALP_FLOOR : SMART_STOP.SMART_FLOOR;
+  const cap   = isScalp ? SMART_STOP.SCALP_CAP   : SMART_STOP.SMART_CAP;
+  const atrK  = isScalp ? SMART_STOP.SCALP_ATR_K : SMART_STOP.SMART_ATR_K;
+  const maxLossPct = Math.min(Math.max(floor, atrPct * atrK), cap);
+  sl = Math.max(sl, price * (1 - maxLossPct));   // لا يتجاوز السقف
+  const risk = price - sl;
+  if (risk <= 0) return levels;
+
+  // 4) الأهداف "قابلة للتحقق": على مستويات البنية الحقيقية (المقاومة ثم القمم التالية)
+  //    لأن السعر يميل للتوقّف/الارتداد عندها → احتمال لمسها أعلى.
+  //    لكن لو الهدف الأول بعيد جداً (سهم منهار، مقاومة قديمة) نبقى على أهداف ATR الواقعية.
+  const t1Cap = isScalp ? SMART_STOP.SCALP_T1_CAP : SMART_STOP.SMART_T1_CAP;
+
+  // مستويات البنية فوق السعر، تصاعدياً، بلا تكرار متقارب
+  const cand = [structure.resistance, structure.t1, structure.t2, structure.t3]
+    .filter(x => typeof x === "number" && x > price * 1.012)
+    .sort((a, b) => a - b);
+  const ups = [];
+  for (const v of cand) if (!ups.length || v > ups[ups.length - 1] * 1.015) ups.push(v);
+
+  let t1, t2, t3;
+  if (ups.length >= 1 && (ups[0] - price) / price <= t1Cap) {
+    // ✅ أهداف من البنية: TP1 = المقاومة، TP2 = القمة التالية، TP3 = التي تليها
+    t1 = ups[0];
+    t2 = ups[1] || (t1 + risk);
+    t3 = ups[2] || (t2 + Math.max(t2 - t1, risk));
+  } else {
+    // أهداف ضخمة جداً → نبقى على الواقعية (ATR + مخاطرة)
+    const k1 = isScalp ? 0.6 : 1.0;
+    const k2 = isScalp ? 1.1 : 2.0;
+    const k3 = isScalp ? 1.7 : 3.0;
+    t1 = Math.max(price + atr * k1, price + risk * SMART_STOP.MIN_RR, price * 1.015);
+    t2 = Math.max(price + atr * k2, t1 + risk * 0.8, t1 * 1.02);
+    t3 = Math.max(price + atr * k3, t2 + risk * 0.8, t2 * 1.02);
+  }
+
+  const dec = price < 1 ? 3 : 2;
+  const f = n => +n.toFixed(dec), pc = n => +(((n - price) / price) * 100).toFixed(2);
+  return {
+    ...levels,
+    t1: f(t1), t2: f(t2), t3: f(t3), sl: f(sl),
+    t1Pct: pc(t1), t2Pct: pc(t2), t3Pct: pc(t3), slPct: pc(sl),
+    risk: f(risk), atr14: levels?.atr14 ?? f(atr),
+    smart_structure: true,
+  };
+}
+
+// أهداف تقريبية (fallback عند غياب الشموع)
+function calcLevels(s) {
+  const price = s.price;
+  const tr  = Math.max(s.high - s.low, Math.abs(s.high - s.prevClose), Math.abs(s.low - s.prevClose));
+  const atr = Math.max(tr, price * 0.02);
+  const t1 = +(price + atr * 0.5).toFixed(2), t2 = +(price + atr * 1.0).toFixed(2), t3 = +(price + atr * 1.8).toFixed(2);
+  const sl = +Math.max(price - atr * 0.8, price * 0.92).toFixed(2);
+  return {
+    t1, t2, t3, sl,
+    t1Pct: +(((t1 - price) / price) * 100).toFixed(2), t2Pct: +(((t2 - price) / price) * 100).toFixed(2),
+    t3Pct: +(((t3 - price) / price) * 100).toFixed(2), slPct: +(((sl - price) / price) * 100).toFixed(2),
+    risk: +(price - sl).toFixed(2),
+  };
+}
+
+// ════════════════ محرّك مستويات البنية (Swing + Fibonacci) ════════════════
+// أسلوب "الصندوق الذهبي": ارتكاز/دخول/تأكيد/وقف/مقاومة + أهداف فيبوناتشي تصاعدية.
+// إضافي بالكامل — لا يلمس s.levels (ATR). يُرفق كـ s.structure.
+function findPivots(bars, w = 2) {
+  const highs = [], lows = [];
+  for (let i = w; i < bars.length - w; i++) {
+    let isHigh = true, isLow = true;
+    for (let j = i - w; j <= i + w; j++) {
+      if (j === i) continue;
+      if (bars[j].h >= bars[i].h) isHigh = false;
+      if (bars[j].l <= bars[i].l) isLow = false;
+    }
+    if (isHigh) highs.push(bars[i].h);
+    if (isLow)  lows.push(bars[i].l);
+  }
+  return { highs, lows };
+}
+
+function computeStructureLevels(price, bars) {
+  if (!bars || bars.length < 12 || !price) return null;
+  const recent = bars.slice(-60);
+  const { highs, lows } = findPivots(recent, 2);
+  // ملاحظة: لا نخرج لو ما فيه pivots — نعتمد على الحد الأدنى/الأقصى الأخير كبديل
+  // (الأسهم الصاعدة بقوة غالباً بلا قيعان/قمم تأرجح واضحة)
+
+  // الدعم = أعلى قاع تأرجح تحت السعر | المقاومة = أدنى قمة تأرجح فوق السعر
+  // البديل (بلا pivots) = حدود آخر 12 شمعة فقط — يبقي البنية قريبة وواقعية
+  const recLows  = recent.slice(-12).map(b => b.l);
+  const recHighs = recent.slice(-12).map(b => b.h);
+  const lowsBelow  = lows.filter(l => l < price);
+  const highsAbove = highs.filter(h => h > price);
+  const support    = lowsBelow.length  ? Math.max(...lowsBelow)  : Math.min(...recLows);
+  const resistance = highsAbove.length ? Math.min(...highsAbove) : Math.max(...recHighs);
+
+  const swingHigh = Math.max(resistance, ...recent.map(b => b.h));
+  const swingLow  = support;
+  const range = Math.max(swingHigh - swingLow, price * 0.005);
+
+  // تأكيد الاتجاه = أعلى قمة تأرجح كُسرت (تحت/عند السعر)
+  const highsBelow = highs.filter(h => h <= price * 1.001);
+  const confirm = highsBelow.length ? Math.max(...highsBelow) : support + range * 0.5;
+  const trendUp = price >= confirm;
+
+  // دخول عند الارتداد (38.2% من الساق الصاعدة) + وقف تحت الارتكاز
+  // الوقف = نسبة من مدى التأرجح (يتأقلم مع تذبذب كل سهم بدل نسبة ثابتة)
+  const buffer = Math.max(range * 0.10, price * 0.0005);
+  const entry = support + (price - support) * 0.382;
+  // 🆕 الوقف من البنية (تحت الدعم) + سقف حارس: لا يتجاوز -8% من السعر (يحمي رأس المال).
+  //    نفس فلسفة الأهداف: البنية أولاً، والسقف يتدخّل فقط لو الدعم بعيد جداً.
+  const STOP_CAP = price * 0.92;          // أقصى خسارة -8% (لا ننزل تحته)
+  let stop = support - buffer;            // الوقف البنيوي (تحت الدعم الحقيقي)
+  if (stop < STOP_CAP) stop = STOP_CAP;   // لو الدعم بعيد (وقف أعمق من -8%) → نرفعه لحد -8%
+  const riskEntry = entry - stop;
+
+  // أهداف فيبوناتشي تصاعدية (مضمونة الترتيب وفوق السعر)
+  let t1   = (resistance > price * 1.005) ? resistance : swingHigh + range * 0.272;
+  t1 = Math.max(t1, price * 1.005);
+  let t2   = Math.max(swingHigh + range * 0.272, t1 * 1.003);   // 1.272
+  let t3   = Math.max(swingHigh + range * 0.618, t2 * 1.003);   // 1.618
+  let liq  = Math.max(swingHigh + range * 1.0,   t3 * 1.003);   // 2.0  — تفريغ سيولة
+  let peak = Math.max(swingHigh + range * 1.618, liq * 1.003);  // 2.618 — القمة
+
+  // 🆕 سقف واقعي للأهداف: نمنع الأهداف الخيالية (مثل +64%) الناتجة عن قمم تاريخية بعيدة.
+  //    السقف يتأقلم مع تذبذب السهم (ATR): السهم المتذبذب أهداف أبعد، الهادئ أقرب — بس ضمن المعقول.
+  //    نحترم المقاومة القريبة (لو أقرب من السقف ناخذها)، ونحدّ البعيد فقط.
+  // 🆕 سقف أمان للأهداف — حارس يمنع الخيالي فقط، لا يشوّه الواقعي.
+  //    الفلسفة: البنية (دعوم/مقاومات) هي الأصل — نتركها كما هي طالما واقعية.
+  //    السقف يتدخّل فقط لو الهدف خيالي (قمة تاريخية بعيدة جداً) — حدٌّ منطقي واسع.
+  //    هكذا الأهداف المبنية على مقاومات حقيقية تبقى سليمة، والخيالية فقط تُحدّ.
+  const T1_CAP = price * 1.08;    // T1: أقصى +8%  (هدف أول قريب — ربح سريع)
+  const T2_CAP = price * 1.20;    // T2: أقصى +20%
+  const T3_CAP = price * 1.35;    // T3: أقصى +35% (طموح واقعي — حدّ الخيال)
+  t1 = Math.min(t1, T1_CAP);
+  t2 = Math.min(Math.max(t2, t1 * 1.01), T2_CAP);
+  t3 = Math.min(Math.max(t3, t2 * 1.01), T3_CAP);
+  liq  = Math.max(liq,  t3 * 1.02);   // مناطق البيع تبقى فوق الأهداف (إشارية)
+  peak = Math.max(peak, liq * 1.02);
+
+  const f2 = n => +Number(n).toFixed(2);
+  const pct = n => +(((n - price) / price) * 100).toFixed(2);
+  const rr = riskEntry > 0 ? +(((t1 - entry) / riskEntry).toFixed(2)) : null;
+
+  return {
+    trend: trendUp ? "صاعد مؤكد ✅" : "ينتظر تأكيد ⏳",
+    support: f2(support),       supportPct: pct(support),
+    entry: f2(entry),           entryPct: pct(entry),
+    confirm: f2(confirm),       confirmPct: pct(confirm),
+    stop: f2(stop),             stopPct: pct(stop),
+    resistance: f2(resistance), resistancePct: pct(resistance),
+    t1: f2(t1),   t1Pct: pct(t1),
+    t2: f2(t2),   t2Pct: pct(t2),
+    t3: f2(t3),   t3Pct: pct(t3),
+    liquidity: f2(liq),  liquidityPct: pct(liq),
+    peak: f2(peak),      peakPct: pct(peak),
+    rr,
+  };
+}
+
+// ════════════════ EP MODEL ════════════════
+// ════════════════ 📊 حركة السوق (Top Movers) ════════════════════
+// 4 قوائم سريعة من بيانات السوق الخام (بلا تحليل بنية — تُجلب عند الضغط).
+// فلتر سيولة يستبعد أسهم الزبالة (سعر منخفض/سيولة صفر) لحماية الجودة.
+function buildMovers(tickers, n = 15) {
+  const MIN_PRICE = 1;            // سعر ≥ $1 (نستبعد الوهمي الرخيص)
+  const MIN_DOLLAR_VOL = 1e6;     // قيمة تداول ≥ $1M (سيولة حقيقية)
+  const rows = [];
+  for (const tk of tickers) {
+    if (!tk.ticker || tk.ticker.includes(".")) continue;
+    if (!/^[A-Z]{1,6}$/.test(tk.ticker)) continue;
+    const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
+    const price  = min.vw || min.c || tk.lastTrade?.p || day.c || prev.c || 0;
+    const volume = day.v || min.av || 0;
+    if (price < MIN_PRICE) continue;
+    const dollarVol = price * volume;
+    if (dollarVol < MIN_DOLLAR_VOL) continue;
+    let changePct = tk.todaysChangePerc;
+    if (changePct == null && prev.c) changePct = ((price - prev.c) / prev.c) * 100;
+    rows.push({
+      symbol: tk.ticker,
+      price: +price.toFixed(2),
+      change_pct: +(changePct || 0).toFixed(2),
+      volume,
+      dollar_vol: Math.round(dollarVol),
+    });
+  }
+  const byChangeDesc = [...rows].sort((a, b) => b.change_pct - a.change_pct).slice(0, n);
+  const byChangeAsc  = [...rows].sort((a, b) => a.change_pct - b.change_pct).slice(0, n);
+  const byVolume     = [...rows].sort((a, b) => b.volume - a.volume).slice(0, n);
+  const byValue      = [...rows].sort((a, b) => b.dollar_vol - a.dollar_vol).slice(0, n);
+  return { gainers: byChangeDesc, losers: byChangeAsc, volume: byVolume, value: byValue };
+}
+
+function calcEP(s) {
+  let t = 0;
+  const W = { rvol: 30, change: 25, gap: 15, vwap: 10, range: 10, volume: 10 };
+  const rv = s.rvol || 0;
+  t += rv >= 50 ? W.rvol * 1.15 : rv >= 20 ? W.rvol * 1.1 : rv >= 10 ? W.rvol
+     : rv >= 5 ? W.rvol * .80 : rv >= 3 ? W.rvol * .60 : rv >= 2 ? W.rvol * .40 : rv >= 1.5 ? W.rvol * .20 : 0;
+  const ch = s.changePct || 0;
+  t += ch >= 10 && ch <= 30 ? W.change : ch >= 5 && ch < 10 ? W.change * .70 : ch >= 3 && ch < 5 ? W.change * .45
+     : ch > 30 && ch <= 50 ? W.change * .85 : ch > 50 && ch <= 80 ? W.change * .65
+     : ch > 80 && ch <= 120 ? W.change * .45 : ch > 120 ? W.change * .30 : 0;
+  const g = s.gapPct || 0;
+  t += g >= 20 ? W.gap * 1.2 : g >= 10 ? W.gap : g >= 5 ? W.gap * .60 : g >= 2 ? W.gap * .30 : 0;
+  if (s.price > s.vwap && s.vwap > 0) t += W.vwap;
+  else if (s.vwap > 0 && s.price >= s.vwap * 0.99) t += W.vwap * 0.5;
+  if (s.high > s.low) {
+    const pos = (s.price - s.low) / (s.high - s.low);
+    t += pos >= 0.8 ? W.range : pos >= 0.6 ? W.range * .6 : pos >= 0.4 ? W.range * .3 : 0;
+  }
+  t += s.volume >= 5e6 ? W.volume : s.volume >= 2e6 ? W.volume * .7 : s.volume >= 1e6 ? W.volume * .5 : s.volume >= 5e5 ? W.volume * .3 : 0;
+  if (rv >= 10 && ch >= 10) t += 8;
+  if (rv >= 50) t += 5;
+  let ep = Math.min(Math.round((t / Object.values(W).reduce((a, b) => a + b, 0)) * 100), 99);
+  if (ch > 30 && ch <= 50) ep -= 4;
+  else if (ch > 50 && ch <= 80) ep -= 8;
+  else if (ch > 80 && ch <= 120) ep -= 12;
+  else if (ch > 120) ep -= 16;
+  return Math.max(0, Math.min(ep, 99));
+}
+
+// ════════════════ جلب السوق ════════════════
+// تنفيذ على دفعات محكومة التزامن (يمنع إغراق Polygon بـ 70 طلب دفعة واحدة)
+async function inBatches(items, size, fn) {
+  for (let i = 0; i < items.length; i += size) {
+    await Promise.all(items.slice(i, i + size).map(fn));
+  }
+}
+
+async function fetchFullMarket() {
+  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 30000);
   try {
-    const log = { managed: [], entered: [], skipped: [], warnings: [] };
-    const debug = { phase: "manage_only" };
-    const now = new Date();
-    const et  = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const mins = et.getHours() * 60 + et.getMinutes(), day = et.getDay();
-    const weekend = day === 0 || day === 6;
-    const canManage = !weekend && mins >= 575 && mins <= 958;
-    const canEnter  = !weekend && mins >= 590 && mins < 900;
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) throw new Error(`Polygon ${res.status}`);
+    const data = await res.json();
+    return data.tickers || [];
+  } catch (err) { clearTimeout(id); throw err; }
+}
 
-    if (!canManage)
-      return res.status(200).json({ success: true, message: "خارج ساعات الإدارة", ...log });
+// جلب شموع بفريم محدد (60 دقيقة للمضاربة / يومي للاستثمار)
+async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
+  const to   = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - lookbackDays * 86400000).toISOString().slice(0, 10);
+  const url  = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&limit=${limit}&apiKey=${POLYGON_KEY}`;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 3500);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data.results && data.results.length) ? data.results : null;
+  } catch { clearTimeout(id); return null; }
+}
 
-    // ═══ المرحلة 1: إدارة المراكز المفتوحة ═══
-    if (STRATEGY.engine === "smart") {
-      const plans = await planList();
-      for (const p of plans) {
-        const sym = p.symbol;
-        const held = await getPositionQty(sym);
-        const live = await getLatestPrice(sym);
+// إعداد الفريم حسب نوع الصفقة
+function frameFor(style) {
+  return style === "مضاربة"
+    ? { mult: 60, span: "minute", days: 30,  limit: 600 }  // 60 دقيقة
+    : { mult: 1,  span: "day",    days: 140, limit: 200 }; // يومي
+}
 
-        if (held === 0) {
-          await cancelAll(sym);
-          await planClose(sym);
-          log.managed.push({ symbol: sym, action: "أُغلق المركز" });
-          continue;
-        }
+// حساب كل المؤشرات من مجموعة شموع
+// 🆕 طبقة جودة الدخول (EMA) — كلها قابلة للضبط
+const STRETCH = {
+  ENABLED:   true,
+  WARN:      10,    // فوق هذا البُعد عن EMA9 يبدأ الخصم اللطيف (الدخول صار متأخراً)
+  PEN_K:     0.4,   // شدة الخصم لكل 1% زيادة فوق WARN (لطيف عمداً — لا نقتل الزخم)
+  PEN_CAP:   8,     // أقصى خصم من الامتداد
+  BONUS_STRONG: 3,  // مكافأة اصطفاف EMA القوي (ema9>ema20>ema50 + السعر فوقها)
+  DROP:      18,    // 🆕 امتداد مفرط فوق EMA9 (+18%) بلا محفّز = ملاحقة واضحة → إسقاط
+};
 
-        if (p.add_enabled && !p.added && !p.tp1_done && live &&
-            live <= Number(p.add_level) && live > Number(p.stop) && p.add_qty > 0) {
-          const acct = await getAccount();
-          if (parseFloat(acct.cash || 0) >= p.add_qty * live) {
-            await buyMarket(sym, p.add_qty);
-            const newTotal = held + p.add_qty;
-            p.avg_entry = (Number(p.avg_entry) * held + live * p.add_qty) / newTotal;
-            p.total_qty = newTotal; p.added = true;
-            await cancelAll(sym);
-            await placeExits(sym, newTotal, p);
-            await planSave(p);
-            log.managed.push({ symbol: sym, action: "إضافة متدرّجة", addQty: p.add_qty, newAvg: +Number(p.avg_entry).toFixed(2) });
-            continue;
+function computeTech(bars) {
+  if (!bars || bars.length < 21) return null;
+  const closes = bars.map(b => b.c);
+  const price = closes[closes.length - 1];
+  const sma9 = calcSMA(closes, 9), sma21 = calcSMA(closes, 21), sma50 = calcSMA(closes, 50);
+  const ema9 = calcEMA(closes, 9), ema21 = calcEMA(closes, 21);
+  const ema20 = calcEMA(closes, 20), ema50 = calcEMA(closes, 50);   // 🆕 لطبقة جودة الدخول
+  const rsiRaw = calcRSI14(bars), atr = calcATR14(bars), macd = calcMACD(closes);
+
+  let maSignal = null, maBonus = 0;
+  if (sma9 && sma21 && sma9 > sma21) { maBonus += 6; maSignal = "صاعد"; }
+  if (ema9 && ema21 && ema9 > ema21) { maBonus += 5; maSignal = maSignal === "صاعد" ? "صاعد قوي ⚡" : "EMA صاعد"; }
+  if (sma21 && price > sma21) maBonus += 3;
+  if (sma50 && price > sma50) maBonus += 2;
+  const sma9p = calcSMA(closes.slice(0, -3), 9), sma21p = calcSMA(closes.slice(0, -3), 21);
+  const freshGolden = !!(sma9p && sma21p && sma9p <= sma21p && sma9 > sma21);
+  if (freshGolden) { maBonus += 6; maSignal = "تقاطع ذهبي 🌟"; }
+
+  let recentMaxJump = 0;
+  const lastN = closes.slice(-8);
+  for (let i = 1; i < lastN.length; i++) {
+    const j = ((lastN[i] - lastN[i - 1]) / lastN[i - 1]) * 100;
+    if (j > recentMaxJump) recentMaxJump = j;
+  }
+
+  // 🆕 طبقة جودة الدخول (EMA): بُعد السعر عن المتوسطات + اصطفاف قوي
+  const stretch9  = ema9  ? ((price - ema9)  / ema9)  * 100 : null;   // كم السعر ممتد فوق EMA9
+  const stretch20 = ema20 ? ((price - ema20) / ema20) * 100 : null;
+  const strongAligned = !!(ema9 && ema20 && ema50 && ema9 > ema20 && ema20 > ema50 && price > ema9 && price > ema20);
+
+  return {
+    price, atr, macd,
+    rsi: rsiRaw != null ? Math.round(rsiRaw) : null,
+    maSignal, maBonus: Math.min(maBonus, 20),
+    priceAboveMA21: !!(sma21 && price > sma21),
+    sma21: sma21 || null,                            // 🆕 لبوابة الاتجاه الأوسع (قرب MA21)
+    priceAboveEMA20: !!(ema20 && price > ema20),    // 🆕 للبوابة الأذكى (ارتداد مبكّر)
+    aligned: !!(sma9 && sma21 && price > sma21 && sma9 > sma21), // اصطفاف صاعد كامل (كما هو)
+    strongAligned,                                               // 🆕 اصطفاف EMA قوي (لرفع جودة 🎯)
+    stretch9:  stretch9  != null ? +stretch9.toFixed(2)  : null, // 🆕 الامتداد فوق EMA9
+    stretch20: stretch20 != null ? +stretch20.toFixed(2) : null,
+    freshGolden,
+    recentMaxJump: +recentMaxJump.toFixed(1),
+    bars,
+  };
+}
+
+// ════════════════ الأخبار اللحظية ════════════════
+async function fetchNews(symbol) {
+  const url = `https://api.polygon.io/v2/reference/news?ticker=${symbol}&limit=3&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 3500);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) return { ageH: null, sentiment: null, hasNews: false };
+    const data = await res.json();
+    const results = data.results || [];
+    if (!results.length) return { ageH: null, sentiment: null, hasNews: false };
+    const latest = results[0];
+    const ageH = latest.published_utc ? (Date.now() - new Date(latest.published_utc).getTime()) / 3600000 : null;
+    let sentiment = null;
+    if (Array.isArray(latest.insights)) {
+      const ins = latest.insights.find(i => i.ticker === symbol);
+      if (ins) sentiment = ins.sentiment;
+    }
+    return { ageH: ageH != null ? +ageH.toFixed(1) : null, sentiment, hasNews: true };
+  } catch { clearTimeout(id); return { ageH: null, sentiment: null, hasNews: false }; }
+}
+
+// ════════════════ 🔄 VIX Rank (لفلتر الارتداد) ════════════════════
+// يجلب تقلّب السوق التاريخي (سنة) ويحسب أين القيمة الحالية ضمنها كبيرسنتايل (0-100).
+// Rank < 70 = بيئة تقلّب معتدلة → الارتداد يعمل جيداً (حسب البحث).
+// نستخدم VIXY (ETF يتبع VIX) لأنه سهم عادي تغطّيه باقة Polygon Stocks،
+// بينما مؤشر I:VIX يتطلب باقة Indices منفصلة. VIXY يتبع VIX بدقة عالية.
+// يُحسب مرة واحدة لكل مسح (مو لكل سهم) — كفاءة عالية.
+async function fetchVixRank() {
+  try {
+    const to = new Date().toISOString().split("T")[0];
+    const from = new Date(Date.now() - 370 * 86400000).toISOString().split("T")[0];   // ~سنة
+    const url = `https://api.polygon.io/v2/aggs/ticker/VIXY/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=400&apiKey=${POLYGON_KEY}`;
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) return { rank: null, value: null, available: false };
+    const data = await res.json();
+    const bars = data.results || [];
+    if (bars.length < 30) return { rank: null, value: null, available: false };
+    const closes = bars.map(b => b.c).filter(v => v != null);
+    const current = closes[closes.length - 1];
+    // البيرسنتايل: كم % من القيم التاريخية أقل من الحالية
+    const below = closes.filter(v => v < current).length;
+    const rank = Math.round((below / closes.length) * 100);
+    return { rank, value: +current.toFixed(2), available: true, proxy: "VIXY" };
+  } catch { return { rank: null, value: null, available: false }; }
+}
+
+// ════════════════ الحفظ في Supabase (UPSERT — يمنع التكرار) ════════
+// المفتاح الفريد: (symbol, signal_date).
+// ignore-duplicates: أول رصد للسهم في اليوم يُحفظ ويثبت (سعر الدخول/الأهداف/الوقت)،
+// والمسحات اللاحقة لنفس السهم في نفس اليوم تُتجاهل — صفر تكرار + تجميد عند أول إشارة.
+async function saveSignals(signals) {
+  if (!SUPABASE_URL || !SUPABASE_KEY || !signals.length) return { saved: 0, skipped: true };
+  // تاريخ الإشارة بتوقيت السوق (ET) — ثابت لكل صفوف هذا المسح
+  const sigDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }))
+    .toISOString().split("T")[0];
+  const nowISO = new Date().toISOString();
+  const rows = signals.map(s => ({
+    symbol: s.symbol, signal_date: sigDate, type: s.type, entry_price: s.price, change_pct: s.changePct,
+    volume: Math.round(s.volume), rvol: s.rvol, ep: s.ep, score: s.ep, is_hot: s.is_hot,
+    target1: s.levels.t1, target2: s.levels.t2, target3: s.levels.t3, stop_loss: s.levels.sl,
+    status: "OPEN", ma_signal: s.ma_signal || null, rsi: s.rsi ?? null,
+    atr14: s.levels?.atr14 ?? null, early_watch: s.early_watch || false,
+    is_target: s.is_target || false, news_age_h: s.news_age_h ?? null,
+    vcp: s.vcp || false, vcp_contraction: s.vcp_contraction ?? null,   // 🆕 VCP (انكماش التذبذب)
+    fresh_zone: s.fresh_zone || false,                                  // 🆕 دعم طازج
+    premarket_watch: s.premarket_watch || false,                        // 🆕 رصد مبكر (pre-market)
+    structure: s.structure || null,   // 🆕 خريطة البنية كاملة (للبوت) — يتطلب عمود jsonb
+    created_at: nowISO,   // وقت أول رصد — يثبت (يُكتب مرة واحدة عند أول إدخال)
+  }));
+  try {
+    // on_conflict على (symbol, signal_date) + ignore-duplicates = أول رصد يثبت، التكرار يُتجاهل
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/signals?on_conflict=symbol,signal_date`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
+        Prefer: "resolution=ignore-duplicates,return=minimal",
+      },
+      body: JSON.stringify(rows),
+    });
+    return { saved: res.ok ? rows.length : 0, status: res.status };
+  } catch (err) { return { saved: 0, error: err.message }; }
+}
+
+// ════════════════ MAIN HANDLER ════════════════
+export default async function handler(req, res) {
+  const t0 = Date.now();
+  const DEADLINE = t0 + 6500;   // ميزانية 6.5ث (حد Hobby 10ث) — مع مهلة الجلب 3.5ث للدفعة الأخيرة نبقى تحت 10ث
+  const isSubscriber = req.query.sub === "1";
+
+  try {
+    const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const etH = etNow.getHours(), etM = etNow.getMinutes();
+    const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
+    const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
+
+    // 1) جلب كامل السوق + VIX Rank (لفلتر الارتداد) بالتوازي
+    const [allTickers, vixData] = await Promise.all([
+      fetchFullMarket(),
+      fetchVixRank(),
+    ]);
+    const vixRank = vixData.available ? vixData.rank : null;
+    const t1 = Date.now();
+
+    // 2) فلترة أساسية
+    const candidates = [];
+    for (const tk of allTickers) {
+      const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
+      // سعر قابل للتنفيذ فعلاً: VWAP الدقيقة (متوسط مرجّح بالحجم) بدل نبضة tick لحظية
+      //   قد تكون قمة عابرة. يمنع تسجيل دخول عند قمة لحظية لا يعود لها السوق.
+      const price  = min.vw || min.c || tk.lastTrade?.p || day.c || prev.c || 0;
+      const volume = day.v || min.av || 0;
+      if (!tk.ticker || tk.ticker.includes(".")) continue;
+      if (!/^[A-Z]{1,6}$/.test(tk.ticker)) continue;
+      if (price < FILTER.MIN_PRICE || price > FILTER.MAX_PRICE) continue;
+      if (volume < minVolume) continue;
+      const prevClose = prev.c || day.o || price;
+      let changePct = tk.todaysChangePerc;
+      if (changePct == null || changePct === 0) changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
+      if (changePct < FILTER.MIN_CHANGE) continue;
+      if (changePct > FILTER.MAX_CHANGE) continue;
+      const gapPct = (day.o && prevClose) ? ((day.o - prevClose) / prevClose) * 100 : 0;
+      let rvol = (prev.v && prev.v > 0) ? +(volume / prev.v).toFixed(1) : 0;
+      if (rvol > FILTER.MAX_RVOL) continue;
+      candidates.push({
+        symbol: tk.ticker, price: +price.toFixed(2), open: day.o || price, volume,
+        vwap: day.vw || min.vw || 0, high: day.h || min.h || price, low: day.l || min.l || price,
+        prevClose, changePct: +changePct.toFixed(2), gapPct: +gapPct.toFixed(2), rvol,
+      });
+    }
+
+    // 3) EP + تصنيف نوع الصفقة
+    const scored = candidates.map(s => {
+      const ep = calcEP(s);
+      const levels = calcLevels(s);
+      const is_hot = ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
+      const dollarVolume = s.price * s.volume;
+      const isScalp  = s.changePct >= 5 && s.rvol >= 5;
+      const isInvest = s.price >= 20 && dollarVolume >= 100_000_000 && s.changePct <= 15;
+      // الأولوية للاستثمار: السهم القيادي الكبير لا يتحوّل تلقائياً لمضاربة لمجرد زخمه
+      const type = isInvest ? "استثمار" : (isScalp ? "مضاربة" : "مضاربة");
+      return { ...s, ep, levels, is_hot, type, trade_style: type, dollarVolume,
+        signal: ep >= 80 ? "💥 انفجاري" : ep >= 60 ? "🔥 عالي" : "👀 مراقبة" };
+    });
+
+    // 4) ترتيب أولي
+    scored.sort((a, b) => (b.is_hot !== a.is_hot) ? (b.is_hot ? 1 : -1) : (b.ep !== a.ep) ? b.ep - a.ep : b.rvol - a.rvol);
+
+    // 5) أعلى N للتحليل الثقيل
+    const top = scored.slice(0, FILTER.HEAVY_LIMIT);
+
+    // 5.5) التحليل الفني متعدّد الفريمات + الأخبار + البوابة + الهدف
+    //      على دفعات من 8 (≈16 طلب متزامن فقط بدل 70) — أمان من timeout
+    await inBatches(top, 30, async (s) => {
+      if (Date.now() > DEADLINE) { s._timedOut = true; return; }   // تجاوزنا الميزانية → نكتفي بما حُلّل (يمنع timeout)
+      const fr = frameFor(s.trade_style);
+      // 🆕 الأخبار مكلفة زمنياً — نجلبها فقط للأسهم الواعدة، فنحلّل أسهماً أكثر بنفس الميزانية
+      const wantNews = s.changePct > 10 || s.rvol > 6 || s.ep >= 65;
+      s._newsFetched = wantNews;
+      const [bars, news] = await Promise.all([
+        fetchAggs(s.symbol, fr.mult, fr.span, fr.days, fr.limit),
+        wantNews ? fetchNews(s.symbol) : Promise.resolve({ ageH: null, sentiment: null, hasNews: false }),
+      ]);
+
+      const tech = computeTech(bars);
+      s._tech = tech;
+      s._news = news;
+      s._drop = false;
+
+      // المتوسطات + الأهداف من الفريم الصحيح
+      if (tech) {
+        s.ep = Math.min(s.ep + tech.maBonus, 99);
+        s.ma_signal = tech.maSignal;
+        if (tech.rsi != null) {
+          s.rsi = tech.rsi;
+          if (tech.rsi >= 80) s.ep = Math.max(0, s.ep - 8);
+          else if (tech.rsi >= 72) s.ep = Math.max(0, s.ep - 4);
+          else if (tech.rsi >= 50 && tech.rsi <= 65) s.ep = Math.min(99, s.ep + 3);
+        } else s.rsi = null;
+        // MACD
+        if (tech.macd && tech.macd.bullish) s.ep = Math.min(99, s.ep + (tech.macd.rising ? 7 : 5));
+
+        // 🆕 VCP (مينرفيني): انكماش التذبذب = جودة أعلى → مكافأة سكور (لا يرفض، يُعلّي القوي)
+        if (tech.bars && tech.bars.length >= 30) {
+          const vcpRes = detectVCP(tech.bars);
+          if (vcpRes.vcp) {
+            s.ep = Math.min(99, s.ep + vcpRes.score);   // +حتى 8 نقاط حسب قوة الانكماش
+            s.vcp = true;
+            s.vcp_contraction = vcpRes.contraction;     // نسبة الانكماش (للعرض)
           }
         }
-
-        if (STRATEGY.tieredExit && !p.tp1_done && live && Number(p.t1) > 0 &&
-            live >= Number(p.t1) * STRATEGY.tp1FillNudge && held >= 2) {
-          const sellFrac = Number(p.t1_sell_frac) || STRATEGY.scalpT1Sell;
-          const sellQty = Math.max(1, Math.floor(held * sellFrac));
-          const keepQty = held - sellQty;
-          await cancelAll(sym);
-          const sellResp = await fetch(`${ALPACA_BASE}/v2/orders`, {
-            method: "POST", headers: H,
-            body: JSON.stringify({ symbol: sym, qty: String(sellQty), side: "sell", type: "market", time_in_force: "day" }),
-          }).then(r => r.json()).catch(() => null);
-          p.tp1_done = true;
-          p.stop = +Number(p.avg_entry).toFixed(Number(p.avg_entry) < 1 ? 4 : 2);
-          if (keepQty >= 1) {
-            const t3px = +(Number(p.t3) || live * 1.5).toFixed(Number(live) < 1 ? 4 : 2);
-            let ok = await ocoSell(sym, keepQty, t3px, p.stop);
-            if (!ok || ok.code) { await stopSell(sym, keepQty, p.stop); }
+        // أهداف واقعية بالفريم الصحيح
+        if (tech.bars && tech.bars.length >= 15) {
+          s.levels = s.trade_style === "مضاربة" ? calcScalpLevels(s.price, tech.bars) : calcSmartLevels(s.price, tech.bars);
+          s.levels_source = s.trade_style === "مضاربة" ? "scalp_60m" : "smart_daily";
+          s.structure = computeStructureLevels(s.price, tech.bars);   // 🆕 مستويات البنية (إضافية)
+          // 🆕 Fresh Zone (العرض/الطلب): الدعم الطازج (غير المُختبَر) أقوى → مكافأة؛ المستهلَك → خصم بسيط
+          if (s.structure && s.structure.support) {
+            const fz = freshZoneBonus(tech.bars, s.structure.support);
+            if (fz.bonus !== 0) s.ep = Math.min(99, Math.max(0, s.ep + fz.bonus));
+            s.fresh_zone = fz.fresh;
+            s.zone_touches = fz.touches;
           }
-          await planSave(p);
-          log.managed.push({ symbol: sym, action: `جني ${Math.round(sellFrac*100)}% عند T1 + الباقي بوقف تعادل`, sold: sellQty, kept: keepQty, type: p.stock_type });
-          continue;
-        }
+          // 🆕 وقف/أهداف ذكية مشتقّة من البنية (تحت الارتكاز الحقيقي + حارس ضجيج/سقف)
+          const smart = applyStructureLevels(s.price, s.levels, s.structure, s.trade_style);
+          if (smart.smart_structure) { s.levels = smart; s.levels_source += "+structure"; }
+        } else s.levels_source = "atr_basic";
+        s.week_max_jump = tech.recentMaxJump;
 
-        const tp1q = Math.floor(Number(p.total_qty) * STRATEGY.tp1Fraction);
-        const remain = Number(p.total_qty) - tp1q;
-        if (!p.tp1_done && held <= remain && held < Number(p.total_qty) && live && live > Number(p.avg_entry)) {
-          p.tp1_done = true; p.be_moved = STRATEGY.breakevenAfterTp1;
-          await cancelAll(sym);
-          await placeExits(sym, held, p);
-          await planSave(p);
-          log.managed.push({ symbol: sym, action: "جني T1 + وقف تعادل", remaining: held, stop: STRATEGY.breakevenAfterTp1 ? +Number(p.avg_entry).toFixed(2) : Number(p.stop) });
-          continue;
-        }
-
-        if (STRATEGY.trailEnabled && live && Number(p.avg_entry) > 0) {
-          const gain = (live - Number(p.avg_entry)) / Number(p.avg_entry);
-          let newLock = null;
-          for (const tier of STRATEGY.trailTiers) {
-            if (gain >= tier.gain) newLock = tier.lock;
+        // 🔄 تصنيف الارتداد: سهم قوي + RSI≤30 + تقاطع MA9>MA21 على الساعة = ارتداد مؤكّد
+        //    نتحقق فقط للمرشّحين الأوليين (RSI≤30 + سعر/سيولة) لتوفير الطلبات.
+        const rsiOK = s.rsi != null && s.rsi <= REBOUND.RSI_MAX;
+        const dvolOK = s.price * (s.volume || 0) >= REBOUND.MIN_DOLLAR_VOL && s.price >= REBOUND.MIN_PRICE;
+        const vixOK = vixRank == null || vixRank < REBOUND.MAX_VIX_RANK;
+        if (rsiOK) s._rebRsi = true;            // 🔬 تشخيص: عدّ من اجتاز كل مرحلة
+        if (rsiOK && dvolOK) s._rebDvol = true;
+        if (rsiOK && dvolOK && vixOK) {
+          s._rebVix = true;
+          // الاكتشاف على شمعة ساعة (التقاطع) + القوة/البنية على شمعة يوم (العائد 3 شهور)
+          const isHourly = fr.mult === 60 && fr.span === "minute";
+          const isDaily  = fr.mult === 1  && fr.span === "day";
+          let hourlyCloses = isHourly && tech.bars ? tech.bars.map(b => b.c) : null;
+          let dailyCloses  = isDaily  && tech.bars ? tech.bars.map(b => b.c) : null;
+          // اجلب الناقص (نوع واحد فقط متاح من التحليل الأساسي)
+          if (!hourlyCloses) {
+            const hb = await fetchAggs(s.symbol, 60, "minute", 30, 600);
+            hourlyCloses = (hb && hb.length) ? hb.map(b => b.c) : null;
           }
-          if (newLock != null) {
-            const newStop = +(Number(p.avg_entry) * (1 + newLock)).toFixed(Number(p.avg_entry) < 1 ? 4 : 2);
-            const curStop = Number(p.stop) || 0;
-            if (newStop > curStop && newStop < live) {
-              await cancelAll(sym);
-              const t3px = +(Number(p.t3) || live * 1.5).toFixed(Number(live) < 1 ? 4 : 2);
-              let ok = await ocoSell(sym, held, t3px, newStop);
-              if (!ok || ok.code) { await stopSell(sym, held, newStop); }
-              p.stop = newStop; p.trail_lock = newLock;
-              await planSave(p);
-              log.managed.push({ symbol: sym, action: "🔼 رفع الوقف (trailing)", gainPct: +(gain*100).toFixed(1), newStop, protects: `+${(newLock*100).toFixed(0)}%` });
-              continue;
+          if (!dailyCloses) {
+            const db = await fetchAggs(s.symbol, 1, "day", 100, 120);   // ~3 شهور للعائد + البنية اليومية
+            dailyCloses = (db && db.length) ? db.map(b => b.c) : null;
+            if (db && db.length >= 15) s._dailyBars = db;   // للبنية اليومية في العرض
+          } else {
+            s._dailyBars = tech.bars;
+          }
+          // 🔬 تشخيص: هل اجتاز العائد 3 شهور؟ والتقاطع؟
+          const ret3 = return3M(dailyCloses);
+          if (ret3 != null && ret3 >= REBOUND.MIN_RET_3M) s._rebRet3 = true;
+          if (s._rebRet3 && emaCrossedUp(hourlyCloses, 9, 21, 2)) s._rebCross = true;
+          if (isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses)) {
+            s.type = "ارتداد";
+            s.trade_style = "ارتداد";
+            s.levels = calcReboundLevels(s.price);
+            s.levels_source = "rebound_3pct";
+            s.is_rebound = true;
+            // 🆕 بنية السوق على شمعة اليوم (حسب طلبك)
+            if (s._dailyBars && s._dailyBars.length >= 15) {
+              s.structure = computeStructureLevels(s.price, s._dailyBars);
             }
+            s.ep = Math.min(99, s.ep + 6);   // مكافأة: استراتيجية موثّقة (81% فوز تاريخياً)
           }
         }
-
-        const oo = await getOpenOrders(sym);
-        if (oo.length === 0) {
-          await placeExits(sym, held, p);
-          log.managed.push({ symbol: sym, action: "إصلاح أوامر الحماية", held });
-          continue;
-        }
-        log.managed.push({ symbol: sym, action: "تتبّع", held, live });
+      } else {
+        s.ma_signal = null; s.rsi = s.rsi ?? null; s.levels_source = "atr_basic"; s.week_max_jump = null;
       }
-    }
 
-    // ═══ المرحلة 2: دخول صفقات جديدة ═══
-    if (canEnter) {
-      const todayET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }))
-        .toISOString().split("T")[0];
-      let candidates = [];
-      try {
-        const sr = await fetch(`${SUPABASE_URL}/rest/v1/signals?select=*&signal_date=eq.${todayET}&order=score.desc&limit=100`, { headers: SB_H });
-        if (sr.ok) {
-          const rows = await sr.json();
-          candidates = (Array.isArray(rows) ? rows : []).map(r => ({ ...r, price: r.entry_price }));
+      // ── الأخبار: تمييز الكاتشي عن الوهمي ──
+      const freshNews = news.hasNews && news.ageH != null && news.ageH <= 48;
+      if (freshNews) {
+        s.ep = Math.min(99, s.ep + (news.sentiment === "positive" ? 6 : 3));
+      }
+      // ارتفاع كبير بدون خبر طازج = خطر تلاعب (pump) → خصم ثقة
+      if (s.changePct > 20 && !freshNews) s.ep = Math.max(0, s.ep - 8);
+      s.news_age_h = news.ageH;
+
+      // 📉 خصم الامتداد التدرّجي: كل ما ارتفع السهم فوق 12% قلّ سكوره
+      //   (نفضّل الدخول المبكر — السهم اللي صعد كثير = دخول متأخر)
+      if (s.changePct > 12) {
+        s.ep = Math.max(0, s.ep - Math.round((s.changePct - 12) * 0.7));
+      }
+
+      // 🆕 طبقة جودة الدخول (EMA) — مُكمّلة، لطيفة، بلا إسقاط:
+      //   stretch يلتقط الامتداد فوق EMA9 (يكمّل خصم changePct — السهم قد يكون
+      //   +5% باليوم لكن +12% فوق EMA9 بعد فجوة). والاصطفاف القوي يُكافأ.
+      if (STRETCH.ENABLED && tech) {
+        if (tech.stretch9 != null && tech.stretch9 > STRETCH.WARN) {
+          const pen = Math.min(STRETCH.PEN_CAP, Math.round((tech.stretch9 - STRETCH.WARN) * STRETCH.PEN_K));
+          s.ep = Math.max(0, s.ep - pen);
         }
-      } catch { /* تجاهل */ }
+        if (tech.strongAligned) s.ep = Math.min(99, s.ep + STRETCH.BONUS_STRONG);
+        // 🆕 إسقاط الامتداد المفرط: بعيد جداً فوق EMA9 + صعد كثير + بلا محفّز (تقاطع طازج/خبر) = ملاحقة
+        const freshNewsX = !!(news && news.hasNews && news.ageH != null && news.ageH <= 24);
+        if (tech.stretch9 != null && tech.stretch9 > STRETCH.DROP && s.changePct > 12 && !tech.freshGolden && !freshNewsX) {
+          s._drop = true; if (!s._dropReason) s._dropReason = "stretch";
+        }
+      }
 
-      const filtered = candidates.filter(s => {
-        if (s.score < STRATEGY.minScore) return false;
-        if (s.price < STRATEGY.minPrice) return false;
-        if (s.change_pct < STRATEGY.minChangePct || s.change_pct > STRATEGY.maxChangePct) return false;
-        if (s.volume < STRATEGY.minVolume) return false;
-        if (s.rsi != null && s.rsi > STRATEGY.maxRSI) return false;
-        if (s.vwap && s.price <= s.vwap) return false;
-        if (!s.structure || s.structure.stop == null || s.structure.t1 == null) return false;
-        const f = s.structure.flag || "";
-        if (STRATEGY.skipChasers && (f.indexOf("ملاحقة") >= 0 || f.indexOf("غير مؤكد") >= 0 || f.indexOf("هابط") >= 0)) return false;
-        return true;
-      });
-
-      const validEntry = x => x.structure && (x.structure.flag || "").indexOf("صحيح") >= 0;
-      filtered.sort((a, b) => {
-        if (!!b.is_target   !== !!a.is_target)   return b.is_target   ? 1 : -1;
-        if (validEntry(b)   !== validEntry(a))   return validEntry(b) ? 1 : -1;
-        if (!!b.early_watch !== !!a.early_watch) return b.early_watch ? 1 : -1;
-        return (b.score || 0) - (a.score || 0);
-      });
-
-      const acct = await getAccount();
-      const balance = parseFloat(acct.equity || acct.cash || 0);
-      const positions = await getAllPositions();
-      const activePlans = await planList();
-      const openSymbols = new Set([...positions.map(p => p.symbol), ...activePlans.map(p => p.symbol)]);
-      let openCount = openSymbols.size;
-      let deployed = positions.reduce((s, p) => s + Math.abs(parseFloat(p.market_value || 0)), 0);
-      const maxDeployed = balance * STRATEGY.maxDeployedPct;
-
-      for (const s of filtered) {
-        if (openCount >= STRATEGY.maxTrades) break;
-        if (openSymbols.has(s.symbol)) continue;
+      // 🔀 مزج البنية: نرفع الدخول الصحيح ونُنزّل/نُسقط الملاحقة
+      //   (دخول صحيح = اتجاه مؤكد + R:R جيد + ما زال قريب من الدعم + فيه مجال للهدف)
+      if (s.structure) {
         const st = s.structure;
-        const live = await getLatestPrice(s.symbol);
-        const px = live || s.price;
-        if (!px) { log.skipped.push({ symbol: s.symbol, reason: "لا يوجد سعر" }); continue; }
+        const band = st.resistance - st.support;
+        const pos = band > 0 ? (s.price - st.support) / band : 1;   // 0=عند الدعم .. 1=عند المقاومة
+        const confirmed = s.price >= st.confirm;
+        const rrOk = st.rr != null && st.rr >= STRUCT.MIN_RR;
+        const room = st.resistance > s.price * 1.01;
+        const fresh = pos <= STRUCT.MAX_POS;
 
-        const radarPx = Number(s.price) || px;
-        const driftPct = ((px - radarPx) / radarPx) * 100;
-        if (driftPct > STRATEGY.maxDriftPct * 100) {
-          log.skipped.push({ symbol: s.symbol, reason: `سعر متأخر ${driftPct.toFixed(1)}% (رادار ${radarPx} → حي ${px.toFixed(2)})` });
-          continue;
+        let adj = 0, flag;
+        if (confirmed && rrOk && room && fresh) { adj = STRUCT.BONUS_VALID; flag = "دخول صحيح ✅"; }
+        else if (confirmed && (rrOk || fresh))  { adj = STRUCT.BONUS_OK;    flag = "مقبول"; }
+        else                                    { adj = -STRUCT.PENALTY_LATE; flag = "ملاحقة/غير مؤكد ⚠️"; }
+        if (st.rr != null && st.rr < 1) adj -= STRUCT.PENALTY_BADRR;
+
+        s.ep = Math.max(0, Math.min(99, s.ep + adj));
+        st.flag = flag;
+        st.posInBand = +pos.toFixed(2);
+
+        // إسقاط الملاحقة الواضحة فقط: ارتفع كثير + قريب من القمة (دخول متأخر سيء)
+        if (STRUCT.DROP_LATE && s.changePct > STRUCT.DROP_CHANGE && pos > STRUCT.DROP_POS) { s._drop = true; if (!s._dropReason) s._dropReason = "late"; }
+
+        // 💎 حارس الجوهرة: هابط + بلا تأكيد ارتداد → لا يظهر
+        if (STRUCT.STRICT_GEMS && tech.bars && tech.bars.length >= 3) {
+          const lc = tech.bars.slice(-3).map(b => b.c);
+          const dropPct = lc[0] > 0 ? (lc[0] - lc[2]) / lc[0] : 0;
+          const fallingNow = lc[2] < lc[1] && lc[1] < lc[0] && dropPct > 0.03;  // 🆕 تراجع معنوي فقط (>3%) — لا نُسقط pullback صحّي
+          const confirmedUp = s.price >= st.confirm && tech.priceAboveMA21
+                              && (tech.macd ? tech.macd.bullish : true);
+          const lastBar = tech.bars[tech.bars.length - 1];
+          const reversalBar = lastBar && lastBar.c > lastBar.o;        // شمعة ارتداد خضراء
+          if (fallingNow && !confirmedUp && !reversalBar) {
+            s._drop = true; if (!s._dropReason) s._dropReason = "strict_gems";
+            st.flag = "هابط بلا تأكيد ⛔";
+          }
         }
-
-        // فلتر الأخبار الجديدة (<0.5 ساعة)
-        if (s.news_age_h != null && s.news_age_h < 0.5) {
-          log.skipped.push({ symbol: s.symbol, reason: `خبر جديد (${s.news_age_h.toFixed(1)} ساعة) — ننتظر` });
-          continue;
-        }
-
-        // فلتر الخبر السلبي
-        if (s.news_sentiment === "negative") {
-          log.skipped.push({ symbol: s.symbol, reason: "خبر سلبي — تم الرفض" });
-          continue;
-        }
-
-        // 🔴 تم رفع عتبة "سعر مرتفع" من 5% → 10%
-        const entryPrice = st.entry || radarPx;
-        if (px > entryPrice * 1.10) {
-          log.skipped.push({ symbol: s.symbol, reason: `سعر مرتفع (${((px/entryPrice-1)*100).toFixed(1)}% فوق الدخول) — ننتظر تصحيح` });
-          continue;
-        }
-
-        // إعادة حساب المستويات
-        const priceShift = px - radarPx;
-        const support  = Number(st.support != null ? st.support : radarPx * 0.97);
-        const confirm  = Number(st.confirm != null ? st.confirm : radarPx);
-        const t1     = Number(s.target1   != null ? s.target1   : st.t1) + priceShift;
-        const t3     = Number(s.target3   != null ? s.target3   : st.t3) + priceShift;
-        let   stopPx = support > 0 && support < px ? support * 0.995
-                     : Number(s.stop_loss != null ? s.stop_loss : st.stop);
-
-        if (stopPx > 0 && px <= stopPx) {
-          log.skipped.push({ symbol: s.symbol, reason: `ضرب الوقف (${stopPx.toFixed(2)}) قبل الدخول` });
-          continue;
-        }
-
-        // maxLossPct 5%
-        const capFloor = px * (1 - STRATEGY.maxLossPct);
-        if (stopPx < capFloor) {
-          const oldStop = stopPx;
-          stopPx = capFloor;
-          log.warnings.push({ symbol: s.symbol, message: `وقف مصحح: ${oldStop.toFixed(2)} → ${stopPx.toFixed(2)} (حد 5%)` });
-        }
-
-        const rrLive = (px - stopPx) > 0 ? (t1 - px) / (px - stopPx) : 0;
-        if (rrLive < STRATEGY.minRR) {
-          log.skipped.push({ symbol: s.symbol, reason: `R:R ${rrLive.toFixed(1)} بعد إعادة الحساب`, px: +px.toFixed(2) });
-          continue;
-        }
-
-        const stLive = { ...st, support, confirm, t1, stop: stopPx, t3, rr: +rrLive.toFixed(2), entry: px };
-
-        if (!suitableEntry(stLive, px, t1, stopPx, STRATEGY.minRR, STRATEGY.entryBuffer, STRATEGY.minRoomPct)) {
-          log.skipped.push({ symbol: s.symbol, reason: "خارج منطقة الدخول / R:R ضعيف", px: +px.toFixed(2), confirm: +confirm.toFixed(2) });
-          continue;
-        }
-
-        const riskPerShare = px - stopPx;
-        if (riskPerShare <= 0) { log.skipped.push({ symbol: s.symbol, reason: "وقف غير صالح" }); continue; }
-
-        let fullValue = (balance * STRATEGY.riskPerTradePct) * px / riskPerShare;
-        fullValue = Math.min(fullValue, balance * STRATEGY.maxPositionPct);
-        if (fullValue < balance * STRATEGY.minPositionPct) { log.skipped.push({ symbol: s.symbol, reason: "تحت أرضية المركز" }); continue; }
-        if (deployed + fullValue > maxDeployed) { log.skipped.push({ symbol: s.symbol, reason: "بلغ سقف الانتشار" }); break; }
-
-        const fullQty = Math.floor(fullValue / px);
-        if (fullQty < 2) { log.skipped.push({ symbol: s.symbol, reason: "كمية صغيرة" }); continue; }
-        const initialQty = Math.max(1, Math.floor(fullQty * STRATEGY.initialFraction));
-        const addQty = fullQty - initialQty;
-
-        const brTp = STRATEGY.tieredExit
-          ? +(Number(t3) || Number(t1) * 1.2).toFixed(Number(t3) < 1 ? 4 : 2)
-          : +(Number(t1) * STRATEGY.tp1FillNudge).toFixed(Number(t1) < 1 ? 4 : 2);
-        const buy = await buyBracket(s.symbol, initialQty, brTp, stopPx);
-        if (buy.status === "rejected" || buy.code) {
-          log.skipped.push({ symbol: s.symbol, reason: "رُفض البراكِت (لا دخول بلا وقف)", err: buy.message || null });
-          continue;
-        }
-
-        const plan = {
-          symbol: s.symbol, status: "active",
-          initial_qty: initialQty, add_qty: addQty, added: false, add_enabled: STRATEGY.addEnabled && addQty > 0,
-          total_qty: initialQty, avg_entry: px, add_level: (support + px) / 2, stop: stopPx, t1: t1, t3: t3,
-          support: support, confirm: confirm, tp1_done: false, be_moved: false,
-          stock_type: s.type || "مضاربة",
-          t1_sell_frac: (s.type === "استثمار") ? STRATEGY.investT1Sell : STRATEGY.scalpT1Sell,
-        };
-        await planSave(plan);
-
-        deployed += initialQty * px; openCount++; openSymbols.add(s.symbol);
-        log.entered.push({ symbol: s.symbol, px: +px.toFixed(2), initialQty, reserveAdd: addQty, stop: +stopPx.toFixed(2), tp1: +t1.toFixed(2), exit: "bracket@TP1", rr: +((t1 - px) / (px - stopPx)).toFixed(2) });
       }
 
-      const skipTally = {};
-      for (const sk of log.skipped) skipTally[sk.reason] = (skipTally[sk.reason] || 0) + 1;
-      debug.phase = "enter";
-      debug.candidates = candidates.length;
-      debug.after_filter = filtered.length;
-      debug.open_before = openSymbols.size - log.entered.length;
-      debug.max_trades = STRATEGY.maxTrades;
-      debug.entered = log.entered.length;
-      debug.skipped = log.skipped.length;
-      debug.skip_reasons = skipTally;
-      debug.warnings = log.warnings.length;
-      debug.deployed_pct = balance > 0 ? Math.round((deployed / balance) * 100) : 0;
+      // ── البوابة (gate) ──
+      if (s.price < FILTER.STRICT_PRICE) {
+        // غربال صارم لأقل من $1: لازم كل الشروط
+        const pass = tech && tech.aligned
+          && s.rvol >= 5
+          && tech.rsi != null && tech.rsi >= 50 && tech.rsi <= 68
+          && tech.macd && tech.macd.bullish
+          && s.ep >= 70;
+        if (!pass) { s._drop = true; if (!s._dropReason) s._dropReason = "penny_gate"; }
+      } else {
+        // $1 فأعلى:
+        if (tech) {
+          // ✅ عندنا تحليل فني كامل (من الشموع التاريخية — متاح حتى في pre-market):
+          //    نطبّق نفس بوابة الاتجاه الصارمة. هذا ما يميّزنا عن المواقع التي تفرز
+          //    "الأعلى ارتفاعاً/كمية" فقط — نحن نرصد القوة الفنية الحقيقية في أي وقت.
+          // بوابة الاتجاه: فوق MA21، أو قريب منها (±2%) مع زخم صاعd، أو ارتداد مبكر مؤكd
+          const nearMA21 = tech.sma21 && s.price >= tech.sma21 * 0.98;   // قريب من MA21 (تحتها بـ2% كحد)
+          const trendPass = tech.priceAboveMA21
+                         || (nearMA21 && tech.macd && tech.macd.bullish)
+                         || (tech.priceAboveEMA20 && tech.macd && tech.macd.bullish);
+          if (!trendPass) { s._drop = true; if (!s._dropReason) s._dropReason = "trend_gate"; }
+          else if (isPreMarket) { s.premarket_watch = true; }
+        } else {
+          // لا شموع تاريخية كافية (سهم جديد/قليل التداول) → نرفض دائماً.
+          //    هؤلاء بالضبط من نتجنّبهم (لا تاريخ = لا تحليل = مخاطرة عمياء).
+          //    لا نخفّف هنا أبداً — الجودة الفنية شرط، لا استثناء حتى في pre-market.
+          s.ep = Math.min(s.ep, 60);
+          s._drop = true; if (!s._dropReason) s._dropReason = "no_tech";
+        }
+      }
+
+      // إعادة تقييم HOT + الإشارة
+      s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
+      s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
+
+      // ── رصد مبكر ──
+      const strongMA = ["تقاطع ذهبي 🌟", "صاعد قوي ⚡", "EMA صاعد"].includes(s.ma_signal);
+      const inEarlyZone = s.changePct >= 2 && s.changePct <= 15;
+      let early = 0;
+      if (strongMA) early++;
+      if (s.rsi != null && s.rsi >= 50 && s.rsi <= 68) early++;
+      if (s.rvol != null && s.rvol >= 3 && s.rvol <= 30) early++;
+      if (s.ep >= 65) early++;
+      if (s.week_max_jump != null && s.week_max_jump <= 25) early++;
+      s.early_watch = inEarlyZone && early >= 2;
+
+      // ── 🎯 الهدف: التقاء كامل على الفريم الأساسي ──
+      const earlyStage = s.changePct >= 2 && s.changePct <= 15;
+      const volHigh = s.volume >= 1_000_000;
+      const liqIn = s.rvol >= 4;
+      const rsiPos = s.rsi != null && s.rsi >= 50 && s.rsi <= 68;
+      const macdBull = !!(tech && tech.macd && tech.macd.bullish);
+      const primaryConfluence = !s._drop && earlyStage && volHigh && liqIn && rsiPos && macdBull && tech && tech.aligned;
+      s._primaryConfluence = primaryConfluence;
+    });
+
+    // 5.6) تأكيد الهدف على الفريم الآخر (للمرشحين النهائيين فقط) — على دفعات
+    const finalists = top.filter(s => s._primaryConfluence);
+    await inBatches(finalists, 12, async (s) => {
+      if (Date.now() > DEADLINE) return;   // ميزانية الوقت
+      const other = s.trade_style === "مضاربة"
+        ? { mult: 1, span: "day", days: 140, limit: 200 }
+        : { mult: 60, span: "minute", days: 30, limit: 600 };
+      const otherBars = await fetchAggs(s.symbol, other.mult, other.span, other.days, other.limit);
+      const otherTech = computeTech(otherBars);
+      // النخبة: التقاء كامل على الفريم الأساسي + اتجاه صاعد على الفريم الآخر (فوق MA21)
+      if (otherTech && otherTech.priceAboveMA21) {
+        s.is_target = true;
+        s.signal = "🎯 الهدف";
+        s.ep = Math.max(s.ep, 90);
+        s.is_hot = true;
+      }
+    });
+
+    // 5.7) تطبيق الإسقاط (البوابة)
+    let survivors = top.filter(s => !s._drop);
+    // الفرز مبنيّ على البنية: 🎯 نخبة → دخول صحيح → رصد مبكر → مقبول → زخم فقط → EP
+    const tier = s => {
+      if (s.is_target) return 5;                                          // نخبة (التقاء متعدّد الفريمات)
+      if (s.structure && s.structure.flag === "دخول صحيح ✅") return 4;   // دخول بنيوي صحيح
+      if (s.early_watch) return 3;                                        // رصد مبكر
+      if (s.structure && s.structure.flag === "مقبول") return 2;          // بنية مقبولة
+      if (s.is_hot) return 1;                                             // زخم فقط (أدنى)
+      return 0;
+    };
+    survivors.sort((a, b) => {
+      const ta = tier(a), tb = tier(b);
+      if (tb !== ta) return tb - ta;
+      if (b.ep !== a.ep) return b.ep - a.ep;
+      return b.rvol - a.rvol;
+    });
+
+    // 6) الحفظ (فقط غير المشترك + EP >= حد)
+    let saveResult = { skipped: true, reason: "subscriber scan" };
+    if (!isSubscriber) {
+      const toSave = survivors.filter(s => s.ep >= FILTER.SAVE_MIN_EP);
+      saveResult = await saveSignals(toSave);
     }
+
+    // 📊 Telemetry — قمع الإشارات: وين تُحلّل ووين تُسقط (للتشخيص الحقيقي بدل التخمين)
+    const dropBy = r => top.filter(s => s._dropReason === r).length;
+    const debug = {
+      market_scanned:   allTickers.length,
+      after_filter:     candidates.length,
+      top_selected:     top.length,
+      tech_analyzed:    top.filter(s => s._tech).length,
+      news_fetched:     top.filter(s => s._newsFetched).length,
+      timed_out:        top.filter(s => s._timedOut).length,        // لم يُحلّل (انتهت الميزانية)
+      primary_confluence: top.filter(s => s._primaryConfluence).length,
+      targets:          top.filter(s => s.is_target).length,
+      dropped_total:    top.filter(s => s._drop).length,
+      dropped_late:     dropBy("late"),
+      dropped_strict_gems: dropBy("strict_gems"),
+      dropped_stretch:  dropBy("stretch"),
+      dropped_penny_gate: dropBy("penny_gate"),
+      dropped_trend_gate: dropBy("trend_gate"),
+      dropped_no_tech:  dropBy("no_tech_ext") + dropBy("no_tech_lowep"),
+      survivors:        survivors.length,
+      below_save_ep:    survivors.filter(s => s.ep < FILTER.SAVE_MIN_EP).length,
+      saved:            saveResult.saved || 0,
+      // 🔬 قمع تشخيص الارتداد — وين تسقط الأسهم في مسار الارتداد؟
+      rebound_funnel: {
+        rsi_pass:   top.filter(s => s._rebRsi).length,    // RSI ≤ 30
+        dvol_pass:  top.filter(s => s._rebDvol).length,   // + سعر/سيولة
+        vix_pass:   top.filter(s => s._rebVix).length,    // + VIX معتدل
+        ret3_pass:  top.filter(s => s._rebRet3).length,   // + عائد 3 شهور ≥20%
+        cross_pass: top.filter(s => s._rebCross).length,  // + تقاطع MA9>21 (= ارتداد مؤكّد)
+        final:      top.filter(s => s.is_rebound).length, // النهائي
+      },
+    };
+    // نِسب جاهزة للقراءة السريعة (%) — تشخّص بنظرة وين الخلل بدون حساب يدوي
+    const pctOf = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
+    debug.rates = {
+      analyze_pct:      pctOf(debug.tech_analyzed, debug.top_selected),   // كم % من الـtop حُلّل فعلاً
+      timeout_pct:      pctOf(debug.timed_out, debug.top_selected),       // كم % انقطع بالوقت
+      survival_pct:     pctOf(debug.survivors, debug.top_selected),       // كم % نجا من الفلاتر
+      save_pct:         pctOf(debug.saved, debug.survivors),              // كم % من الناجين حُفظ
+      drop_trend_pct:   pctOf(debug.dropped_trend_gate, debug.tech_analyzed),
+      drop_gems_pct:    pctOf(debug.dropped_strict_gems, debug.tech_analyzed),
+      drop_stretch_pct: pctOf(debug.dropped_stretch, debug.tech_analyzed),
+    };
+
+    // 🪶 رد خفيف للكرون فقط (cron-job.org يرفض الردود الكبيرة) — عدّ فقط بدون المصفوفات
+    //    الواجهة تنادي /api/scan بدون light=1 فتاخذ الرد الكامل.
+    if (req.query.light === "1") {
+      return res.status(200).json({
+        success: true, light: true,
+        total: survivors.length,
+        hot:    survivors.filter(s => s.is_hot).length,
+        target: survivors.filter(s => s.is_target).length,
+        early:  survivors.filter(s => s.early_watch).length,
+        rebound: survivors.filter(s => s.is_rebound).length,   // 🔄 عدد إشارات الارتداد
+        vix:    vixData.available ? { rank: vixRank, value: vixData.value } : { available: false },
+        saved:  saveResult.saved || 0, saveResult,
+        timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
+        market_scanned: allTickers.length, after_filter: candidates.length,
+        debug,
+      });
+    }
+
+    // 7) تجهيز الرد (نفس شكل الواجهة تماماً)
+    const toCard = s => ({
+      symbol: s.symbol, price: s.price, change_pct: s.changePct, score: s.ep, signal: s.signal,
+      type: s.type, volume: s.volume, rvol: s.rvol, is_hot: s.is_hot, vwap: s.vwap,
+      ma_signal: s.ma_signal || null, rsi: s.rsi ?? null, early_watch: s.early_watch || false,
+      week_max_jump: s.week_max_jump ?? null, levels: s.levels, atr14: s.levels?.atr14 || null,
+      levels_source: s.levels_source || "atr_basic", is_target: s.is_target || false,
+      news_age_h: s.news_age_h ?? null,
+      structure: s.structure || null,   // 🆕 مستويات البنية (Swing + فيبوناتشي)
+    });
+
+    const results     = survivors.map(toCard);
+    const leaders     = results.filter(s => s.type === "استثمار");   // 🐞 إصلاح: كان "قيادي"
+    const speculation = results.filter(s => s.type !== "استثمار");
+    const early       = results.filter(s => s.early_watch);
+
+    // 📊 حركة السوق (Top Movers) — 15 سهم لكل قائمة من السوق الخام
+    const movers = buildMovers(allTickers, 15);
 
     return res.status(200).json({
-      success: true, engine: STRATEGY.engine,
-      time_et: `${et.getHours()}:${String(et.getMinutes()).padStart(2, "0")}`,
+      success: true, total: results.length,
+      hot: results.filter(s => s.is_hot).length,
+      target: results.filter(s => s.is_target).length,
+      early: early.length, saved: saveResult.saved || 0, saveResult,
+      timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
+      market_scanned: allTickers.length, after_filter: candidates.length,
       debug,
-      ...log,
+      results, leaders, speculation, earlyWatch: early,
+      movers,   // 📊 { gainers, losers, volume, value } — 15 سهم لكل
     });
-  } catch (e) {
-    return res.status(200).json({ success: false, error: e.message });
+
+  } catch (error) {
+    return res.status(200).json({ success: false, error: error.message, results: [], leaders: [], speculation: [] });
   }
 }
