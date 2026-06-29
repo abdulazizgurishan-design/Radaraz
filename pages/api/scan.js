@@ -1,11 +1,9 @@
-// pages/api/trade.js — v10 (OPTIMIZED)
+// pages/api/trade.js — v11 (FINAL OPTIMIZED)
 // ════════════════════════════════════════════════════════════════════════
-//  ✅ تم إصلاح maxLossPct ليمنع خسائر >7%
-//  ✅ رفع minScore من 65 → 68 (جودة أعلى)
-//  ✅ رفع maxRSI من 78 → 70 (يمنع الإشباع الشرائي)
-//  ✅ إضافة فلتر الأخبار الجديدة (<1 ساعة) — ننتظر حتى تهدأ
-//  ✅ إضافة فلتر الخبر السلبي (sentiment = negative)
-//  ✅ تحسين حساب الوقف مع maxLossPct
+//  ✅ خفض minRR من 1.3 → 1.0 (يسمح بدخول صفقات بمخاطرة مقبولة)
+//  ✅ خفض maxLossPct من 7% → 5% (يقلل المخاطرة ويحسّن R:R)
+//  ✅ خفض فلتر الأخبار من <1 ساعة → <0.5 ساعة (يسمح بدخول أسرع)
+//  ✅ إضافة فلتر "سعر مرتفع" — ينتظر تصحيح
 //  ✅ تحسين الـ Debug لعرض أسباب الرفض
 // ════════════════════════════════════════════════════════════════════════
 
@@ -21,22 +19,22 @@ const STRATEGY = {
   engine: "smart",
   addEnabled: true,
 
-  // 🔴 تم رفع minScore من 65 → 68 (جودة أعلى)
   minScore: 68,
   minPrice: 3,
   minChangePct: 1,
   maxChangePct: 40,
   minVolume: 100_000,
   
-  // 🔴 تم رفع maxRSI من 78 → 70 (يمنع الإشباع الشرائي)
   maxRSI: 70,
   skipChasers: true,
-  minRR: 1.3,
+  
+  // 🔴 تم خفض minRR من 1.3 → 1.0
+  minRR: 1.0,
   entryBuffer: 1.01,
   minRoomPct: 0.015,
 
-  // 🔴 تم إصلاح maxLossPct — الآن يُطبق بشكل صارم
-  maxLossPct: 0.07,
+  // 🔴 تم خفض maxLossPct من 7% → 5%
+  maxLossPct: 0.05,
   maxDriftPct: 0.03,
   riskPerTradePct: 0.015,
   maxPositionPct: 0.22,
@@ -278,7 +276,6 @@ export default async function handler(req, res) {
         if (s.price < STRATEGY.minPrice) return false;
         if (s.change_pct < STRATEGY.minChangePct || s.change_pct > STRATEGY.maxChangePct) return false;
         if (s.volume < STRATEGY.minVolume) return false;
-        // 🔴 maxRSI 70 (من 78)
         if (s.rsi != null && s.rsi > STRATEGY.maxRSI) return false;
         if (s.vwap && s.price <= s.vwap) return false;
         if (!s.structure || s.structure.stop == null || s.structure.t1 == null) return false;
@@ -319,15 +316,22 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // 🆕 فلتر الأخبار الجديدة (<1 ساعة)
-        if (s.news_age_h != null && s.news_age_h < 1) {
+        // 🆕 فلتر الأخبار الجديدة (<0.5 ساعة) — خفّف من 1 ساعة
+        if (s.news_age_h != null && s.news_age_h < 0.5) {
           log.skipped.push({ symbol: s.symbol, reason: `خبر جديد (${s.news_age_h.toFixed(1)} ساعة) — ننتظر` });
           continue;
         }
 
-        // 🆕 فلتر الخبر السلبي
+        // فلتر الخبر السلبي
         if (s.news_sentiment === "negative") {
           log.skipped.push({ symbol: s.symbol, reason: "خبر سلبي — تم الرفض" });
+          continue;
+        }
+
+        // 🆕 فلتر "سعر مرتفع" — ينتظر تصحيح
+        const entryPrice = st.entry || radarPx;
+        if (px > entryPrice * 1.05) {
+          log.skipped.push({ symbol: s.symbol, reason: `سعر مرتفع (${((px/entryPrice-1)*100).toFixed(1)}% فوق الدخول) — ننتظر تصحيح` });
           continue;
         }
 
@@ -345,15 +349,16 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // 🔴 تم إصلاح maxLossPct — يطبق بشكل صارم
+        // 🔴 maxLossPct 5% (من 7%)
         const capFloor = px * (1 - STRATEGY.maxLossPct);
         if (stopPx < capFloor) {
           const oldStop = stopPx;
           stopPx = capFloor;
-          log.warnings.push({ symbol: s.symbol, message: `وقف مصحح: ${oldStop.toFixed(2)} → ${stopPx.toFixed(2)} (حد 7%)` });
+          log.warnings.push({ symbol: s.symbol, message: `وقف مصحح: ${oldStop.toFixed(2)} → ${stopPx.toFixed(2)} (حد 5%)` });
         }
 
         const rrLive = (px - stopPx) > 0 ? (t1 - px) / (px - stopPx) : 0;
+        // 🔴 minRR 1.0 (من 1.3)
         if (rrLive < STRATEGY.minRR) {
           log.skipped.push({ symbol: s.symbol, reason: `R:R ${rrLive.toFixed(1)} بعد إعادة الحساب`, px: +px.toFixed(2) });
           continue;
