@@ -1,10 +1,8 @@
-// pages/api/trade.js — v11 (FINAL OPTIMIZED)
+// pages/api/trade.js — v12 (FIXED: رفع عتبة "سعر مرتفع" من 5% → 10%)
 // ════════════════════════════════════════════════════════════════════════
-//  ✅ خفض minRR من 1.3 → 1.0 (يسمح بدخول صفقات بمخاطرة مقبولة)
-//  ✅ خفض maxLossPct من 7% → 5% (يقلل المخاطرة ويحسّن R:R)
-//  ✅ خفض فلتر الأخبار من <1 ساعة → <0.5 ساعة (يسمح بدخول أسرع)
-//  ✅ إضافة فلتر "سعر مرتفع" — ينتظر تصحيح
-//  ✅ تحسين الـ Debug لعرض أسباب الرفض
+//  ✅ رفع عتبة "سعر مرتفع" من 5% → 10% (يسمح بدخول أسهم تحركت قليلاً)
+//  ✅ minRR: 1.0, maxLossPct: 5%, فلتر الأخبار: 0.5 ساعة
+//  ✅ تحسين الـ Debug وعرض أسباب الرفض
 // ════════════════════════════════════════════════════════════════════════
 
 const ALPACA_KEY    = process.env.ALPACA_KEY;
@@ -27,13 +25,10 @@ const STRATEGY = {
   
   maxRSI: 70,
   skipChasers: true,
-  
-  // 🔴 تم خفض minRR من 1.3 → 1.0
   minRR: 1.0,
   entryBuffer: 1.01,
   minRoomPct: 0.015,
 
-  // 🔴 تم خفض maxLossPct من 7% → 5%
   maxLossPct: 0.05,
   maxDriftPct: 0.03,
   riskPerTradePct: 0.015,
@@ -316,7 +311,7 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // 🆕 فلتر الأخبار الجديدة (<0.5 ساعة) — خفّف من 1 ساعة
+        // فلتر الأخبار الجديدة (<0.5 ساعة)
         if (s.news_age_h != null && s.news_age_h < 0.5) {
           log.skipped.push({ symbol: s.symbol, reason: `خبر جديد (${s.news_age_h.toFixed(1)} ساعة) — ننتظر` });
           continue;
@@ -328,9 +323,9 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // 🆕 فلتر "سعر مرتفع" — ينتظر تصحيح
+        // 🔴 تم رفع عتبة "سعر مرتفع" من 5% → 10%
         const entryPrice = st.entry || radarPx;
-        if (px > entryPrice * 1.05) {
+        if (px > entryPrice * 1.10) {
           log.skipped.push({ symbol: s.symbol, reason: `سعر مرتفع (${((px/entryPrice-1)*100).toFixed(1)}% فوق الدخول) — ننتظر تصحيح` });
           continue;
         }
@@ -349,7 +344,7 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // 🔴 maxLossPct 5% (من 7%)
+        // maxLossPct 5%
         const capFloor = px * (1 - STRATEGY.maxLossPct);
         if (stopPx < capFloor) {
           const oldStop = stopPx;
@@ -358,7 +353,6 @@ export default async function handler(req, res) {
         }
 
         const rrLive = (px - stopPx) > 0 ? (t1 - px) / (px - stopPx) : 0;
-        // 🔴 minRR 1.0 (من 1.3)
         if (rrLive < STRATEGY.minRR) {
           log.skipped.push({ symbol: s.symbol, reason: `R:R ${rrLive.toFixed(1)} بعد إعادة الحساب`, px: +px.toFixed(2) });
           continue;
