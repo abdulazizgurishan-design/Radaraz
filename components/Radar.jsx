@@ -486,4 +486,5 @@ const AZ_TR = {
   "دخول صحيح ✅": "Valid entry ✅",
   "مقبول": "Acceptable",
   "ملاحقة/غير مؤكد ⚠️": "Chasing / unconfirmed ⚠️",
-  "هابط بلا تأكيد ⛔": "Downtrend — unconfirmed
+  "هابط بلا تأكيد ⛔": "Downtrend — unconfirmed ⛔",
+};
