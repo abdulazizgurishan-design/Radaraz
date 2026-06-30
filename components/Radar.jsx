@@ -92,6 +92,14 @@ const T = {
     strong: "قوي",
     neutral: "محايد",
     weak: "ضعيف",
+    ready: "🔥 فرص جاهزة",
+    readySub: "استوفت كل الشروط · جودة عالية",
+    watch: "🔵 مناطق مراقبة",
+    watchSub: "قريبة من الدخول · تنتظر التأكيد",
+    late: "🚀 زخم متأخر",
+    lateSub: "ارتفعت كثيراً · لمخاطرة عالية",
+    hidden: "💎 فرص خفية",
+    hiddenSub: "سيولة منخفضة · مؤشرات ممتازة",
   },
   en: {
     title: "Radar",
@@ -174,6 +182,14 @@ const T = {
     strong: "Strong",
     neutral: "Neutral",
     weak: "Weak",
+    ready: "🔥 Ready",
+    readySub: "All conditions met · High quality",
+    watch: "🔵 Watch Zones",
+    watchSub: "Close to entry · Awaiting confirmation",
+    late: "🚀 Late Momentum",
+    lateSub: "High rise · High risk",
+    hidden: "💎 Hidden Gems",
+    hiddenSub: "Low liquidity · Excellent indicators",
   }
 };
 
@@ -664,7 +680,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
     } catch {}
   };
 
-  // المؤشرات الفنية
   const indicators = useMemo(() => {
     const ind = [];
     if (r.rsi != null) {
@@ -704,7 +719,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
       padding: "16px 18px",
       marginBottom: "10px",
     }}>
-      {/* صف العلوي */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "monospace" }}>{r.symbol}</span>
@@ -733,7 +747,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         </div>
       </div>
 
-      {/* صف القوة والمخاطرة والأهداف */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 13, fontWeight: 600, alignItems: "center" }}>
         <span style={{ color: strength.color, background: "rgba(255,255,255,0.05)", padding: "2px 12px", borderRadius: 20 }}>
           {strength.label}
@@ -753,7 +766,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         )}
       </div>
 
-      {/* الأزرار الأربعة */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button onClick={() => setShowSimple(!showSimple)} style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: showSimple ? "rgba(99,102,241,0.3)" : "rgba(99,102,241,0.15)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)" }}>
           📖 {en ? "Simple" : "شرح بسيط"}
@@ -769,7 +781,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         </button>
       </div>
 
-      {/* 📖 شرح بسيط */}
       {showSimple && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
           <div style={{ background: "rgba(99,102,241,0.08)", borderRadius: 10, padding: "12px 16px", border: "1px solid rgba(99,102,241,0.15)" }}>
@@ -799,7 +810,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         </div>
       )}
 
-      {/* 📊 خريطة السوق */}
       {showStructure && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
           <div style={{ background: "rgba(6,10,20,0.8)", borderRadius: 12, padding: "12px 16px", border: "1px solid rgba(45,212,191,0.2)" }}>
@@ -817,7 +827,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         </div>
       )}
 
-      {/* 📈 المؤشرات الفنية */}
       {showIndicators && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
           <div style={{ background: "rgba(251,191,36,0.06)", borderRadius: 12, padding: "12px 16px", border: "1px solid rgba(251,191,36,0.15)" }}>
@@ -842,7 +851,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         </div>
       )}
 
-      {/* 📝 محرر الملاحظة */}
       {showNote && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
           <textarea
@@ -893,6 +901,8 @@ export default function Radar() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [scanError, setScanError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [opportunities, setOpportunities] = useState({ ready: [], watch: [], late: [], hidden: [] });
+  const [counts, setCounts] = useState({ ready: 0, watch: 0, late: 0, hidden: 0, total: 0 });
 
   const lastScanRef = useRef(0);
   const autoTimerRef = useRef(null);
@@ -1029,6 +1039,12 @@ export default function Radar() {
       setSpeculation(spec.map(toCard));
       setEarlyWatch(early.map(toCard));
       if (data.movers) setMovers(data.movers);
+      
+      if (data.opportunities) {
+        setOpportunities(data.opportunities);
+        setCounts(data.counts || { ready: 0, watch: 0, late: 0, hidden: 0, total: 0 });
+      }
+      
       setTotal(allCards.length);
       setLastUpdate(new Date());
 
@@ -1153,6 +1169,8 @@ export default function Radar() {
   const dotColor = (loading || refreshing) ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
   const showSections = filter === "all" && (leaders.length > 0 || speculation.length > 0 || rebound.length > 0 || sniper.length > 0);
   const earlySymbols = useMemo(() => new Set(earlyWatch.map(s => s.symbol)), [earlyWatch]);
+  
+  const totalOpportunities = counts.total || 0;
 
   if (!authChecked) return null;
   if (!auth) return (
@@ -1192,6 +1210,7 @@ export default function Radar() {
             { label: t.filterSniper, value: sniperCount, color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.25)" },
             { label: t.filterRebound, value: reboundCount, color: "#38bdf8", bg: "rgba(56,189,248,0.1)", border: "rgba(56,189,248,0.25)" },
             { label: "🚨 HOT", value: hotCount, color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.2)" },
+            { label: "📊 الإجمالي", value: totalOpportunities, color: "#22d3ee", bg: "rgba(34,211,238,0.1)", border: "rgba(34,211,238,0.2)" },
           ].map((s) => (
             <div key={s.label} style={S.statBox(s.bg, s.border)}>
               <div style={{ ...S.statNum(s.color), fontSize: typeof s.value === "string" ? 18 : 26 }}>{s.value}</div>
@@ -1246,6 +1265,106 @@ export default function Radar() {
             defaultOpen={false}
           >
             <MarketMovers movers={movers} t={t} lang={lang} />
+          </CollapsibleSection>
+        )}
+
+        {/* 🔥 فرص جاهزة */}
+        {!loading && done && opportunities.ready.length > 0 && (
+          <CollapsibleSection 
+            title={t.ready} 
+            subtitle={t.readySub} 
+            count={opportunities.ready.length} 
+            color="#ff6b35" 
+            bg="rgba(255,107,53,0.08)" 
+            border="rgba(255,107,53,0.3)" 
+            t={t}
+          >
+            {opportunities.ready.map((r, i) => (
+              <SmartCard 
+                key={"ready-" + r.symbol} 
+                r={r} 
+                idx={i} 
+                t={t} 
+                lang={lang} 
+                isFav={favSet.has(r.symbol)} 
+                onToggleFav={toggleFav} 
+              />
+            ))}
+          </CollapsibleSection>
+        )}
+
+        {/* 🔵 مناطق مراقبة */}
+        {!loading && done && opportunities.watch.length > 0 && (
+          <CollapsibleSection 
+            title={t.watch} 
+            subtitle={t.watchSub} 
+            count={opportunities.watch.length} 
+            color="#60a5fa" 
+            bg="rgba(96,165,250,0.08)" 
+            border="rgba(96,165,250,0.3)" 
+            t={t}
+          >
+            {opportunities.watch.map((r, i) => (
+              <SmartCard 
+                key={"watch-" + r.symbol} 
+                r={r} 
+                idx={i} 
+                t={t} 
+                lang={lang} 
+                isFav={favSet.has(r.symbol)} 
+                onToggleFav={toggleFav} 
+              />
+            ))}
+          </CollapsibleSection>
+        )}
+
+        {/* 🚀 زخم متأخر */}
+        {!loading && done && opportunities.late.length > 0 && (
+          <CollapsibleSection 
+            title={t.late} 
+            subtitle={t.lateSub} 
+            count={opportunities.late.length} 
+            color="#fbbf24" 
+            bg="rgba(251,191,36,0.08)" 
+            border="rgba(251,191,36,0.3)" 
+            t={t}
+          >
+            {opportunities.late.map((r, i) => (
+              <SmartCard 
+                key={"late-" + r.symbol} 
+                r={r} 
+                idx={i} 
+                t={t} 
+                lang={lang} 
+                isFav={favSet.has(r.symbol)} 
+                onToggleFav={toggleFav} 
+              />
+            ))}
+          </CollapsibleSection>
+        )}
+
+        {/* 💎 فرص خفية */}
+        {!loading && done && opportunities.hidden.length > 0 && (
+          <CollapsibleSection 
+            title={t.hidden} 
+            subtitle={t.hiddenSub} 
+            count={opportunities.hidden.length} 
+            color="#34d399" 
+            bg="rgba(52,211,153,0.08)" 
+            border="rgba(52,211,153,0.3)" 
+            t={t}
+          >
+            {opportunities.hidden.map((r, i) => (
+              <SmartCard 
+                key={"hidden-" + r.symbol} 
+                r={r} 
+                idx={i} 
+                t={t} 
+                lang={lang} 
+                isFav={favSet.has(r.symbol)} 
+                onToggleFav={toggleFav} 
+              />
+            ))}
           </CollapsibleSection>
         )}
 
