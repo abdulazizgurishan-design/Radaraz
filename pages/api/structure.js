@@ -37,14 +37,22 @@ function computeStructureLevels(price, bars) {
   const resistance = recentHigh > price ? recentHigh : +(price + atr * 1.5).toFixed(2);
   const range = resistance - support || atr * 2;
   const f2 = v => +v.toFixed(price < 1 ? 4 : 2);
-  const stop    = f2(support - atr * 0.5);
+  // 🆕 سقوف واقعية (مطابقة لـ scan.js) — تمنع الأهداف/الوقف الخيالية من البيانات المشوّهة
+  const STOP_CAP = price * 0.92;   // أقصى خسارة -8%
+  const T1_CAP = price * 1.08;     // هدف أول أقصى +8%
+  const T2_CAP = price * 1.20;     // +20%
+  const T3_CAP = price * 1.35;     // +35% (حد الطموح الواقعي)
+  let stop    = support - atr * 0.5;
+  if (stop < STOP_CAP) stop = STOP_CAP;   // البنية أولاً، السقف يحرس لو الدعم بعيد
+  stop = f2(stop);
   const entry   = f2(price);
   const confirm = f2(price + atr * 0.3);
-  const t1 = f2(price + range * 0.5);
-  const t2 = f2(price + range * 0.85);
-  const t3 = f2(resistance);
-  const peak = f2(resistance + atr * 1.0);
-  const liquidity = f2(resistance + atr * 0.4);
+  let t1 = Math.min(price + range * 0.5, T1_CAP);
+  let t2 = Math.min(Math.max(price + range * 0.85, t1 * 1.01), T2_CAP);
+  let t3 = Math.min(Math.max(resistance, t2 * 1.01), T3_CAP);
+  t1 = f2(t1); t2 = f2(t2); t3 = f2(t3);
+  const peak = f2(Math.min(resistance + atr * 1.0, price * 1.55));
+  const liquidity = f2(Math.min(resistance + atr * 0.4, price * 1.45));
   const risk = +(entry - stop).toFixed(2);
   const reward = +(t1 - entry).toFixed(2);
   const rr = risk > 0 ? +(reward / risk).toFixed(2) : null;
@@ -75,9 +83,25 @@ export default async function handler(req, res) {
     }
     const price = bars[bars.length - 1].c;
     const structure = computeStructureLevels(price, bars);
-    // عائد 3 شهور (للسياق)
-    const idx = Math.max(0, bars.length - 63);
-    const ret3m = bars[idx]?.c ? +(((price - bars[idx].c) / bars[idx].c) * 100).toFixed(1) : null;
+    // عائد 3 شهور (للسياق) — 🆕 محمي من الشذوذ (تجزئة الأسهم/بيانات خاطئة) التي تُنتج نسباً خيالية (651%)
+    const closes = bars.map(b => b.c);
+    const idx = Math.max(0, closes.length - 63);
+    let ret3m = null;
+    if (closes[idx] && closes[idx] > 0) {
+      // كشف القفزات الشاذة (>40% بين يومين = تجزئة/خطأ بيانات)
+      let splitAnomaly = false;
+      for (let i = idx + 1; i < closes.length; i++) {
+        const p = closes[i - 1], c = closes[i];
+        if (p > 0 && c > 0 && Math.abs(c - p) / p > 0.40) { splitAnomaly = true; break; }
+      }
+      let base = closes[idx];
+      if (splitAnomaly) {
+        const shortIdx = Math.max(0, closes.length - 20);   // نافذة قصيرة موثوقة
+        base = closes[shortIdx] > 0 ? closes[shortIdx] : base;
+      }
+      const r = ((price - base) / base) * 100;
+      ret3m = (r > 300 || r < -95) ? null : +r.toFixed(1);   // سقف منطقي: نتجاهل الشاذ
+    }
     return res.status(200).json({ symbol, price, structure, ret3m });
   } catch (e) {
     return res.status(200).json({ symbol, structure: null, error: e.message });
