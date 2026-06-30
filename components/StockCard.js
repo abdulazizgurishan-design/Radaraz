@@ -8,9 +8,8 @@ import { useState, useEffect } from 'react';
 export default function StockCard({ stock }) {
   const [isFavorite, setIsFavorite] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [favorites, setFavorites] = useState([]);
 
-  // التحقق من وجود السهم في المفضلة عند التحميل
+  // 🔍 التحقق من وجود السهم في المفضلة عند تحميل البطاقة
   useEffect(() => {
     checkIfFavorite();
   }, [stock.symbol]);
@@ -28,9 +27,7 @@ export default function StockCard({ stock }) {
 
       const data = await response.json();
       if (data.success) {
-        const favs = data.data || [];
-        setFavorites(favs);
-        const exists = favs.some(f => f.symbol === stock.symbol);
+        const exists = data.data.some(f => f.symbol === stock.symbol);
         setIsFavorite(exists);
       }
     } catch (error) {
@@ -38,7 +35,7 @@ export default function StockCard({ stock }) {
     }
   };
 
-  // دالة الإضافة للمفضلة
+  // ➕ إضافة للمفضلة
   const addToFavorites = async () => {
     setLoading(true);
     try {
@@ -70,8 +67,6 @@ export default function StockCard({ stock }) {
       if (data.success) {
         setIsFavorite(true);
         alert(`✅ تم إضافة ${stock.symbol} للمفضلة`);
-        // تحديث قائمة المفضلة
-        await checkIfFavorite();
       } else {
         if (data.exists) {
           alert(`⚠️ ${stock.symbol} موجود بالفعل في مفضلتك`);
@@ -87,7 +82,7 @@ export default function StockCard({ stock }) {
     }
   };
 
-  // دالة الحذف من المفضلة
+  // ➖ حذف من المفضلة
   const removeFromFavorites = async () => {
     if (!confirm(`هل تريد حذف ${stock.symbol} من المفضلة؟`)) return;
     
@@ -112,7 +107,6 @@ export default function StockCard({ stock }) {
       if (data.success) {
         setIsFavorite(false);
         alert(`✅ تم حذف ${stock.symbol} من المفضلة`);
-        await checkIfFavorite();
       } else {
         alert(`❌ ${data.error || 'فشل الحذف'}`);
       }
@@ -124,6 +118,7 @@ export default function StockCard({ stock }) {
     }
   };
 
+  // 🎯 حدث الضغط على زر المفضلة
   const handleFavoriteClick = () => {
     if (isFavorite) {
       removeFromFavorites();
@@ -132,9 +127,10 @@ export default function StockCard({ stock }) {
     }
   };
 
+  // ─── واجهة البطاقة ───
   return (
     <div className="stock-card">
-      {/* رمز السهم والسعر */}
+      {/* رأس البطاقة: رمز السهم + السعر + التغيير */}
       <div className="stock-header">
         <span className="symbol">{stock.symbol}</span>
         <span className="price">${stock.price}</span>
@@ -143,11 +139,11 @@ export default function StockCard({ stock }) {
         </span>
       </div>
 
-      {/* معلومات إضافية */}
+      {/* معلومات إضافية: EP, RSI, RVOL */}
       <div className="stock-info">
         <div className="info-item">
           <span className="label">EP</span>
-          <span className="value">{stock.score || stock.ep}</span>
+          <span className="value">{stock.score || stock.ep || '—'}</span>
         </div>
         <div className="info-item">
           <span className="label">RSI</span>
@@ -162,26 +158,34 @@ export default function StockCard({ stock }) {
       {/* الأهداف والوقف */}
       {stock.levels && (
         <div className="stock-levels">
-          <div className="level target1">
-            <span>🎯 TP1</span>
-            <span>${stock.levels.t1}</span>
-          </div>
-          <div className="level target2">
-            <span>🎯 TP2</span>
-            <span>${stock.levels.t2}</span>
-          </div>
-          <div className="level target3">
-            <span>🎯 TP3</span>
-            <span>${stock.levels.t3}</span>
-          </div>
-          <div className="level stop-loss">
-            <span>🛑 وقف</span>
-            <span>${stock.levels.sl}</span>
-          </div>
+          {stock.levels.t1 && (
+            <div className="level target1">
+              <span>🎯 TP1</span>
+              <span>${stock.levels.t1}</span>
+            </div>
+          )}
+          {stock.levels.t2 && (
+            <div className="level target2">
+              <span>🎯 TP2</span>
+              <span>${stock.levels.t2}</span>
+            </div>
+          )}
+          {stock.levels.t3 && (
+            <div className="level target3">
+              <span>🎯 TP3</span>
+              <span>${stock.levels.t3}</span>
+            </div>
+          )}
+          {stock.levels.sl && (
+            <div className="level stop-loss">
+              <span>🛑 وقف</span>
+              <span>${stock.levels.sl}</span>
+            </div>
+          )}
         </div>
       )}
 
-      {/* زر المفضلة */}
+      {/* 🔴⭐ زر المفضلة */}
       <button
         onClick={handleFavoriteClick}
         disabled={loading}
