@@ -386,26 +386,23 @@ export default function Admin() {
   const [activeTab, setActiveTab] = useState("signals");
   const [dash,      setDash]      = useState(null);
   const [dashLoading, setDashLoading] = useState(false);
-  const [cacInput,  setCacInput]  = useState("");      // مصاريف إعلانات (يدوي لحساب CAC)
+  const [cacInput,  setCacInput]  = useState("");
   const [date,      setDate]      = useState("");
   const [toast,     setToast]     = useState({ msg: "", type: "" });
   const [tweetText, setTweetText] = useState(null);
   const [scanStats, setScanStats] = useState(null);
-  const [resultView, setResultView] = useState("all");   // all | wins | losses
-  const [datePeriod, setDatePeriod] = useState("today");  // today | yesterday | week | all
-  const [audit, setAudit] = useState(null);              // تدقيق المطابقة: المعروض مقابل المُقيّم
+  const [resultView, setResultView] = useState("all");
+  const [datePeriod, setDatePeriod] = useState("today");
+  const [audit, setAudit] = useState(null);
   const [auditBusy, setAuditBusy] = useState(false);
 
-  // ── select-to-tweet state ──
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
 
-  // 📱 حالة نقل الجهاز
   const [resetKey,    setResetKey]    = useState("");
   const [resetBusy,   setResetBusy]   = useState(false);
   const [resetResult, setResetResult] = useState(null);
 
-  // 🤝 حالة الشركاء
   const [affiliates,  setAffiliates]  = useState([]);
   const [affTotals,   setAffTotals]   = useState({});
   const [affLoading,  setAffLoading]  = useState(false);
@@ -420,14 +417,12 @@ export default function Admin() {
   useEffect(() => {
     if (auth) {
       const today = new Date();
-      // ── التاريخ ميلادي ──
       setDate(today.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
       fetchSummary();
       fetchSignals();
     }
   }, [auth]);
 
-  // حمّل الشركاء عند فتح تبويبهم
   useEffect(() => {
     if (auth && activeTab === "affiliates" && affiliates.length === 0) {
       loadAffiliates();
@@ -445,15 +440,28 @@ export default function Admin() {
     } catch (err) { console.error(err); }
   };
 
-  // 🔍 تدقيق المطابقة: هل كل سهم معروض للمشترك (latest) موجود/سيظهر في التقرير؟
+  // 🔍 تدقيق المطابقة المعدل - يجلب البيانات الحية من /api/scan
   const runAudit = async () => {
     setAuditBusy(true); setAudit(null);
     try {
-      // 1️⃣ جلب الأسهم المعروضة حالياً في الرادار (من /api/latest)
-      const latRes = await fetch("/api/latest");
-      const latData = latRes.ok ? await latRes.json() : {};
-      const shownSymbols = [...new Set((latData.results || []).map(r => r.symbol).filter(Boolean))];
-      const totalDisplayed = latData.results?.length || 0;
+      // 1️⃣ جلب الأسهم المعروضة حالياً في الرادار (من /api/scan?light=1)
+      const scanRes = await fetch("/api/scan?light=1");
+      const scanData = scanRes.ok ? await scanRes.json() : {};
+      
+      // استخراج الأسهم المعروضة من results + opportunities
+      const shownSymbols = [];
+      if (scanData.results) {
+        shownSymbols.push(...scanData.results.map(r => r.symbol).filter(Boolean));
+      }
+      if (scanData.opportunities) {
+        for (const key of ['ready', 'watch', 'late', 'hidden']) {
+          if (scanData.opportunities[key]) {
+            shownSymbols.push(...scanData.opportunities[key].map(r => r.symbol).filter(Boolean));
+          }
+        }
+      }
+      const uniqueShown = [...new Set(shownSymbols)];
+      const totalDisplayed = uniqueShown.length;
 
       // 2️⃣ جلب جميع الأسهم من قاعدة البيانات (للتقرير)
       const all = summary?.signals || signals || [];
@@ -468,7 +476,7 @@ export default function Admin() {
       const inReport = [];
       const pending = [];
       const missing = [];
-      for (const sym of shownSymbols) {
+      for (const sym of uniqueShown) {
         const st = statusBySym[sym];
         if (!st) {
           missing.push(sym);
@@ -480,15 +488,16 @@ export default function Admin() {
       }
 
       setAudit({
-        shown: shownSymbols.length,
+        shown: uniqueShown.length,
         totalDisplayed,
         inReport,
         pending,
         missing,
         ts: new Date(),
         details: {
-          displayedSymbols: shownSymbols,
+          displayedSymbols: uniqueShown,
           allSignalsCount: all.length,
+          scanTotal: scanData.total || 0,
         }
       });
     } catch (e) {
@@ -541,7 +550,6 @@ export default function Admin() {
     setScanning(false);
   };
 
-  // 📱 نقل المفتاح لجهاز جديد
   const resetDevice = async () => {
     if (!resetKey.trim()) { setToast({ msg: "أدخل المفتاح", type: "error" }); return; }
     setResetBusy(true); setResetResult(null);
@@ -566,7 +574,6 @@ export default function Admin() {
     }
   };
 
-  // 🤝 تحميل الشركاء
   const loadAffiliates = async () => {
     setAffLoading(true);
     try {
@@ -593,7 +600,6 @@ export default function Admin() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // ── select helpers ──
   const sigKey = (s, i) => s.id || s.symbol || i;
 
   const toggleSelect = (key) => {
@@ -618,18 +624,14 @@ export default function Admin() {
     setTweetText(buildTweet(chosen, date, "signals"));
   };
 
-  // 📋 نسخ تقرير الرابحين كامل (تسويق)
-  // نستبعد فقط الإشارات قبل بداية مسحنا (3م السعودية = 8ص ET).
-  //   pre-market بعدها قابل للتداول على منصات السعودية، فيُحتسب.
   const isPreMarket = (s) => {
     if (!s.created_at) return false;
     const et = new Date(new Date(s.created_at).toLocaleString("en-US", { timeZone: "America/New_York" }));
     const mins = et.getHours() * 60 + et.getMinutes();
-    return mins < 8 * 60;   // قبل 8:00ص ET (= 3م السعودية)
+    return mins < 8 * 60;
   };
 
   const copyAllWins = (winsList) => {
-    // استبعاد إشارات ما قبل فتح السوق (التُقطت والسوق مقفل)
     const tradable = winsList.filter(s => !isPreMarket(s));
     if (!tradable.length) { showToast("لا يوجد رابحون (بعد استبعاد ما قبل السوق)", "err"); return; }
     const blocks = tradable.map(s => {
@@ -650,7 +652,6 @@ export default function Admin() {
   const hotCount  = signals.filter(s => s.is_hot).length;
   const newsCount = signals.filter(s => s.news_age_h != null && s.news_age_h <= 24).length;
 
-  // ── Styles ──────────────────────────────────────────────────────
   const S = {
     root:  { minHeight: "100vh", background: "#07091a", color: "#e2e8f0", fontFamily: "'Inter','Segoe UI',system-ui,sans-serif", padding: 24 },
     box:   { maxWidth: 640, margin: "0 auto" },
@@ -658,7 +659,6 @@ export default function Admin() {
     btn:   (bg) => ({ padding: "10px 22px", background: bg || "linear-gradient(135deg,#6366f1,#8b5cf6)", border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }),
   };
 
-  // ── Login screen ────────────────────────────────────────────────
   if (!auth) return (
     <div style={S.root}>
       <div style={{ ...S.box, maxWidth: 360, paddingTop: 90, textAlign: "center" }}>
@@ -671,32 +671,28 @@ export default function Admin() {
     </div>
   );
 
-  // 📅 فلتر الفترة بتوقيت السوق (ET) — لعزل نتائج اليوم عن السجل المتراكم
-  const etDateStr = (d) => new Date(d).toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+  const etDateStr = (d) => new Date(d).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const todayET = etDateStr(Date.now());
   const yestET  = etDateStr(Date.now() - 86400000);
   const weekAgo = etDateStr(Date.now() - 7 * 86400000);
   const inPeriod = (s) => {
-    // نعتمد على created_at أولاً (دائماً موجود)، ثم signal_date كاحتياط
     const d = (s.created_at ? etDateStr(s.created_at) : null) || s.signal_date;
     if (!d) return true;
     if (datePeriod === "today")     return d === todayET;
     if (datePeriod === "yesterday") return d === yestET;
     if (datePeriod === "week")      return d >= weekAgo;
-    return true; // all
+    return true;
   };
 
-  // نستبعد إشارات ما قبل فتح السوق من كل النتائج (غير قابلة للتداول → لا تُحتسب في السجل)
   const closedSignals = (summary?.signals || []).filter(s => s.status !== "OPEN" && inPeriod(s) && !isPreMarket(s));
   const t1  = closedSignals.filter(s => s.target1_hit).length;
   const t2  = closedSignals.filter(s => s.target2_hit).length;
   const t3  = closedSignals.filter(s => s.target3_hit).length;
   const hit = closedSignals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length;
-  const stp = closedSignals.filter(s => s.stop_hit && !s.target1_hit).length;   // خاسر نقي: ضرب الوقف ولم يصب الهدف (لا ازدواج)
-  const decided = hit + stp;                                                     // المحسوم = رابح + خاسر نقي
+  const stp = closedSignals.filter(s => s.stop_hit && !s.target1_hit).length;
+  const decided = hit + stp;
   const successRate = decided ? Math.round((hit / decided) * 100) : 0;
 
-  // فلترة عرض النتائج (الكل/رابح/خاسر)
   const winsList = closedSignals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
   const lossList = closedSignals.filter(s => s.stop_hit && !s.target1_hit);
   const resultsToShow = closedSignals.filter(s => {
@@ -705,7 +701,6 @@ export default function Admin() {
     return true;
   });
 
-  // 🔬 تحليل نمط الخسائر/الأرباح تلقائياً — مقارنة عادلة بين الفئتين
   const patternOf = (list) => {
     const n = list.length;
     if (!n) return null;
@@ -714,7 +709,7 @@ export default function Admin() {
     const penny  = list.filter(s => num(s.entry_price) != null && num(s.entry_price) < 1).length;
     const chased = list.filter(s => num(s.change_pct) != null && num(s.change_pct) > 40).length;
     const hiRsi  = list.filter(s => num(s.rsi) != null && num(s.rsi) >= 72).length;
-    const noNews = list.filter(s => s.news_age_h == null || s.news_age_h > 48).length;   // خبر أقدم من 48س = ميّت، يُعدّ بلا خبر طازج
+    const noNews = list.filter(s => s.news_age_h == null || s.news_age_h > 48).length;
     const spec   = list.filter(s => s.type === "مضاربة").length;
     const invest = list.filter(s => s.type === "استثمار").length;
     const hot    = list.filter(s => s.is_hot).length;
@@ -728,7 +723,6 @@ export default function Admin() {
   const lossPat = patternOf(lossList);
   const winPat  = patternOf(winsList);
 
-  // صفوف اللوحة (تعرض الخاسر مقابل الرابح لكشف ما يميّز الخسارة فعلاً)
   const diagRows = (lossPat && winPat) ? [
     { k: "بنسات < $1",          lv: `${lossPat.pennyN} (${lossPat.penny}%)`, wv: `${winPat.penny}%`, warn: lossPat.penny >= 40 && lossPat.penny > winPat.penny },
     { k: "قفزت > 40% قبل الرصد", lv: `${lossPat.chasedN} (${lossPat.chased}%)`, wv: `${winPat.chased}%`, warn: lossPat.chased >= 30 && lossPat.chased > winPat.chased },
@@ -792,7 +786,7 @@ export default function Admin() {
           ))}
         </div>
 
-        {/* ════════ TAB: DASHBOARD (لوحة القيادة) ════════ */}
+        {/* ════════ TAB: DASHBOARD ════════ */}
         {activeTab === "dashboard" && (
           <>
             {dashLoading && <div style={{ textAlign: "center", color: "rgba(255,255,255,.4)", padding: 40 }}>⟳ جاري تحميل المؤشرات...</div>}
@@ -801,15 +795,11 @@ export default function Admin() {
             )}
             {!dashLoading && dash && dash.success && (
               <div style={{ maxWidth: 760, margin: "0 auto" }}>
-
-                {/* تنبيه البيانات */}
                 {dash.signals.evaluated < 10 && (
                   <div style={{ background: "rgba(251,191,36,.08)", border: "1px solid rgba(251,191,36,.25)", borderRadius: 14, padding: "14px 16px", fontSize: 13, color: "rgba(255,255,255,.6)", marginBottom: 20, lineHeight: 1.7 }}>
                     ⏳ <b style={{ color: "#fbbf24" }}>عيّنة صغيرة ({dash.signals.evaluated} إشارة مُقيّمة).</b> الأرقام تصير ذات دلالة بعد تجمّع بيانات أسبوع من التقييم التلقائي.
                   </div>
                 )}
-
-                {/* ── المعايير الحاسمة (4 بطاقات) ── */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
                   <KpiCard label="نسبة نجاح الإشارات" value={`${dash.signals.win_rate}%`}
                     sub={`${dash.signals.hit}/${dash.signals.evaluated} أصابت الهدف`} good={dash.signals.win_rate >= 55}
@@ -824,8 +814,6 @@ export default function Admin() {
                     sub="من جرّب ثم اشترك" good={dash.conversion_pct >= 25}
                     target="الهدف ≥25%" color="#f59e0b" />
                 </div>
-
-                {/* ── المشتركون ── */}
                 <div style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 16, padding: 18, marginBottom: 14 }}>
                   <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 14, color: "#fff" }}>👥 المشتركون</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
@@ -837,8 +825,6 @@ export default function Admin() {
                     <MiniStat label="النمو الشهري" value={`${dash.subscribers.growth_pct >= 0 ? "+" : ""}${dash.subscribers.growth_pct}%`} color={dash.subscribers.growth_pct >= 0 ? "#34d399" : "#f87171"} />
                   </div>
                 </div>
-
-                {/* ── الإيراد ── */}
                 <div style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 16, padding: 18, marginBottom: 14 }}>
                   <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 14, color: "#fff" }}>💰 الإيراد</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -846,8 +832,6 @@ export default function Admin() {
                     <MiniStat label="متوسط لكل مشترك" value={`$${dash.revenue.arpu}`} color="#60a5fa" />
                   </div>
                 </div>
-
-                {/* ── CAC / LTV (إدخال يدوي) ── */}
                 <div style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 16, padding: 18, marginBottom: 14 }}>
                   <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6, color: "#fff" }}>📊 CAC مقابل LTV</div>
                   <div style={{ fontSize: 12, color: "rgba(255,255,255,.4)", marginBottom: 12, lineHeight: 1.6 }}>
@@ -875,8 +859,6 @@ export default function Admin() {
                     );
                   })()}
                 </div>
-
-                {/* ── نسبة النجاح حسب النوع ── */}
                 <div style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 16, padding: 18, marginBottom: 14 }}>
                   <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 14, color: "#fff" }}>🎯 نسبة النجاح حسب النوع</div>
                   {["استثمار", "مضاربة", "ارتداد"].map((t) => {
@@ -890,7 +872,6 @@ export default function Admin() {
                     );
                   })}
                 </div>
-
                 <button onClick={fetchDash} style={{ width: "100%", padding: 13, background: "rgba(99,102,241,.15)", border: "1px solid rgba(99,102,241,.3)", borderRadius: 12, color: "#a5b4fc", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "system-ui" }}>
                   ⟳ تحديث المؤشرات
                 </button>
@@ -902,7 +883,6 @@ export default function Admin() {
         {/* ════════ TAB: SIGNALS ════════ */}
         {activeTab === "signals" && (
           <>
-            {/* Stats row */}
             <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
               {[
                 { label: "إجمالي",   value: signals.length,                                color: "#818cf8" },
@@ -918,7 +898,6 @@ export default function Admin() {
               ))}
             </div>
 
-            {/* Tweet controls */}
             {signals.length > 0 && (
               <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 {!selectMode ? (
@@ -949,14 +928,12 @@ export default function Admin() {
               </div>
             )}
 
-            {/* Select hint */}
             {selectMode && (
               <div style={{ marginBottom: 12, fontSize: 12, color: "#818cf8", textAlign: "center" }}>
                 👆 اضغط على الشركات اللي تبي تغرّدها
               </div>
             )}
 
-            {/* Signal cards */}
             {signals.length === 0 ? (
               <div style={{ textAlign: "center", padding: 50, color: "#334155" }}>
                 <div style={{ fontSize: 40, marginBottom: 12 }}>📡</div>
@@ -986,7 +963,7 @@ export default function Admin() {
           <>
             {loading && <div style={{ textAlign: "center", color: "#334155", padding: 30 }}>جاري التحميل...</div>}
 
-            {/* 🔍 تدقيق المطابقة: المعروض للمشترك مقابل التقرير */}
+            {/* 🔍 تدقيق المطابقة المعدل */}
             <div style={{ marginBottom: 18, padding: "14px 16px", borderRadius: 14, background: "rgba(99,102,241,.06)", border: "1px solid rgba(99,102,241,.2)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                 <div>
@@ -1037,7 +1014,6 @@ export default function Admin() {
               )}
             </div>
 
-            {/* Stats row */}
             <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
               {[
                 { label: "T1 ✅", value: t1,  color: "#34d399" },
@@ -1052,7 +1028,6 @@ export default function Admin() {
               ))}
             </div>
 
-            {/* 📅 فلتر الفترة — لعزل نتائج اليوم للتغريد */}
             <div style={{ marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <span style={{ fontSize: 12, color: "#64748b", fontWeight: 700 }}>📅 الفترة:</span>
               {[
@@ -1068,7 +1043,6 @@ export default function Admin() {
               ))}
             </div>
 
-            {/* Success rate bar */}
             {decided > 0 && (
               <div style={{ marginBottom: 20, padding: "14px 18px", borderRadius: 12, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.07)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
@@ -1089,7 +1063,6 @@ export default function Admin() {
               </div>
             )}
 
-            {/* Filter + copy/tweet */}
             {closedSignals.length > 0 && (
               <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 {[
@@ -1111,7 +1084,6 @@ export default function Admin() {
               </div>
             )}
 
-            {/* 🔬 لوحة تشخيص مقارنة — الخاسر مقابل الرابح (يكشف ما يميّز الخسارة فعلاً) */}
             {resultView === "losses" && diagRows && (
               <div style={{ marginBottom: 18, padding: "16px 18px", borderRadius: 14, background: "rgba(248,113,113,.05)", border: "1px solid rgba(248,113,113,.18)" }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: "#f87171", marginBottom: 4 }}>🔬 تشخيص مقارن: خاسر مقابل رابح</div>
@@ -1138,7 +1110,6 @@ export default function Admin() {
               </div>
             )}
 
-            {/* Result cards */}
             {closedSignals.length === 0 ? (
               <div style={{ textAlign: "center", padding: 50, color: "#334155" }}>
                 <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
@@ -1163,7 +1134,6 @@ export default function Admin() {
         {activeTab === "subscribers" && (
           <>
             <div style={{ maxWidth: 460, margin: "0 auto" }}>
-              {/* أداة نقل الجهاز */}
               <div style={{ background: "linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.05))", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 18, padding: "24px 20px", marginBottom: 20 }}>
                 <div style={{ textAlign: "center", marginBottom: 18 }}>
                   <div style={{ fontSize: 38, marginBottom: 8 }}>📱</div>
@@ -1203,7 +1173,6 @@ export default function Admin() {
                 )}
               </div>
 
-              {/* تنبيه أمني */}
               <div style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 14, padding: "14px 16px", fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.7 }}>
                 <div style={{ fontWeight: 700, color: "#fbbf24", marginBottom: 6 }}>🛡️ حماية المشاركة مفعّلة</div>
                 كل مفتاح مربوط بجهاز واحد. لو حاول أحد يستخدمه على جهاز ثاني، يُرفض تلقائياً.
@@ -1221,7 +1190,6 @@ export default function Admin() {
 
             {!affLoading && (
               <>
-                {/* ملخّص الإجماليات */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
                   <div style={{ background: "rgba(99,102,241,.08)", border: "1px solid rgba(99,102,241,.2)", borderRadius: 14, padding: "14px 12px", textAlign: "center" }}>
                     <div style={{ fontSize: 22, fontWeight: 900, color: "#818cf8" }}>{affTotals.affiliateCount || 0}</div>
@@ -1245,7 +1213,6 @@ export default function Admin() {
                   🔄 تحديث
                 </button>
 
-                {/* قائمة الشركاء */}
                 {affiliates.length === 0 ? (
                   <div style={{ textAlign: "center", padding: 50, color: "#334155" }}>
                     <div style={{ fontSize: 40, marginBottom: 12 }}>🤝</div>
@@ -1277,7 +1244,6 @@ export default function Admin() {
                         </div>
                       </div>
 
-                      {/* طريقة الدفع */}
                       <div style={{ fontSize: 11, color: "#64748b", borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 10 }}>
                         {a.payout_method ? (
                           <div style={{ direction: "ltr", textAlign: "right" }}>
