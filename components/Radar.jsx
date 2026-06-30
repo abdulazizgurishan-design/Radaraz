@@ -598,6 +598,7 @@ function Card({ r, idx, t, lang, isEarly, isFav, onToggleFav }) {
           <div style={S.cardScore(scoreColor)}>{r.score}</div>
           <ScoreBar score={r.score} />
         </div>
+        {/* ⭐ زر المفضلة */}
         <button
           onClick={(e) => { e.stopPropagation(); onToggleFav && onToggleFav(r); }}
           title={isFav ? t.removeFav : t.addFav}
@@ -966,6 +967,7 @@ export default function Radar() {
     setAuthChecked(true);
   }, []);
 
+  // تحميل المفضلة من localStorage
   useEffect(() => {
     try {
       const saved = localStorage.getItem("radar_favorites");
@@ -981,6 +983,7 @@ export default function Radar() {
     } catch { /* ignore */ }
   }, []);
 
+  // دالة تبديل المفضلة
   const toggleFav = useCallback((row) => {
     const symbol = typeof row === "string" ? row : row.symbol;
     setFavorites((prev) => {
