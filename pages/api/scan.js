@@ -1,23 +1,9 @@
-// pages/api/scan.js — STANDALONE EDITION v3 (Multi-Timeframe + MACD + News + Target)
+// pages/api/scan.js — v4 (SNIPER + REBOUND + EARLY + STRUCTURE)
 // ═══════════════════════════════════════════════════════════════════
-//  مسح مستقل تماماً — صفر اعتماد على جداول أخرى
-//  ─────────────────────────────────────────────────────────────────
-//  ترقيات هذا الإصدار:
-//   ✅ المتوسطات/RSI/ATR/MACD حسب نوع الصفقة:
-//        ⚡ مضاربة → فريم 60 دقيقة (سريع، يناسب اليوم)
-//        📈 استثمار → فريم يومي (يناسب المستثمر)
-//   ✅ إضافة MA50 + MACD(12,26,9) لتأكيد الاتجاه
-//   ✅ المتوسطات صارت "بوابة" (gate) لا مجرد بونص
-//   ✅ غربال صارم للأسهم أقل من $1
-//   ✅ طبقة الأخبار اللحظية (Polygon News) — تفصل الكاتشي عن الوهمي
-//   ✅ شارة 🎯 "الهدف" — التقاء كامل على الفريمين (نخبة)
-//   ✅ أهداف واقعية (مضاربة على ATR 60د = أضيق وأقرب للتحقق)
-//   ✅ إصلاح bug قسم الاستثمار (كان يستخدم "قيادي" بدل "استثمار")
-//
-//  ⚠️ ملاحظة توافق: شكل الرد للواجهة لم يتغيّر (نفس الحقول والأقسام).
-//     شارة "الهدف" تُعرض عبر حقل signal الموجود أصلاً — لا تعديل واجهة.
-//  ⚠️ هذا الإصدار يحفظ عمودين جديدين (is_target, news_age_h) — لازم تضيفهما
-//     في جدول signals أولاً (SQL في الأسفل) قبل الرفع، وإلا يفشل الحفظ.
+//  ✅ إضافة تصنيف "قناص" (Sniper) — أعلى جودة + زخم قوي
+//  ✅ شروط القناص: SCORE ≥ 80 + RVOL ≥ 8 + تغيّر ≥ 5% + دخول صحيح
+//  ✅ إرسال is_sniper: true للواجهة
+//  ✅ متوافق مع Radar.js (قسم القناص)
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 10 };   // Hobby: الحد الأقصى 10ث
@@ -51,10 +37,20 @@ const STRUCT = {
   PENALTY_BADRR: 4,     // خصم إضافي لـ R:R < 1
   // إسقاط الملاحقة الواضحة فقط: سهم ارتفع كثير + دخوله سيء
   DROP_LATE:     true,  // فعّل/عطّل الإسقاط
-  DROP_CHANGE:   12,    // رُفع 10→12: لا نُسقط إلا إذا ارتفع أكثر من 12% (يسمح بأسهsم قوية)
+  DROP_CHANGE:   12,    // رُفع 10→12: لا نُسقط إلا إذا ارتفع أكثر من 12% (يسمح بأسهم قوية)
   DROP_POS:      0.80,  // + قريب من القمة (دخول متأخر)
   // 💎 حارس الجوهرة: لا نعرض سهماً هابطاً بلا تأكيد ارتداد
   STRICT_GEMS:   true,  // اعرض فقط: مؤكد صاعد أو ارتداد واضح
+};
+
+// ─── شروط القناص (Sniper) ──────────────────────────────────────────
+const SNIPER = {
+  MIN_SCORE:     80,    // أعلى جودة
+  MIN_RVOL:      8,     // زخم حجم قوي
+  MIN_CHANGE:    5,     // حركة قوية
+  MAX_CHANGE:    25,    // لا نطارد الأسهم المرتفعة جداً
+  MIN_VOLUME:    500_000, // سيولة عالية
+  REQUIRE_VALID_ENTRY: true, // يتطلب دخول صحيح
 };
 
 // ════════════════ أدوات المؤشرات ════════════════
@@ -802,6 +798,10 @@ async function saveSignals(signals) {
     fresh_zone: s.fresh_zone || false,                                  // 🆕 دعم طازج
     premarket_watch: s.premarket_watch || false,                        // 🆕 رصد مبكر (pre-market)
     structure: s.structure || null,   // 🆕 خريطة البنية كاملة (للبوت) — يتطلب عمود jsonb
+    // 🆕 تصنيف القناص (Sniper)
+    is_sniper: s.is_sniper || false,
+    sniper_type: s.sniper_type || null,
+    sniper_desc: s.sniper_desc || null,
     created_at: nowISO,   // وقت أول رصد — يثبت (يُكتب مرة واحدة عند أول إدخال)
   }));
   try {
@@ -1092,9 +1092,27 @@ export default async function handler(req, res) {
         }
       }
 
+      // 🆕 تصنيف القناص (Sniper) — أعلى جودة + زخم قوي
+      const isSniper = s.ep >= SNIPER.MIN_SCORE && 
+                       s.rvol >= SNIPER.MIN_RVOL &&
+                       s.changePct >= SNIPER.MIN_CHANGE &&
+                       s.changePct <= SNIPER.MAX_CHANGE &&
+                       s.volume >= SNIPER.MIN_VOLUME &&
+                       (!SNIPER.REQUIRE_VALID_ENTRY || (s.structure && s.structure.flag === "دخول صحيح ✅"));
+
+      s.is_sniper = isSniper;
+      if (isSniper) {
+        s.sniper_type = "🎯 قناص";
+        s.sniper_desc = `EP ${s.ep}% · RVOL ${s.rvol}x · تغيّر ${s.changePct}%`;
+        s.signal = "🎯 قناص";  // تغيير الإشارة لتظهر في الواجهة
+        s.is_hot = true;
+      }
+
       // إعادة تقييم HOT + الإشارة
-      s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
-      s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
+      if (!s.is_sniper) {
+        s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
+        s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
+      }
 
       // ── رصد مبكر ──
       const strongMA = ["تقاطع ذهبي 🌟", "صاعد قوي ⚡", "EMA صاعد"].includes(s.ma_signal);
@@ -1132,6 +1150,11 @@ export default async function handler(req, res) {
         s.signal = "🎯 الهدف";
         s.ep = Math.max(s.ep, 90);
         s.is_hot = true;
+        // إذا كان قناصاً ووصل للهدف، يبقى قناصاً
+        if (s.is_sniper) {
+          s.sniper_type = "🎯 قناص + هدف";
+          s.sniper_desc = `EP ${s.ep}% · RVOL ${s.rvol}x · هدف مؤكد`;
+        }
       }
     });
 
@@ -1140,6 +1163,7 @@ export default async function handler(req, res) {
     // الفرز مبنيّ على البنية: 🎯 نخبة → دخول صحيح → رصد مبكر → مقبول → زخم فقط → EP
     const tier = s => {
       if (s.is_target) return 5;                                          // نخبة (التقاء متعدّد الفريمات)
+      if (s.is_sniper) return 5;                                         // 🆕 القناص = أعلى درجة
       if (s.structure && s.structure.flag === "دخول صحيح ✅") return 4;   // دخول بنيوي صحيح
       if (s.early_watch) return 3;                                        // رصد مبكر
       if (s.structure && s.structure.flag === "مقبول") return 2;          // بنية مقبولة
@@ -1171,6 +1195,8 @@ export default async function handler(req, res) {
       timed_out:        top.filter(s => s._timedOut).length,        // لم يُحلّل (انتهت الميزانية)
       primary_confluence: top.filter(s => s._primaryConfluence).length,
       targets:          top.filter(s => s.is_target).length,
+      // 🆕 إحصائيات القناص
+      snipers:          top.filter(s => s.is_sniper).length,
       dropped_total:    top.filter(s => s._drop).length,
       dropped_late:     dropBy("late"),
       dropped_strict_gems: dropBy("strict_gems"),
@@ -1213,6 +1239,7 @@ export default async function handler(req, res) {
         target: survivors.filter(s => s.is_target).length,
         early:  survivors.filter(s => s.early_watch).length,
         rebound: survivors.filter(s => s.is_rebound).length,   // 🔄 عدد إشارات الارتداد
+        sniper: survivors.filter(s => s.is_sniper).length,     // 🆕 عدد إشارات القناص
         vix:    vixData.available ? { rank: vixRank, value: vixData.value } : { available: false },
         saved:  saveResult.saved || 0, saveResult,
         timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
@@ -1230,6 +1257,10 @@ export default async function handler(req, res) {
       levels_source: s.levels_source || "atr_basic", is_target: s.is_target || false,
       news_age_h: s.news_age_h ?? null,
       structure: s.structure || null,   // 🆕 مستويات البنية (Swing + فيبوناتشي)
+      // 🆕 تصنيف القناص
+      is_sniper: s.is_sniper || false,
+      sniper_type: s.sniper_type || null,
+      sniper_desc: s.sniper_desc || null,
     });
 
     const results     = survivors.map(toCard);
