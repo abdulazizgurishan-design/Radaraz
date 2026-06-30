@@ -29,6 +29,7 @@ const T = {
     filterLeaders: "📈 استثمار",
     filterSpec: "⚡ مضاربة",
     filterRebound: "🔄 ارتداد",
+    filterSniper: "🎯 القناص",
     sectionRebound: "🔄 ارتداد الأسهم القوية",
     sectionReboundSub: "أسهم قوية ترتد من تصحيح مؤقت · صفقة أيام",
     reboundExplain: "🔄 استراتيجية الارتداد: نقتنص الأسهم القوية (عائد +20% خلال 3 شهور) في لحظة تصحيحها المؤقت، عند تأكيد بدء الارتداد بتقاطع المتوسطات على شمعة الساعة. تحليل البنية على شمعة اليوم. تبقى الصفقة أياماً حتى تحقق الهدف +3%.",
@@ -73,6 +74,8 @@ const T = {
     sectionEarlySub: "أسهم جاهزة قبل الانفجار",
     sectionLeaders: "📈 إشارات استثمارية",
     sectionSpec: "⚡ مضاربة يومية",
+    sectionSniper: "🎯 القناص — فرص سريعة وقوية",
+    sectionSniperSub: "أسهم ذات زخم قوي + جودة عالية · صفقات سريعة",
     tapToExpand: "اضغط للعرض",
     tapToCollapse: "اضغط للإخفاء",
     earlyBadge: "🔍 رصد مبكر",
@@ -89,6 +92,8 @@ const T = {
     noFavs: "لا توجد أسهم في المفضلة",
     noFavsSub: "اضغط ⭐ على أي سهم لحفظه في مفضلتك الخاصة",
     favPrivate: "مفضلتك خاصة بك — محفوظة في جهازك فقط",
+    sniperBadge: "🎯 قناص",
+    sniperExplain: "🎯 استراتيجية القناص: نقتنص الأسهم ذات الزخم القوي (RSI 50-65 + RVOL ≥ 4x) مع تقاطع MA9/MA21 على شمعة الساعة. صفقات سريعة بأهداف +3.5% إلى +6% ووقف صارم 4%.",
   },
   en: {
     title: "Radar",
@@ -107,6 +112,7 @@ const T = {
     filterLeaders: "📈 Invest",
     filterSpec: "⚡ Day Trade",
     filterRebound: "🔄 Rebound",
+    filterSniper: "🎯 Sniper",
     sectionRebound: "🔄 Strong Stock Rebound",
     sectionReboundSub: "Strong stocks bouncing from a dip · multi-day trade",
     reboundExplain: "🔄 Rebound strategy: we catch strong stocks (+20% over 3 months) during a temporary dip, confirmed by an MA crossover on the hourly candle. Structure analyzed on the daily candle. The trade holds for days until the +3% target.",
@@ -151,6 +157,8 @@ const T = {
     sectionEarlySub: "Stocks ready before the breakout",
     sectionLeaders: "📈 Investment Signals",
     sectionSpec: "⚡ Day Trading",
+    sectionSniper: "🎯 Sniper — Fast & Strong Opportunities",
+    sectionSniperSub: "High momentum + high quality stocks · quick trades",
     tapToExpand: "Tap to expand",
     tapToCollapse: "Tap to collapse",
     earlyBadge: "🔍 Early",
@@ -167,6 +175,8 @@ const T = {
     noFavs: "No favorite stocks yet",
     noFavsSub: "Tap ⭐ on any stock to save it to your private list",
     favPrivate: "Your favorites are private — saved on your device only",
+    sniperBadge: "🎯 Sniper",
+    sniperExplain: "🎯 Sniper strategy: catch strong momentum stocks (RSI 50-65 + RVOL ≥ 4x) with MA9/MA21 crossover on hourly. Quick trades with +3.5% to +6% targets and strict 4% stop loss.",
   }
 };
 
@@ -271,6 +281,18 @@ const SkeletonCards = () => (
 function fmtPct(n) {
   if (n == null) return "";
   return (n >= 0 ? "+" : "") + Math.round(+n) + "%";
+}
+
+// 🎯 شارة القناص
+function SniperBadge({ t }) {
+  return (
+    <span style={{
+      fontSize: 9, padding: "3px 9px", borderRadius: 20,
+      background: "linear-gradient(135deg,rgba(251,191,36,0.3),rgba(245,158,11,0.2))",
+      color: "#fbbf24", fontWeight: 800, border: "1px solid rgba(251,191,36,0.5)",
+      letterSpacing: 0.5,
+    }}>{t.sniperBadge}</span>
+  );
 }
 
 // 🔄 شارة الارتداد + عدّاد المدة
@@ -443,12 +465,16 @@ function Card({ r, idx, t, lang, isEarly, isFav, onToggleFav }) {
   const [open, setOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const isRebound = r.type === "ارتداد" || r.is_rebound;
+  const isSniper = r.is_sniper || r.sniper_type || false;
+  
   const formatPrice = useCallback((n) => "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), []);
   const formatPct   = useCallback((n) => (n >= 0 ? "+" : "") + Math.round(+n) + "%", []);
   const scoreColor  = r.score >= 80 ? "#ff6b35" : r.score >= 60 ? "#ffd700" : "#00d4aa";
-  const glowColor   = isRebound ? "rgba(56,189,248,0.2)" : isEarly ? "rgba(52,211,153,0.2)" : r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
+  const glowColor   = isSniper ? "rgba(251,191,36,0.25)" : isRebound ? "rgba(56,189,248,0.2)" : isEarly ? "rgba(52,211,153,0.2)" : r.score >= 80 ? "rgba(255,107,53,0.15)" : r.score >= 60 ? "rgba(255,215,0,0.1)" : "rgba(0,212,170,0.1)";
 
-  const typeTag = isRebound
+  const typeTag = isSniper
+    ? { label: en ? "🎯 Sniper" : "🎯 قناص", color: "#fbbf24", bg: "rgba(251,191,36,0.15)", border: "rgba(251,191,36,0.4)" }
+    : isRebound
     ? { label: en ? "🔄 Rebound" : "🔄 ارتداد", color: "#38bdf8", bg: "rgba(56,189,248,0.12)", border: "rgba(56,189,248,0.3)" }
     : r.type === "استثمار"
     ? { label: en ? "📈 Investment" : "📈 استثمار", color: "#818cf8", bg: "rgba(129,140,248,0.12)", border: "rgba(129,140,248,0.25)" }
@@ -470,7 +496,9 @@ function Card({ r, idx, t, lang, isEarly, isFav, onToggleFav }) {
     return { clock, ago, isNew };
   }, [r.created_at]);
 
-  const wrapStyle = isRebound
+  const wrapStyle = isSniper
+    ? { ...S.cardWrap(open, glowColor), border: "1px solid rgba(251,191,36,0.5)", background: "linear-gradient(135deg,rgba(30,24,12,0.95),rgba(40,30,15,0.95))" }
+    : isRebound
     ? { ...S.cardWrap(open, glowColor), border: "1px solid rgba(56,189,248,0.4)", background: "linear-gradient(135deg,rgba(8,22,34,0.95),rgba(10,26,42,0.95))" }
     : isEarly
     ? { ...S.cardWrap(open, glowColor), border: "1px solid rgba(52,211,153,0.4)", background: "linear-gradient(135deg,rgba(12,28,22,0.95),rgba(15,32,26,0.95))" }
@@ -486,6 +514,7 @@ function Card({ r, idx, t, lang, isEarly, isFav, onToggleFav }) {
       { label: t.volume, value: ((r.volume || 0) / 1e6).toFixed(1) + "M", color: "#34d399" },
       { label: "تغيّر",  value: formatPct(r.change_pct),                  color: r.change_pct >= 0 ? "#00d4aa" : "#ff4757" },
     ];
+    if (isSniper && r.sniper_desc) base.push({ label: "🎯", value: r.sniper_desc, color: "#fbbf24" });
     if (isRebound && r.ret3m != null) base.push({ label: t.reboundReturn, value: "+" + r.ret3m + "%", color: "#38bdf8" });
     if (r.atr14) base.push({ label: t.atr, value: "$" + (+r.atr14).toFixed(2), color: "#c084fc" });
     if (r.rsi != null) {
@@ -494,7 +523,7 @@ function Card({ r, idx, t, lang, isEarly, isFav, onToggleFav }) {
     }
     if (r.week_max_jump != null && isEarly) base.push({ label: t.weekQuiet, value: "▲" + (+r.week_max_jump).toFixed(1) + "%", color: "#34d399" });
     return base;
-  }, [r, formatPct, t, isEarly, isRebound]);
+  }, [r, formatPct, t, isEarly, isRebound, isSniper]);
 
   const tpLevels = useMemo(() => {
     const L = r.levels || {};
@@ -511,6 +540,11 @@ function Card({ r, idx, t, lang, isEarly, isFav, onToggleFav }) {
         <span style={S.cardIdx}>{String(idx + 1).padStart(2, "0")}</span>
         <div style={{ minWidth: 64 }}>
           <div style={S.cardSymbol}>{r.symbol}</div>
+          {isSniper && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 3, fontSize: 9, fontWeight: 800, color: "#fbbf24" }}>
+              🎯 {en ? "Sniper" : "قناص"}
+            </span>
+          )}
           {isRebound && dayInfo && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 3, fontSize: 9, fontWeight: 800, color: "#38bdf8" }}>
               🔄 {t.reboundDay} {dayInfo.day} {t.reboundOf} {dayInfo.total}
@@ -522,22 +556,23 @@ function Card({ r, idx, t, lang, isEarly, isFav, onToggleFav }) {
               {en ? "Good entry" : "دخول مناسب"}
             </span>
           )}
-          {!ready && !isRebound && r.is_hot && <div style={{ fontSize: 9, color: "#fca5a5", marginTop: 2 }}>🚨 HOT</div>}
+          {!ready && !isRebound && !isSniper && r.is_hot && <div style={{ fontSize: 9, color: "#fca5a5", marginTop: 2 }}>🚨 HOT</div>}
         </div>
         <div style={S.cardTags}>
           {timeInfo?.isNew && <span style={S.tag("rgba(0,212,170,0.15)", "#00d4aa", "rgba(0,212,170,0.3)")}>🆕</span>}
+          {isSniper && <SniperBadge t={t} />}
           {isRebound && <ReboundBadge t={t} />}
-          {isEarly && !isRebound && <EarlyBadge t={t} />}
+          {isEarly && !isRebound && !isSniper && <EarlyBadge t={t} />}
           <span style={S.tag("rgba(255,107,53,0.15)", "#ff6b35", "rgba(255,107,53,0.2)")}>{r.signal}</span>
           {r.ma_signal && <MABadge signal={r.ma_signal} lang={lang} />}
           {r.rsi != null && <RSIBadge rsi={r.rsi} t={t} />}
           <span style={S.tag(typeTag.bg, typeTag.color, typeTag.border)}>{typeTag.label}</span>
           {r.is_target && <span style={S.tag("rgba(251,191,36,0.13)", "#fbbf24", "rgba(251,191,36,0.4)")}>🎯 الهدف</span>}
-          {!isRebound && r.structure && typeof r.structure.flag === "string" && r.structure.flag.indexOf("صحيح") >= 0 && (
+          {!isRebound && !isSniper && r.structure && typeof r.structure.flag === "string" && r.structure.flag.indexOf("صحيح") >= 0 && (
             <span style={S.tag("rgba(45,212,191,0.13)", "#2dd4bf", "rgba(45,212,191,0.4)")}>{azTr(r.structure.flag, lang)}</span>
           )}
           {r.rvol && r.rvol > 3 && <span style={S.tag("rgba(255,215,0,0.1)", "#ffd700", "rgba(255,215,0,0.2)")}>⚡ {r.rvol.toFixed(1)}x</span>}
-          {!isRebound && r.is_hot && <span style={S.tag("rgba(248,113,113,0.15)", "#fca5a5", "rgba(248,113,113,0.3)")}>🚨 HOT</span>}
+          {!isRebound && !isSniper && r.is_hot && <span style={S.tag("rgba(248,113,113,0.15)", "#fca5a5", "rgba(248,113,113,0.3)")}>🚨 HOT</span>}
         </div>
         <div style={{ textAlign: "right", minWidth: 80 }}>
           {r.isFavSnapshot && r.favEntry ? (
@@ -578,6 +613,12 @@ function Card({ r, idx, t, lang, isEarly, isFav, onToggleFav }) {
       </div>
       {open && (
         <div style={S.detailWrap}>
+          {isSniper && (
+            <div style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, padding: "11px 14px", marginBottom: 14, fontSize: 11.5, color: "#fbbf24", lineHeight: 1.7 }}>
+              <strong>🎯 {en ? "Sniper Opportunity" : "فرصة قناص"}:</strong> {t.sniperExplain}
+              {r.sniper_desc && <span style={{ marginLeft: 8, fontSize: 10, color: "rgba(251,191,36,0.6)" }}>({r.sniper_desc})</span>}
+            </div>
+          )}
           {isRebound && (
             <div style={{ background: "rgba(56,189,248,0.08)", border: "1px solid rgba(56,189,248,0.25)", borderRadius: 10, padding: "11px 14px", marginBottom: 14, fontSize: 11.5, color: "#7dd3fc", lineHeight: 1.7 }}>
               {t.reboundExplain}
@@ -614,7 +655,7 @@ function Card({ r, idx, t, lang, isEarly, isFav, onToggleFav }) {
               </div>
             </div>
           )}
-          {isEarly && !isRebound && (
+          {isEarly && !isRebound && !isSniper && (
             <div style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 11, color: "#34d399", lineHeight: 1.6 }}>
               💡 {t.earlyTooltip}
             </div>
@@ -781,7 +822,7 @@ function MarketMovers({ movers, t, lang }) {
   const en = lang === "en";
   const [tab, setTab] = useState("gainers");
   const [openSym, setOpenSym] = useState(null);
-  const [structData, setStructData] = useState({});   // { SYM: {loading, structure, price, ret3m} }
+  const [structData, setStructData] = useState({});
 
   const tabs = [
     { id: "gainers", label: en ? "📈 Top Gainers" : "📈 أعلى ارتفاع", color: "#00d4aa" },
@@ -797,7 +838,7 @@ function MarketMovers({ movers, t, lang }) {
   const toggleStruct = async (sym) => {
     if (openSym === sym) { setOpenSym(null); return; }
     setOpenSym(sym);
-    if (structData[sym]) return;   // محمّل مسبقاً
+    if (structData[sym]) return;
     setStructData(p => ({ ...p, [sym]: { loading: true } }));
     try {
       const res = await fetch(`/api/structure?symbol=${encodeURIComponent(sym)}`);
@@ -810,7 +851,6 @@ function MarketMovers({ movers, t, lang }) {
 
   return (
     <div style={{ marginTop: 8, marginBottom: 16 }}>
-      {/* التبويبات */}
       <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
         {tabs.map(x => (
           <button key={x.id} onClick={() => { setTab(x.id); setOpenSym(null); }}
@@ -823,7 +863,6 @@ function MarketMovers({ movers, t, lang }) {
         ))}
       </div>
 
-      {/* القائمة */}
       <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, overflow: "hidden" }}>
         {list.length === 0 && (
           <div style={{ padding: "24px", textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
@@ -893,6 +932,7 @@ export default function Radar() {
   const [leaders, setLeaders]         = useState([]);
   const [speculation, setSpeculation] = useState([]);
   const [rebound, setRebound]         = useState([]);
+  const [sniper, setSniper]           = useState([]);
   const [movers, setMovers]           = useState(null);
   const [earlyWatch, setEarlyWatch]   = useState([]);
   const [favorites, setFavorites]     = useState([]);
@@ -958,6 +998,8 @@ export default function Radar() {
           sl: row.levels?.sl ?? null,
           type: row.type ?? null,
           structure: row.structure ?? null,
+          is_sniper: row.is_sniper || false,
+          sniper_type: row.sniper_type || null,
           addedAt: new Date().toISOString(),
         };
         next = [...prev, snap];
@@ -983,7 +1025,7 @@ export default function Radar() {
       setRefreshing(true);
     } else {
       setLoading(true);
-      setResults([]); setLeaders([]); setSpeculation([]); setRebound([]); setEarlyWatch([]);
+      setResults([]); setLeaders([]); setSpeculation([]); setRebound([]); setEarlyWatch([]); setSniper([]);
       setDone(false); setStatus(null);
     }
     setScanError(null);
@@ -996,9 +1038,14 @@ export default function Radar() {
       const MIN = DISPLAY_MIN_SCORE;
       const raw  = (data.results ?? []).filter(s => (s.score || 0) >= MIN);
       const isReb = s => s.type === "ارتداد" || s.is_rebound;
+      const isSniper = s => s.is_sniper || false;
+      
       const reb  = raw.filter(isReb);
-      const lead = (data.leaders     ?? raw.filter(s => s.type === "استثمار" && !isReb(s))).filter(s => (s.score || 0) >= MIN);
-      const spec = (data.speculation ?? raw.filter(s => s.type !== "استثمار" && !isReb(s))).filter(s => (s.score || 0) >= MIN);
+      const sniperRaw = raw.filter(isSniper);
+      const regular = raw.filter(s => !isReb(s) && !isSniper(s));
+      
+      const lead = (data.leaders ?? regular.filter(s => s.type === "استثمار")).filter(s => (s.score || 0) >= MIN);
+      const spec = (data.speculation ?? regular.filter(s => s.type !== "استثمار")).filter(s => (s.score || 0) >= MIN);
       const early = (data.earlyWatch ?? raw.filter(s => s.early_watch)).filter(s => (s.score || 0) >= MIN);
 
       const toCard = s => ({
@@ -1016,6 +1063,9 @@ export default function Radar() {
         vwap:       s.vwap  || null,
         is_hot:     s.is_hot || false,
         is_rebound: s.is_rebound || s.type === "ارتداد" || false,
+        is_sniper:  s.is_sniper || false,
+        sniper_type: s.sniper_type || null,
+        sniper_desc: s.sniper_desc || null,
         ret3m:      s.ret3m ?? s._ret3m ?? null,
         ma_signal:  s.ma_signal || null,
         atr14:      s.atr14 || null,
@@ -1032,13 +1082,15 @@ export default function Radar() {
         news_age_h: s.news_age_h ?? null,
       });
 
-      setResults(raw.map(toCard));
+      const allCards = raw.map(toCard);
+      setResults(allCards);
       setRebound(reb.map(toCard));
+      setSniper(sniperRaw.map(toCard));
       setLeaders(lead.map(toCard));
       setSpeculation(spec.map(toCard));
       setEarlyWatch(early.map(toCard));
-      if (data.movers) setMovers(data.movers);   // 📊 حركة السوق
-      setTotal(raw.length);
+      if (data.movers) setMovers(data.movers);
+      setTotal(allCards.length);
       setLastUpdate(new Date());
 
       const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -1046,7 +1098,7 @@ export default function Radar() {
       const isWeekend = day === 0 || day === 6;
       const isMarketOpen = !isWeekend && (h > 9 || (h === 9 && m >= 30)) && h < 16;
       const isPreMarket  = !isWeekend && h >= 4 && (h < 9 || (h === 9 && m < 30));
-      if      (isMarketOpen)                        setStatus(raw.length > 0 ? "ok" : "closed");
+      if      (isMarketOpen)                        setStatus(allCards.length > 0 ? "ok" : "closed");
       else if (isPreMarket)                         setStatus("premarket");
       else                                          setStatus("closed");
     } catch (err) {
@@ -1078,6 +1130,9 @@ export default function Radar() {
         marketCap:  null, ema9: null, ema20: null, vwap: null, week_max_jump: null,
         is_hot:     s.is_hot || false,
         is_rebound: s.is_rebound || s.type === "ارتداد" || false,
+        is_sniper:  s.is_sniper || false,
+        sniper_type: s.sniper_type || null,
+        sniper_desc: s.sniper_desc || null,
         ret3m:      s.ret3m ?? null,
         ma_signal:  s.ma_signal || null,
         atr14:      s.atr14 || null,
@@ -1097,10 +1152,12 @@ export default function Radar() {
       });
       const cards = rows.map(cardFromRow);
       const isReb = s => s.is_rebound;
+      const isSniper = s => s.is_sniper || false;
       setResults(cards);
       setRebound(cards.filter(isReb));
-      setLeaders(cards.filter(s => s.type === "استثمار" && !isReb(s)));
-      setSpeculation(cards.filter(s => s.type !== "استثمار" && !isReb(s)));
+      setSniper(cards.filter(isSniper));
+      setLeaders(cards.filter(s => s.type === "استثمار" && !isReb(s) && !isSniper(s)));
+      setSpeculation(cards.filter(s => s.type !== "استثمار" && !isReb(s) && !isSniper(s)));
       setEarlyWatch(cards.filter(s => s.early_watch));
       setTotal(cards.length);
       setDone(true);
@@ -1143,9 +1200,12 @@ export default function Radar() {
           favType: fav.type,
           livePrice: currentPrice,
           favPL: pl,
+          is_sniper: live?.is_sniper || fav.is_sniper || false,
+          sniper_type: live?.sniper_type || fav.sniper_type || null,
         };
       });
     }
+    if (filter === "sniper")      return sniper;
     if (filter === "rebound")     return rebound;
     if (filter === "early")       return earlyWatch;
     if (filter === "leaders")     return leaders;
@@ -1154,7 +1214,7 @@ export default function Radar() {
     if (filter === "high")        return results.filter((r) => r.score >= 60 && r.score < 80);
     if (filter === "hot")         return results.filter((r) => r.is_hot);
     return results;
-  }, [results, leaders, speculation, rebound, earlyWatch, favorites, filter]);
+  }, [results, leaders, speculation, rebound, earlyWatch, sniper, favorites, filter]);
 
   const favSet      = useMemo(() => new Set(favorites.map((f) => f.symbol)), [favorites]);
   const favCount    = useMemo(() => favorites.length, [favorites]);
@@ -1163,8 +1223,9 @@ export default function Radar() {
   const hotCount    = useMemo(() => results.filter((r) => r.is_hot).length,      [results]);
   const earlyCount  = useMemo(() => earlyWatch.length, [earlyWatch]);
   const reboundCount = useMemo(() => rebound.length, [rebound]);
+  const sniperCount  = useMemo(() => sniper.length, [sniper]);
   const dotColor    = (loading || refreshing) ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
-  const showSections = filter === "all" && (leaders.length > 0 || speculation.length > 0 || rebound.length > 0);
+  const showSections = filter === "all" && (leaders.length > 0 || speculation.length > 0 || rebound.length > 0 || sniper.length > 0);
   const earlySymbols = useMemo(() => new Set(earlyWatch.map(s => s.symbol)), [earlyWatch]);
 
   if (!authChecked) return null;
@@ -1203,9 +1264,9 @@ export default function Radar() {
         <div style={S.statsRow}>
           {[
             { label: t.scanRange,    value: total || "—",  color: "#6366f1", bg: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)"  },
+            { label: t.filterSniper, value: sniperCount,    color: "#fbbf24", bg: "rgba(251,191,36,0.1)",  border: "rgba(251,191,36,0.25)" },
             { label: t.filterRebound, value: reboundCount, color: "#38bdf8", bg: "rgba(56,189,248,0.1)",  border: "rgba(56,189,248,0.25)" },
             { label: "🚨 HOT",       value: hotCount,       color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.2)" },
-            { label: t.explosive,    value: explosive,      color: "#ff6b35", bg: "rgba(255,107,53,0.1)",  border: "rgba(255,107,53,0.2)"  },
           ].map((s) => (
             <div key={s.label} style={S.statBox(s.bg, s.border)}>
               <div style={{ ...S.statNum(s.color), fontSize: typeof s.value === "string" ? 18 : 26 }}>{s.value}</div>
@@ -1223,6 +1284,7 @@ export default function Radar() {
               {[
                 { id: "all",         label: t.filterAll     },
                 ...(favorites.length > 0 ? [{ id: "favorites", label: `${t.favorites} (${favCount})` }] : []),
+                ...(sniperCount > 0 ? [{ id: "sniper", label: t.filterSniper }] : []),
                 ...(reboundCount > 0 ? [{ id: "rebound", label: t.filterRebound }] : []),
                 ...(earlyCount > 0 ? [{ id: "early", label: t.earlyBadge }] : []),
                 { id: "leaders",     label: t.filterLeaders },
@@ -1248,14 +1310,21 @@ export default function Radar() {
         {loading && <SkeletonCards />}
         {(done || loading) && <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} t={t} />}
 
-        {/* 📊 حركة السوق — قوائم top movers مع بنية عند الضغط */}
+        {/* 📊 حركة السوق */}
         {!loading && done && filter === "all" && movers && (
           <CollapsibleSection title={t.marketMovers} subtitle={t.marketMoversSub} count={60} color="#22d3ee" bg="rgba(34,211,238,0.08)" border="rgba(34,211,238,0.3)" t={t} defaultOpen={false}>
             <MarketMovers movers={movers} t={t} lang={lang} />
           </CollapsibleSection>
         )}
 
-        {/* 🔄 قسم ارتداد الأسهم القوية — يظهر في الأعلى */}
+        {/* 🎯 قسم القناص — يظهر في الأعلى */}
+        {!loading && done && filter === "all" && sniper.length > 0 && (
+          <CollapsibleSection title={t.sectionSniper} subtitle={t.sectionSniperSub} count={sniper.length} color="#fbbf24" bg="rgba(251,191,36,0.08)" border="rgba(251,191,36,0.3)" t={t}>
+            {sniper.map((r, i) => <Card key={"sniper-" + r.symbol} r={r} idx={i} t={t} lang={lang} isEarly={false} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
+          </CollapsibleSection>
+        )}
+
+        {/* 🔄 قسم ارتداد الأسهم القوية */}
         {!loading && done && filter === "all" && rebound.length > 0 && (
           <CollapsibleSection title={t.sectionRebound} subtitle={t.sectionReboundSub} count={rebound.length} color="#38bdf8" bg="rgba(56,189,248,0.08)" border="rgba(56,189,248,0.3)" t={t}>
             {rebound.map((r, i) => <Card key={"reb-" + r.symbol} r={r} idx={i} t={t} lang={lang} isEarly={false} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
