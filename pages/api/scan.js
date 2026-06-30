@@ -14,11 +14,7 @@
 //   ✅ أهداف واقعية (مضاربة على ATR 60د = أضيق وأقرب للتحقق)
 //   ✅ إصلاح bug قسم الاستثمار (كان يستخدم "قيادي" بدل "استثمار")
 //   ✅ إضافة أقسام جديدة: مناطق مراقبة 🔵 + زخم متأخر 🚀 + فرص خفية 💎
-//
-//  ⚠️ ملاحظة توافق: شكل الرد للواجهة لم يتغيّر (نفس الحقول والأقسام).
-//     شارة "الهدف" تُعرض عبر حقل signal الموجود أصلاً — لا تعديل واجهة.
-//  ⚠️ هذا الإصدار يحفظ عمودين جديدين (is_target, news_age_h) — لازم تضيفهما
-//     في جدول signals أولاً (SQL في الأسفل) قبل الرفع، وإلا يفشل الحفظ.
+//   ✅ وقف خسارة ذكي: 4%-7% + بنية السوق (الدعم الحقيقي)
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 60 };
@@ -51,12 +47,12 @@ function setCache(key, data) {
 
 // ─── إعدادات الفلترة ───────────────────────────────────────────────
 const FILTER = {
-  MIN_PRICE:      0.30,
+  MIN_PRICE:      3.00,      // 🆕 رفعنا من 0.30 إلى 3 (نستبعد الأسهم الرخيصة جداً)
   MAX_PRICE:      500,
-  MIN_VOLUME:     300_000,
+  MIN_VOLUME:     500_000,   // 🆕 رفعنا من 300K إلى 500K (سيولة أفضل)
   MIN_CHANGE:     3,
-  MAX_CHANGE:     40,
-  MAX_RVOL:       100,
+  MAX_CHANGE:     35,        // 🆕 خفضنا من 40 إلى 35 (نمنع الدخول المتأخر جداً)
+  MAX_RVOL:       80,        // 🆕 خفضنا من 100 إلى 80
   MAX_RESULTS:    60,
   HEAVY_LIMIT:    45,
   SAVE_MIN_EP:    60,
@@ -65,6 +61,9 @@ const FILTER = {
   WATCH_MIN_EP:   50,
   LATE_CHANGE:    15,
   HIDDEN_VOLUME:  300000,
+  // 🆕 فلتر HIGH المحسن
+  HIGH_MIN_EP:    75,
+  HIGH_MIN_RVOL:  8,
 };
 
 // ─── مزج البنية (Swing) في الاختيار ───────────────────────────────
@@ -79,6 +78,14 @@ const STRUCT = {
   DROP_CHANGE:   10,
   DROP_POS:      0.80,
   STRICT_GEMS:   true,
+};
+
+// ─── 🛑 إعدادات الوقف الذكي ──────────────────────────────────────
+const STOP_CONFIG = {
+  MIN_PCT: 0.04,  // 4% حد أدنى
+  MAX_PCT: 0.07,  // 7% حد أعلى
+  SCALP_TARGET_MULT: 1.5,  // مضاربة: الهدف الأول = المخاطرة × 1.5
+  SMART_TARGET_MULT: 2.0,  // استثمار: الهدف الأول = المخاطرة × 2.0
 };
 
 // ════════════════ أدوات المؤشرات ════════════════
@@ -231,48 +238,121 @@ function calcFibTargets(bars, price) {
   return [swingHigh + range * 0.272, swingHigh + range * 0.618, swingHigh + range * 1.0].filter(f => f > price);
 }
 
-function calcSmartLevels(price, bars) {
-  const atr = calcATR14(bars) || price * 0.05;
-  const { resistances, supports } = calcSupportResistance(bars, price);
-  const fibs = calcFibTargets(bars, price);
-  const atrSL = price - atr * 1.5;
-  const supportSL = supports[0] ? supports[0] * 0.985 : atrSL;
-  const sl = Math.max(Math.min(atrSL, supportSL), price * 0.88);
-  const risk = price - sl;
-  const atrT1 = price + atr * 1.0, atrT2 = price + atr * 2.0, atrT3 = price + atr * 3.0;
-  let t1 = resistances[0] && resistances[0] < atrT1 * 1.3 ? Math.min(resistances[0], atrT1 * 1.3) : atrT1;
-  t1 = Math.max(t1, price * 1.03, price + risk * 1.0);
-  let t2 = resistances[1] && resistances[1] > t1 ? Math.max(atrT2, Math.min(resistances[1], atrT2 * 1.2)) : atrT2;
-  t2 = Math.max(t2, t1 * 1.04);
-  let t3 = fibs[1] && fibs[1] > t2 ? Math.max(atrT3, Math.min(fibs[1], atrT3 * 1.3)) : atrT3;
-  t3 = Math.max(t3, t2 * 1.05);
-  const f2 = n => +n.toFixed(2), pct = n => +(((n - price) / price) * 100).toFixed(2);
+// ─── 🛑 حساب الوقف الذكي (حسب بنية السوق) ──────────────────────
+function calculateSmartStop(price, structure, atr) {
+  // 1️⃣ الحدود القصوى والدنيا للوقف
+  const MAX_STOP_PCT = STOP_CONFIG.MAX_PCT;  // 7%
+  const MIN_STOP_PCT = STOP_CONFIG.MIN_PCT;  // 4%
+  
+  // 2️⃣ الوقف من بنية السوق (الدعم الحقيقي)
+  let stopFromStructure = null;
+  if (structure && structure.support) {
+    stopFromStructure = structure.support * 0.995; // تحت الدعم بقليل
+  }
+  
+  // 3️⃣ الوقف من ATR (احتياطي)
+  const atrStop = price - (atr || price * 0.03) * 1.2;
+  
+  // 4️⃣ اختيار الوقف المناسب (الأولوية للبنية)
+  let stop = stopFromStructure || atrStop;
+  
+  // 5️⃣ التأكد من عدم تجاوز الحدود
+  const maxStop = price * (1 - MIN_STOP_PCT);  // أعلى وقف (4%)
+  const minStop = price * (1 - MAX_STOP_PCT);  // أدنى وقف (7%)
+  
+  // الوقف لا يقل عن 4% ولا يتجاوز 7%
+  stop = Math.min(stop, maxStop);   // لا يقل عن 4%
+  stop = Math.max(stop, minStop);   // لا يتجاوز 7%
+  
+  // 6️⃣ التأكد أن الوقف أقل من السعر
+  if (stop >= price) {
+    stop = price * (1 - MIN_STOP_PCT);
+  }
+  
   return {
-    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
-    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
-    risk: f2(price - sl), atr14: f2(atr),
+    stop: Math.round(stop * 100) / 100,
+    stopPct: -(((price - stop) / price) * 100).toFixed(2),
+    usedStructure: !!stopFromStructure,
   };
 }
 
-function calcScalpLevels(price, bars) {
+// ─── أهداف المضاربة (Scalp) مع الوقف الذكي ──────────────────────
+function calcScalpLevels(price, bars, structure) {
   const atr = calcATR14(bars) || price * 0.03;
-  const { supports } = calcSupportResistance(bars, price);
-  const atrPct = atr / price;
-  const atrSL = price - atr * 0.8;
-  const supportSL = supports[0] ? supports[0] * 0.992 : atrSL;
-  let sl = Math.min(atrSL, supportSL);
-  const maxLossPct = Math.min(Math.max(0.04, atrPct), 0.10);
-  sl = Math.max(sl, price * (1 - maxLossPct));
+  
+  // 🛑 حساب الوقف الذكي
+  const stopData = calculateSmartStop(price, structure, atr);
+  const sl = stopData.stop;
   const risk = price - sl;
-  let t1 = Math.max(price + atr * 0.6, price + risk * 1.3, price * 1.015);
-  let t2 = Math.max(price + atr * 1.1, t1 + risk * 0.8, t1 * 1.02);
-  let t3 = Math.max(price + atr * 1.7, t2 + risk * 0.8, t2 * 1.02);
+  
+  // 🎯 الأهداف (نسبة إلى المخاطرة)
+  let t1 = price + risk * 1.5;   // 1:1.5
+  let t2 = price + risk * 2.5;   // 1:2.5
+  let t3 = price + risk * 4.0;   // 1:4
+  
+  // التأكد من ترتيب الأهداف
+  t2 = Math.max(t2, t1 * 1.02);
+  t3 = Math.max(t3, t2 * 1.02);
+  
   const dec = price < 1 ? 3 : 2;
-  const f2 = n => +n.toFixed(dec), pct = n => +(((n - price) / price) * 100).toFixed(2);
+  const f2 = n => +n.toFixed(dec);
+  const pct = n => +(((n - price) / price) * 100).toFixed(2);
+  
   return {
     t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
-    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
-    risk: f2(price - sl), atr14: f2(atr),
+    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), 
+    slPct: pct(sl),
+    risk: f2(risk), 
+    atr14: f2(atr),
+    usedStructure: stopData.usedStructure,
+    stopPct: stopData.stopPct,
+  };
+}
+
+// ─── أهداف الاستثمار (Smart) مع الوقف الذكي ──────────────────────
+function calcSmartLevels(price, bars, structure) {
+  const atr = calcATR14(bars) || price * 0.05;
+  
+  // 🛑 حساب الوقف الذكي
+  const stopData = calculateSmartStop(price, structure, atr);
+  const sl = stopData.stop;
+  const risk = price - sl;
+  
+  // تحليل الدعم والمقاومة الإضافي
+  const { resistances, supports } = calcSupportResistance(bars, price);
+  const fibs = calcFibTargets(bars, price);
+  
+  // 🎯 أهداف الاستثمار (أوسع)
+  let t1 = price + risk * 2.0;   // 1:2
+  let t2 = price + risk * 3.5;   // 1:3.5
+  let t3 = price + risk * 5.0;   // 1:5
+  
+  // استخدام المقاومات إن وجدت
+  if (resistances.length > 0 && resistances[0] > t1) {
+    t1 = Math.min(resistances[0], t1 * 1.2);
+  }
+  if (resistances.length > 1 && resistances[1] > t2) {
+    t2 = Math.min(resistances[1], t2 * 1.2);
+  }
+  if (fibs.length > 1 && fibs[1] > t2) {
+    t3 = Math.max(t3, fibs[1]);
+  }
+  
+  // التأكد من ترتيب الأهداف
+  t2 = Math.max(t2, t1 * 1.04);
+  t3 = Math.max(t3, t2 * 1.05);
+  
+  const f2 = n => +n.toFixed(2);
+  const pct = n => +(((n - price) / price) * 100).toFixed(2);
+  
+  return {
+    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
+    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), 
+    slPct: pct(sl),
+    risk: f2(price - sl), 
+    atr14: f2(atr),
+    usedStructure: stopData.usedStructure,
+    stopPct: stopData.stopPct,
   };
 }
 
@@ -280,11 +360,11 @@ const SMART_STOP = {
   ENABLED: true,
   NOISE_ATR_MULT: 1.2,
   NOISE_MIN_PCT:  0.04,
-  SCALP_FLOOR:    0.05,
-  SCALP_CAP:      0.07,
+  SCALP_FLOOR:    0.04,  // 🆕 4% حد أدنى
+  SCALP_CAP:      0.07,  // 🆕 7% حد أعلى
   SCALP_ATR_K:    1.2,
-  SMART_FLOOR:    0.06,
-  SMART_CAP:      0.07,
+  SMART_FLOOR:    0.04,  // 🆕 4% حد أدنى
+  SMART_CAP:      0.07,  // 🆕 7% حد أعلى
   SMART_ATR_K:    1.3,
   MIN_RR:         1.3,
   SCALP_T1_CAP:   0.30,
@@ -339,62 +419,96 @@ function calcReboundLevels(price) {
   };
 }
 
+// ─── تطبيق الوقف الذكي على البنية ──────────────────────────────
 function applyStructureLevels(price, levels, structure, tradeStyle) {
   if (!SMART_STOP.ENABLED || !structure) return levels;
   if (!structure.support || !structure.stop || structure.stop >= price) return levels;
+
   const atr = levels?.atr14 || price * 0.03;
-  const atrPct = atr / price;
   const isScalp = tradeStyle === "مضاربة";
+  
+  // ─── 🛑 الوقف الذكي من البنية ──────────────────────────────────
+  // 1. من بنية السوق (الدعم)
   let sl = structure.stop;
-  const noiseSL = price - Math.max(atr * SMART_STOP.NOISE_ATR_MULT, price * SMART_STOP.NOISE_MIN_PCT);
-  sl = Math.min(sl, noiseSL);
-  const floor = isScalp ? SMART_STOP.SCALP_FLOOR : SMART_STOP.SMART_FLOOR;
-  const cap   = isScalp ? SMART_STOP.SCALP_CAP   : SMART_STOP.SMART_CAP;
-  const atrK  = isScalp ? SMART_STOP.SCALP_ATR_K : SMART_STOP.SMART_ATR_K;
-  const maxLossPct = Math.min(Math.max(floor, atrPct * atrK), cap);
-  sl = Math.max(sl, price * (1 - maxLossPct));
+  
+  // 2. الحدود القصوى والدنيا
+  const MIN_STOP_PCT = 0.04;  // 4% حد أدنى
+  const MAX_STOP_PCT = 0.07;  // 7% حد أعلى
+  
+  // 3. التأكد من الحدود
+  const minStop = price * (1 - MAX_STOP_PCT);
+  const maxStop = price * (1 - MIN_STOP_PCT);
+  
+  sl = Math.min(sl, maxStop);
+  sl = Math.max(sl, minStop);
+  
+  if (sl >= price) {
+    sl = price * (1 - MIN_STOP_PCT);
+  }
+  
   const risk = price - sl;
   if (risk <= 0) return levels;
+
+  // ─── 🎯 الأهداف من البنية ──────────────────────────────────────
   const t1Cap = isScalp ? SMART_STOP.SCALP_T1_CAP : SMART_STOP.SMART_T1_CAP;
+  
   const cand = [structure.resistance, structure.t1, structure.t2, structure.t3]
     .filter(x => typeof x === "number" && x > price * 1.012)
     .sort((a, b) => a - b);
   const ups = [];
   for (const v of cand) if (!ups.length || v > ups[ups.length - 1] * 1.015) ups.push(v);
+
   let t1, t2, t3;
   if (ups.length >= 1 && (ups[0] - price) / price <= t1Cap) {
     t1 = ups[0];
     t2 = ups[1] || (t1 + risk);
     t3 = ups[2] || (t2 + Math.max(t2 - t1, risk));
   } else {
-    const k1 = isScalp ? 0.6 : 1.0;
-    const k2 = isScalp ? 1.1 : 2.0;
-    const k3 = isScalp ? 1.7 : 3.0;
-    t1 = Math.max(price + atr * k1, price + risk * SMART_STOP.MIN_RR, price * 1.015);
-    t2 = Math.max(price + atr * k2, t1 + risk * 0.8, t1 * 1.02);
-    t3 = Math.max(price + atr * k3, t2 + risk * 0.8, t2 * 1.02);
+    const k1 = isScalp ? 1.5 : 2.0;
+    const k2 = isScalp ? 2.5 : 3.5;
+    const k3 = isScalp ? 4.0 : 5.0;
+    t1 = Math.max(price + risk * k1, price * 1.015);
+    t2 = Math.max(price + risk * k2, t1 * 1.02);
+    t3 = Math.max(price + risk * k3, t2 * 1.02);
   }
+
   const dec = price < 1 ? 3 : 2;
-  const f = n => +n.toFixed(dec), pc = n => +(((n - price) / price) * 100).toFixed(2);
+  const f = n => +n.toFixed(dec);
+  const pc = n => +(((n - price) / price) * 100).toFixed(2);
+  
   return {
     ...levels,
     t1: f(t1), t2: f(t2), t3: f(t3), sl: f(sl),
     t1Pct: pc(t1), t2Pct: pc(t2), t3Pct: pc(t3), slPct: pc(sl),
-    risk: f(risk), atr14: levels?.atr14 ?? f(atr),
+    risk: f(risk), 
+    atr14: levels?.atr14 ?? f(atr),
+    usedStructure: true,
+    stopPct: pc(sl),
     smart_structure: true,
   };
 }
 
+// ─── أهداف تقريبية (fallback) ──────────────────────────────────
 function calcLevels(s) {
   const price = s.price;
   const tr  = Math.max(s.high - s.low, Math.abs(s.high - s.prevClose), Math.abs(s.low - s.prevClose));
   const atr = Math.max(tr, price * 0.02);
-  const t1 = +(price + atr * 0.5).toFixed(2), t2 = +(price + atr * 1.0).toFixed(2), t3 = +(price + atr * 1.8).toFixed(2);
-  const sl = +Math.max(price - atr * 0.8, price * 0.92).toFixed(2);
+  
+  // وقف ذكي (4%-7%)
+  const stopPct = Math.min(Math.max(0.04, atr / price * 1.2), 0.07);
+  const sl = price * (1 - stopPct);
+  const risk = price - sl;
+  
+  const t1 = +(price + risk * 1.5).toFixed(2);
+  const t2 = +(price + risk * 2.5).toFixed(2);
+  const t3 = +(price + risk * 4.0).toFixed(2);
+  
   return {
     t1, t2, t3, sl,
-    t1Pct: +(((t1 - price) / price) * 100).toFixed(2), t2Pct: +(((t2 - price) / price) * 100).toFixed(2),
-    t3Pct: +(((t3 - price) / price) * 100).toFixed(2), slPct: +(((sl - price) / price) * 100).toFixed(2),
+    t1Pct: +(((t1 - price) / price) * 100).toFixed(2),
+    t2Pct: +(((t2 - price) / price) * 100).toFixed(2),
+    t3Pct: +(((t3 - price) / price) * 100).toFixed(2),
+    slPct: +(((sl - price) / price) * 100).toFixed(2),
     risk: +(price - sl).toFixed(2),
   };
 }
@@ -472,8 +586,8 @@ function computeStructureLevels(price, bars) {
 
 // ════════════════ EP MODEL ════════════════
 function buildMovers(tickers, n = 15) {
-  const MIN_PRICE = 1;
-  const MIN_DOLLAR_VOL = 1e6;
+  const MIN_PRICE = 3;  // 🆕 رفعنا من 1 إلى 3
+  const MIN_DOLLAR_VOL = 2e6;  // 🆕 رفعنا من 1M إلى 2M
   const rows = [];
   for (const tk of tickers) {
     if (!tk.ticker || tk.ticker.includes(".")) continue;
@@ -553,9 +667,7 @@ async function fetchFullMarket() {
 async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
   const cacheKey = getCacheKey(symbol, multiplier, timespan, lookbackDays, limit);
   const cached = getCached(cacheKey);
-  if (cached) {
-    return cached;
-  }
+  if (cached) return cached;
   const to   = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - lookbackDays * 86400000).toISOString().slice(0, 10);
   const url  = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&limit=${limit}&apiKey=${POLYGON_KEY}`;
@@ -564,14 +676,10 @@ async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
   try {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
-    if (!res.ok) {
-      return null;
-    }
+    if (!res.ok) return null;
     const data = await res.json();
     const results = (data.results && data.results.length) ? data.results : null;
-    if (results) {
-      setCache(cacheKey, results);
-    }
+    if (results) setCache(cacheKey, results);
     return results;
   } catch (err) {
     clearTimeout(id);
@@ -638,23 +746,17 @@ function computeTech(bars) {
 async function fetchNews(symbol) {
   const cacheKey = `news-${symbol}`;
   const cached = getCached(cacheKey, 120000);
-  if (cached) {
-    return cached;
-  }
+  if (cached) return cached;
   const url = `https://api.polygon.io/v2/reference/news?ticker=${symbol}&limit=3&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`;
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), 3500);
   try {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
-    if (!res.ok) {
-      return { ageH: null, sentiment: null, hasNews: false };
-    }
+    if (!res.ok) return { ageH: null, sentiment: null, hasNews: false };
     const data = await res.json();
     const results = data.results || [];
-    if (!results.length) {
-      return { ageH: null, sentiment: null, hasNews: false };
-    }
+    if (!results.length) return { ageH: null, sentiment: null, hasNews: false };
     const latest = results[0];
     const ageH = latest.published_utc ? (Date.now() - new Date(latest.published_utc).getTime()) / 3600000 : null;
     let sentiment = null;
@@ -738,6 +840,17 @@ export default async function handler(req, res) {
     const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
     const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
 
+    // 🛑 إيقاف المسح بعد 21:00 (تجنب التقلبات الليلية)
+    if (etH >= 21 && !isPreMarket) {
+      return res.status(200).json({ 
+        success: true, 
+        message: "تم إيقاف المسح بعد 21:00 (تجنب التقلبات الليلية)",
+        results: [], 
+        leaders: [], 
+        speculation: [] 
+      });
+    }
+
     const [allTickers, vixData] = await Promise.all([
       fetchFullMarket(),
       fetchVixRank(),
@@ -819,18 +932,27 @@ export default async function handler(req, res) {
           }
         }
         if (tech.bars && tech.bars.length >= 15) {
-          s.levels = s.trade_style === "مضاربة" ? calcScalpLevels(s.price, tech.bars) : calcSmartLevels(s.price, tech.bars);
-          s.levels_source = s.trade_style === "مضاربة" ? "scalp_60m" : "smart_daily";
+          // 🆕 استخدام الدوال المعدلة مع بنية السوق
           s.structure = computeStructureLevels(s.price, tech.bars);
+          s.levels = s.trade_style === "مضاربة" 
+            ? calcScalpLevels(s.price, tech.bars, s.structure) 
+            : calcSmartLevels(s.price, tech.bars, s.structure);
+          s.levels_source = s.trade_style === "مضاربة" ? "scalp_60m_structure" : "smart_daily_structure";
+          
           if (s.structure && s.structure.support) {
             const fz = freshZoneBonus(tech.bars, s.structure.support);
             if (fz.bonus !== 0) s.ep = Math.min(99, Math.max(0, s.ep + fz.bonus));
             s.fresh_zone = fz.fresh;
             s.zone_touches = fz.touches;
           }
+          
+          // تطبيق الوقف الذكي على البنية
           const smart = applyStructureLevels(s.price, s.levels, s.structure, s.trade_style);
           if (smart.smart_structure) { s.levels = smart; s.levels_source += "+structure"; }
-        } else s.levels_source = "atr_basic";
+        } else {
+          s.levels = calcLevels(s);
+          s.levels_source = "atr_basic";
+        }
         s.week_max_jump = tech.recentMaxJump;
 
         const rsiOK = s.rsi != null && s.rsi <= REBOUND.RSI_MAX;
@@ -1115,7 +1237,6 @@ export default async function handler(req, res) {
       ),
     };
 
-    // إزالة التكرارات من الأقسام
     const usedSymbols = new Set();
     const filterUnique = (arr) => {
       return arr.filter(s => {
