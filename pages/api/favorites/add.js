@@ -23,8 +23,7 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'يرجى تسجيل الدخول' });
     }
 
-    // 3️⃣ فك تشفير التوكن (نفترض أنك تستخدم JWT)
-    // ملاحظة: إذا كنت تستخدم Supabase Auth، استخدم getUser()
+    // 3️⃣ فك تشفير التوكن
     const { data: { user }, error: userError } = await supabase.auth.getUser(token);
     
     if (userError || !user) {
