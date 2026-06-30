@@ -449,29 +449,53 @@ export default function Admin() {
   const runAudit = async () => {
     setAuditBusy(true); setAudit(null);
     try {
+      // 1️⃣ جلب الأسهم المعروضة حالياً في الرادار (من /api/latest)
       const latRes = await fetch("/api/latest");
       const latData = latRes.ok ? await latRes.json() : {};
-      const shown = [...new Set((latData.results || []).map(r => r.symbol).filter(Boolean))];
+      const shownSymbols = [...new Set((latData.results || []).map(r => r.symbol).filter(Boolean))];
+      const totalDisplayed = latData.results?.length || 0;
 
-      // صفوف قاعدة البيانات (نفس مصدر التقرير)
+      // 2️⃣ جلب جميع الأسهم من قاعدة البيانات (للتقرير)
       const all = summary?.signals || signals || [];
       const statusBySym = {};
       for (const s of all) {
-        // آخر حالة لكل رمز (CLOSED أولى من OPEN عند التكرار)
-        if (!statusBySym[s.symbol] || s.status === "CLOSED") statusBySym[s.symbol] = s.status || "OPEN";
+        if (!statusBySym[s.symbol] || s.status === "CLOSED") {
+          statusBySym[s.symbol] = s.status || "OPEN";
+        }
       }
 
-      const inReport = [], pending = [], missing = [];
-      for (const sym of shown) {
+      // 3️⃣ تصنيف الأسهم المعروضة فقط
+      const inReport = [];
+      const pending = [];
+      const missing = [];
+      for (const sym of shownSymbols) {
         const st = statusBySym[sym];
-        if (!st) missing.push(sym);
-        else if (st === "OPEN") pending.push(sym);
-        else inReport.push(sym);
+        if (!st) {
+          missing.push(sym);
+        } else if (st === "OPEN") {
+          pending.push(sym);
+        } else {
+          inReport.push(sym);
+        }
       }
-      setAudit({ shown: shown.length, inReport, pending, missing, ts: new Date() });
+
+      setAudit({
+        shown: shownSymbols.length,
+        totalDisplayed,
+        inReport,
+        pending,
+        missing,
+        ts: new Date(),
+        details: {
+          displayedSymbols: shownSymbols,
+          allSignalsCount: all.length,
+        }
+      });
     } catch (e) {
       setAudit({ error: e.message });
-    } finally { setAuditBusy(false); }
+    } finally {
+      setAuditBusy(false);
+    }
   };
 
   const fetchSummary = async () => {
