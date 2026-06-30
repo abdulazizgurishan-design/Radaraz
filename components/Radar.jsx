@@ -28,7 +28,9 @@ const T = {
     filterRebound: "🔄 ارتداد",
     filterSniper: "🎯 القناص",
     sectionRebound: "🔄 ارتداد الأسهم القوية",
+    sectionReboundSub: "أسهم قوية ترتد من تصحيح مؤقت · صفقة أيام",
     marketMovers: "📊 حركة السوق",
+    marketMoversSub: "أعلى الأسهم حركة في السوق · اضغط أي سهم لتحليل بنيته",
     opportunities: "فرصة",
     noOpps: "لا توجد فرص حالياً",
     marketClosed: "سيتم تحديث الإشارات بعد مسح الأدمن",
@@ -52,9 +54,11 @@ const T = {
     bannerOk: "متصل — أسعار حية",
     lastUpdate: "آخر تحديث",
     sectionEarly: "🔍 رصد مبكر",
+    sectionEarlySub: "أسهم جاهزة قبل الانفجار",
     sectionLeaders: "📈 إشارات استثمارية",
     sectionSpec: "⚡ مضاربة يومية",
     sectionSniper: "🎯 القناص",
+    sectionSniperSub: "أسهم ذات زخم قوي + جودة عالية · صفقات سريعة",
     tapToExpand: "اضغط للعرض",
     tapToCollapse: "اضغط للإخفاء",
     earlyBadge: "🔍 رصد مبكر",
@@ -89,7 +93,9 @@ const T = {
     filterRebound: "🔄 Rebound",
     filterSniper: "🎯 Sniper",
     sectionRebound: "🔄 Strong Stock Rebound",
+    sectionReboundSub: "Strong stocks bouncing from a dip · multi-day trade",
     marketMovers: "📊 Market Movers",
+    marketMoversSub: "Most active stocks · tap any to analyze its structure",
     opportunities: "opportunities",
     noOpps: "No opportunities found",
     marketClosed: "Signals will appear after admin scan",
@@ -113,9 +119,11 @@ const T = {
     bannerOk: "Connected — Live Prices",
     lastUpdate: "Last update",
     sectionEarly: "🔍 Early Watch",
+    sectionEarlySub: "Stocks ready before the breakout",
     sectionLeaders: "📈 Investment Signals",
     sectionSpec: "⚡ Day Trading",
     sectionSniper: "🎯 Sniper",
+    sectionSniperSub: "High momentum + high quality stocks · quick trades",
     tapToExpand: "Tap to expand",
     tapToCollapse: "Tap to collapse",
     earlyBadge: "🔍 Early",
@@ -134,256 +142,6 @@ const T = {
     cancel: "Cancel",
   }
 };
-
-// ============================================
-//  تبسيط البطاقة - إصدار آمن ومجرب
-// ============================================
-
-function SimpleCard({ r, idx, t, lang, isFav, onToggleFav }) {
-  const en = lang === "en";
-  const [open, setOpen] = useState(false);
-  const [showNote, setShowNote] = useState(false);
-  const [noteText, setNoteText] = useState('');
-  const [savedNote, setSavedNote] = useState('');
-
-  // تحميل الملاحظة
-  useEffect(() => {
-    try {
-      const notes = JSON.parse(localStorage.getItem('favorite_notes') || '{}');
-      setSavedNote(notes[r.symbol] || '');
-      setNoteText(notes[r.symbol] || '');
-    } catch {}
-  }, [r.symbol]);
-
-  const formatPrice = (n) => "$" + (+n).toFixed(2);
-  const formatPct = (n) => (n >= 0 ? "+" : "") + Math.round(n) + "%";
-
-  // حساب المخاطرة
-  const getRisk = () => {
-    const slPct = Math.abs(r.levels?.slPct || 0);
-    if (slPct <= 4) return { label: en ? "🟢 Low" : "🟢 منخفضة", color: "#22c55e" };
-    if (slPct <= 8) return { label: en ? "🟡 Medium" : "🟡 متوسطة", color: "#eab308" };
-    return { label: en ? "🔴 High" : "🔴 مرتفعة", color: "#ef4444" };
-  };
-
-  // حساب القوة
-  const getStrength = () => {
-    const score = r.score || 0;
-    if (score >= 80) return { label: en ? "🔥 Very Strong" : "🔥 قوي جداً", color: "#ff6b35" };
-    if (score >= 60) return { label: en ? "💪 Strong" : "💪 قوي", color: "#fbbf24" };
-    if (score >= 40) return { label: en ? "📊 Neutral" : "📊 محايد", color: "#60a5fa" };
-    return { label: en ? "📉 Weak" : "📉 ضعيف", color: "#94a3b8" };
-  };
-
-  const risk = getRisk();
-  const strength = getStrength();
-
-  const saveNote = () => {
-    try {
-      const notes = JSON.parse(localStorage.getItem('favorite_notes') || '{}');
-      if (noteText.trim() === '') {
-        delete notes[r.symbol];
-      } else {
-        notes[r.symbol] = noteText.trim();
-      }
-      localStorage.setItem('favorite_notes', JSON.stringify(notes));
-      setSavedNote(noteText.trim());
-      setShowNote(false);
-    } catch {}
-  };
-
-  return (
-    <div style={{
-      background: "linear-gradient(135deg, rgba(15,20,35,0.95), rgba(20,28,48,0.95))",
-      border: "1px solid rgba(255,255,255,0.08)",
-      borderRadius: "16px",
-      padding: "16px 18px",
-      marginBottom: "10px",
-    }}>
-      {/* صف العلوي */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "monospace" }}>{r.symbol}</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "monospace" }}>${r.price}</span>
-          <span style={{ fontSize: 14, fontWeight: 600, color: r.change_pct >= 0 ? "#22c55e" : "#ef4444" }}>
-            {r.change_pct >= 0 ? "▲" : "▼"} {Math.abs(r.change_pct)}%
-          </span>
-          <button
-            onClick={(e) => { e.stopPropagation(); onToggleFav && onToggleFav(r); }}
-            style={{
-              background: "transparent",
-              border: "none",
-              fontSize: 20,
-              cursor: "pointer",
-              color: isFav ? "#ffd700" : "rgba(255,255,255,0.25)",
-              padding: "4px 8px",
-            }}
-          >
-            {isFav ? "⭐" : "☆"}
-          </button>
-        </div>
-      </div>
-
-      {/* القوة والمخاطرة */}
-      <div style={{ display: "flex", gap: 16, marginBottom: 10, fontSize: 13, fontWeight: 600 }}>
-        <span style={{ color: strength.color, background: "rgba(255,255,255,0.05)", padding: "2px 12px", borderRadius: 20 }}>
-          {strength.label}
-        </span>
-        <span style={{ color: risk.color, background: "rgba(255,255,255,0.05)", padding: "2px 12px", borderRadius: 20 }}>
-          {risk.label}
-        </span>
-      </div>
-
-      {/* الأهداف */}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-        {r.levels?.t1 && (
-          <span style={{
-            fontSize: 13,
-            padding: "4px 12px",
-            borderRadius: 8,
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(96,165,250,0.3)",
-          }}>
-            🎯 {formatPrice(r.levels.t1)} <span style={{ fontSize: 11, opacity: 0.7 }}>{formatPct(r.levels.t1Pct)}</span>
-          </span>
-        )}
-        {r.levels?.sl && (
-          <span style={{
-            fontSize: 13,
-            padding: "4px 12px",
-            borderRadius: 8,
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(239,68,68,0.3)",
-          }}>
-            🛑 {formatPrice(r.levels.sl)} <span style={{ fontSize: 11, opacity: 0.7 }}>{formatPct(r.levels.slPct)}</span>
-          </span>
-        )}
-      </div>
-
-      {/* الأزرار */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button
-          onClick={() => setOpen(!open)}
-          style={{
-            padding: "6px 14px",
-            border: "none",
-            borderRadius: 8,
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: "pointer",
-            background: "rgba(99,102,241,0.2)",
-            color: "#a5b4fc",
-            border: "1px solid rgba(99,102,241,0.3)",
-          }}
-        >
-          {en ? "📖 Simple" : "📖 شرح بسيط"}
-        </button>
-        <button
-          onClick={() => setShowNote(!showNote)}
-          style={{
-            padding: "6px 14px",
-            border: "none",
-            borderRadius: 8,
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: "pointer",
-            background: "rgba(251,191,36,0.1)",
-            color: "#fbbf24",
-            border: "1px solid rgba(251,191,36,0.2)",
-          }}
-        >
-          {savedNote ? "📝" : "📝+"}
-        </button>
-      </div>
-
-      {/* شرح بسيط */}
-      {open && (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-          <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: "12px 16px" }}>
-            <p style={{ margin: "4px 0", fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
-              📈 {r.symbol} في اتجاه صاعد. السهم {strength.label} مع مخاطرة {risk.label}.
-            </p>
-            {r.levels?.t1 && (
-              <p style={{ margin: "4px 0", fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
-                🎯 الهدف الأول عند {formatPrice(r.levels.t1)} ({formatPct(r.levels.t1Pct)})
-              </p>
-            )}
-            {r.levels?.sl && (
-              <p style={{ margin: "4px 0", fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
-                🛑 وقف الخسارة عند {formatPrice(r.levels.sl)} ({formatPct(r.levels.slPct)})
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* محرر الملاحظة */}
-      {showNote && (
-        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-          <textarea
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            placeholder={en ? "Write your notes here..." : "اكتب ملاحظتك هنا..."}
-            rows={2}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              background: "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              borderRadius: 8,
-              color: "#fff",
-              fontSize: 13,
-              fontFamily: "inherit",
-              resize: "vertical",
-              minHeight: 50,
-            }}
-          />
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <button
-              onClick={() => setShowNote(false)}
-              style={{
-                padding: "4px 14px",
-                border: "1px solid rgba(255,255,255,0.1)",
-                borderRadius: 6,
-                background: "transparent",
-                color: "rgba(255,255,255,0.5)",
-                cursor: "pointer",
-                fontSize: 12,
-              }}
-            >
-              {en ? "Cancel" : "إلغاء"}
-            </button>
-            <button
-              onClick={saveNote}
-              style={{
-                padding: "4px 14px",
-                border: "none",
-                borderRadius: 6,
-                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                color: "#fff",
-                cursor: "pointer",
-                fontSize: 12,
-              }}
-            >
-              {en ? "💾 Save" : "💾 حفظ"}
-            </button>
-          </div>
-          {savedNote && (
-            <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(251,191,36,0.08)", borderRadius: 6, color: "#fbbf24", fontSize: 13 }}>
-              📝 {savedNote}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================
-//  باقي الكود (مختصر)
-// ============================================
 
 const S = {
   root: { minHeight: "100vh", background: "#080c18", fontFamily: "system-ui", color: "#fff", position: "relative", overflow: "hidden" },
@@ -567,6 +325,279 @@ function CollapsibleSection({ title, subtitle, count, color, bg, border, childre
         </div>
       </div>
       <div style={S.sectionBody(open)}>{children}</div>
+    </div>
+  );
+}
+
+// ─── 📊 حركة السوق (Market Movers) ───
+function MarketMovers({ movers, t, lang }) {
+  const en = lang === "en";
+  const [tab, setTab] = useState("gainers");
+
+  const tabs = [
+    { id: "gainers", label: en ? "📈 Top Gainers" : "📈 أعلى ارتفاع", color: "#00d4aa" },
+    { id: "losers", label: en ? "📉 Top Losers" : "📉 أعلى انخفاض", color: "#ff4757" },
+    { id: "volume", label: en ? "📊 Most Active" : "📊 أعلى كمية", color: "#fbbf24" },
+    { id: "value", label: en ? "💰 Top Value" : "💰 أعلى قيمة", color: "#818cf8" },
+  ];
+
+  const list = (movers && movers[tab]) || [];
+
+  const fmtVol = (v) => {
+    if (v >= 1e9) return (v/1e9).toFixed(1) + "B";
+    if (v >= 1e6) return (v/1e6).toFixed(1) + "M";
+    if (v >= 1e3) return (v/1e3).toFixed(0) + "K";
+    return String(v);
+  };
+
+  return (
+    <div style={{ marginTop: 8, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+        {tabs.map((x) => (
+          <button
+            key={x.id}
+            onClick={() => setTab(x.id)}
+            style={{
+              flex: 1,
+              minWidth: 70,
+              background: tab === x.id ? `${x.color}22` : "rgba(255,255,255,0.04)",
+              border: `1px solid ${tab === x.id ? x.color + "88" : "rgba(255,255,255,0.08)"}`,
+              borderRadius: 10,
+              padding: "9px 6px",
+              color: tab === x.id ? x.color : "rgba(255,255,255,0.45)",
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+              transition: "all 0.2s",
+              fontFamily: "inherit",
+            }}
+          >
+            {x.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{
+        background: "rgba(255,255,255,0.02)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 14,
+        overflow: "hidden",
+      }}>
+        {list.length === 0 && (
+          <div style={{ padding: "24px", textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
+            {en ? "No data yet — scan first" : "لا توجد بيانات — امسح أولاً"}
+          </div>
+        )}
+        {list.map((m, i) => {
+          const up = m.change_pct >= 0;
+          return (
+            <div
+              key={m.symbol}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "11px 14px",
+                borderBottom: i < list.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+              }}
+            >
+              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", minWidth: 20, fontFamily: "monospace" }}>
+                {i + 1}
+              </span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: "monospace", minWidth: 56 }}>
+                {m.symbol}
+              </span>
+              <span style={{ fontSize: 13, color: "#e8edf6", fontFamily: "monospace", flex: 1 }}>
+                ${m.price.toFixed(2)}
+              </span>
+              {(tab === "volume" || tab === "value") && (
+                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: "monospace" }}>
+                  {tab === "volume" ? fmtVol(m.volume) : "$" + fmtVol(m.dollar_vol)}
+                </span>
+              )}
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: up ? "#00d4aa" : "#ff4757",
+                  fontFamily: "monospace",
+                  minWidth: 64,
+                  textAlign: "right",
+                  direction: "ltr",
+                }}
+              >
+                {up ? "+" : ""}{m.change_pct.toFixed(2)}%
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── 🃏 بطاقة مبسطة ───
+function SimpleCard({ r, idx, t, lang, isFav, onToggleFav }) {
+  const en = lang === "en";
+  const [open, setOpen] = useState(false);
+  const [showNote, setShowNote] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const [savedNote, setSavedNote] = useState('');
+
+  useEffect(() => {
+    try {
+      const notes = JSON.parse(localStorage.getItem('favorite_notes') || '{}');
+      setSavedNote(notes[r.symbol] || '');
+      setNoteText(notes[r.symbol] || '');
+    } catch {}
+  }, [r.symbol]);
+
+  const formatPrice = (n) => "$" + (+n).toFixed(2);
+  const formatPct = (n) => (n >= 0 ? "+" : "") + Math.round(n) + "%";
+
+  const getRisk = () => {
+    const slPct = Math.abs(r.levels?.slPct || 0);
+    if (slPct <= 4) return { label: en ? "🟢 Low" : "🟢 منخفضة", color: "#22c55e" };
+    if (slPct <= 8) return { label: en ? "🟡 Medium" : "🟡 متوسطة", color: "#eab308" };
+    return { label: en ? "🔴 High" : "🔴 مرتفعة", color: "#ef4444" };
+  };
+
+  const getStrength = () => {
+    const score = r.score || 0;
+    if (score >= 80) return { label: en ? "🔥 Very Strong" : "🔥 قوي جداً", color: "#ff6b35" };
+    if (score >= 60) return { label: en ? "💪 Strong" : "💪 قوي", color: "#fbbf24" };
+    if (score >= 40) return { label: en ? "📊 Neutral" : "📊 محايد", color: "#60a5fa" };
+    return { label: en ? "📉 Weak" : "📉 ضعيف", color: "#94a3b8" };
+  };
+
+  const risk = getRisk();
+  const strength = getStrength();
+
+  const saveNote = () => {
+    try {
+      const notes = JSON.parse(localStorage.getItem('favorite_notes') || '{}');
+      if (noteText.trim() === '') {
+        delete notes[r.symbol];
+      } else {
+        notes[r.symbol] = noteText.trim();
+      }
+      localStorage.setItem('favorite_notes', JSON.stringify(notes));
+      setSavedNote(noteText.trim());
+      setShowNote(false);
+    } catch {}
+  };
+
+  return (
+    <div style={{
+      background: "linear-gradient(135deg, rgba(15,20,35,0.95), rgba(20,28,48,0.95))",
+      border: "1px solid rgba(255,255,255,0.08)",
+      borderRadius: "16px",
+      padding: "16px 18px",
+      marginBottom: "10px",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "monospace" }}>{r.symbol}</span>
+          {r.is_sniper && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(251,191,36,0.2)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>🎯</span>}
+          {r.is_rebound && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(56,189,248,0.2)", color: "#38bdf8", border: "1px solid rgba(56,189,248,0.3)" }}>🔄</span>}
+          {r.early_watch && !r.is_rebound && !r.is_sniper && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(52,211,153,0.2)", color: "#34d399", border: "1px solid rgba(52,211,153,0.3)" }}>🔍</span>}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "monospace" }}>${r.price}</span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: r.change_pct >= 0 ? "#22c55e" : "#ef4444" }}>
+            {r.change_pct >= 0 ? "▲" : "▼"} {Math.abs(r.change_pct)}%
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleFav && onToggleFav(r); }}
+            style={{
+              background: "transparent",
+              border: "none",
+              fontSize: 20,
+              cursor: "pointer",
+              color: isFav ? "#ffd700" : "rgba(255,255,255,0.25)",
+              padding: "4px 8px",
+            }}
+          >
+            {isFav ? "⭐" : "☆"}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 16, marginBottom: 10, fontSize: 13, fontWeight: 600 }}>
+        <span style={{ color: strength.color, background: "rgba(255,255,255,0.05)", padding: "2px 12px", borderRadius: 20 }}>
+          {strength.label}
+        </span>
+        <span style={{ color: risk.color, background: "rgba(255,255,255,0.05)", padding: "2px 12px", borderRadius: 20 }}>
+          {risk.label}
+        </span>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        {r.levels?.t1 && (
+          <span style={{ fontSize: 13, padding: "4px 12px", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(96,165,250,0.3)" }}>
+            🎯 {formatPrice(r.levels.t1)} <span style={{ fontSize: 11, opacity: 0.7 }}>{formatPct(r.levels.t1Pct)}</span>
+          </span>
+        )}
+        {r.levels?.sl && (
+          <span style={{ fontSize: 13, padding: "4px 12px", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(239,68,68,0.3)" }}>
+            🛑 {formatPrice(r.levels.sl)} <span style={{ fontSize: 11, opacity: 0.7 }}>{formatPct(r.levels.slPct)}</span>
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={() => setOpen(!open)} style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "rgba(99,102,241,0.2)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)" }}>
+          {en ? "📖 Simple" : "📖 شرح بسيط"}
+        </button>
+        <button onClick={() => setShowNote(!showNote)} style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "rgba(251,191,36,0.1)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}>
+          {savedNote ? "📝" : "📝+"}
+        </button>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: "12px 16px" }}>
+            <p style={{ margin: "4px 0", fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
+              📈 {r.symbol} في اتجاه صاعد. السهم {strength.label} مع مخاطرة {risk.label}.
+            </p>
+            {r.levels?.t1 && (
+              <p style={{ margin: "4px 0", fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
+                🎯 الهدف الأول عند {formatPrice(r.levels.t1)} ({formatPct(r.levels.t1Pct)})
+              </p>
+            )}
+            {r.levels?.sl && (
+              <p style={{ margin: "4px 0", fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
+                🛑 وقف الخسارة عند {formatPrice(r.levels.sl)} ({formatPct(r.levels.slPct)})
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showNote && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          <textarea
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            placeholder={en ? "Write your notes here..." : "اكتب ملاحظتك هنا..."}
+            rows={2}
+            style={{ width: "100%", padding: "10px 12px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#fff", fontSize: 13, fontFamily: "inherit", resize: "vertical", minHeight: 50 }}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button onClick={() => setShowNote(false)} style={{ padding: "4px 14px", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, background: "transparent", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 12 }}>
+              {en ? "Cancel" : "إلغاء"}
+            </button>
+            <button onClick={saveNote} style={{ padding: "4px 14px", border: "none", borderRadius: 6, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", cursor: "pointer", fontSize: 12 }}>
+              {en ? "💾 Save" : "💾 حفظ"}
+            </button>
+          </div>
+          {savedNote && (
+            <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(251,191,36,0.08)", borderRadius: 6, color: "#fbbf24", fontSize: 13 }}>
+              📝 {savedNote}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -923,6 +954,22 @@ export default function Radar() {
         {loading && <div style={S.progressBar}><div style={S.progressFill} /></div>}
         {loading && <SkeletonCards />}
         {(done || loading) && <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} t={t} />}
+
+        {/* 📊 حركة السوق */}
+        {!loading && done && filter === "all" && movers && (
+          <CollapsibleSection
+            title={t.marketMovers}
+            subtitle={t.marketMoversSub}
+            count={60}
+            color="#22d3ee"
+            bg="rgba(34,211,238,0.08)"
+            border="rgba(34,211,238,0.3)"
+            t={t}
+            defaultOpen={false}
+          >
+            <MarketMovers movers={movers} t={t} lang={lang} />
+          </CollapsibleSection>
+        )}
 
         {!loading && done && filter === "all" && sniper.length > 0 && (
           <CollapsibleSection title={t.sectionSniper} subtitle={t.sectionSniperSub} count={sniper.length} color="#fbbf24" bg="rgba(251,191,36,0.08)" border="rgba(251,191,36,0.3)" t={t}>
