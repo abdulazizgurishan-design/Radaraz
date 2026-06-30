@@ -68,11 +68,10 @@ function buildTweet(signals, date, mode = "signals") {
   const lines = [`📡 رادار الأسهم — ${date}\n`];
   if (mode === "results") {
     const hit = signals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length;
-    const st  = signals.filter(s => s.stop_hit && !s.target1_hit).length;   // خاسر نقي (لا ازدواج)
+    const st  = signals.filter(s => s.stop_hit && !s.target1_hit).length;
     const decided = hit + st;
     const rate = decided ? Math.round((hit / decided) * 100) : 0;
 
-    // 🏆 أبرز الارتفاعات (أعلى max_gain) — الأقوى تسويقياً
     const topGainers = [...signals]
       .filter(s => (s.target1_hit || s.target2_hit || s.target3_hit) && (s.max_gain_pct || 0) > 0)
       .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
@@ -207,11 +206,9 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
         cursor: selectMode ? "pointer" : "default",
         transition: "border .15s, box-shadow .15s",
       }}>
-      {/* top bar */}
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, borderRadius: "14px 14px 0 0", background: `linear-gradient(90deg,${epc.fg}88,transparent)` }} />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-        {/* Left: checkbox + ticker + badges */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
           {selectMode && (
             <div style={{
@@ -290,7 +287,6 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
         </div>
       </div>
 
-      {/* Targets row */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
         {[
           { label: "T1", price: s.target1, color: "#34d399" },
@@ -308,7 +304,7 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
   );
 }
 
-// ─── Result Card (مع أوقات السعودية + تقرير مفصّل قابل للنسخ) ──────
+// ─── Result Card ──────────────────────────────────────────────────
 function ResultCard({ s, copiedId, onCopy }) {
   const r   = getResult(s);
   const ep  = s.ep || s.score || 0;
@@ -320,7 +316,6 @@ function ResultCard({ s, copiedId, onCopy }) {
   const tgt    = (s.target1 || 0).toFixed(2);
   const gain   = s.max_gain_pct != null ? `+${s.max_gain_pct}%` : (r?.pct != null ? `${r.pct}%` : "");
 
-  // 📋 تقرير مفصّل قابل للنسخ (بتوقيت السعودية)
   let text;
   if (won) {
     text =
@@ -361,7 +356,6 @@ function ResultCard({ s, copiedId, onCopy }) {
         </button>
       </div>
 
-      {/* أوقات بتوقيت السعودية */}
       {(caught || hitAt) && (
         <div style={{ marginTop: 9, paddingTop: 9, borderTop: "1px solid rgba(255,255,255,.06)", fontSize: 11, color: "#94a3b8", lineHeight: 1.9 }}>
           {caught && <div>📅 التُقط: <span style={{ color: "#cbd5e1", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>{caught}</span> <span style={{ color: "#475569" }}>(السعودية)</span> @ <span style={{ color: "#60a5fa", fontFamily: "monospace" }}>${entry}</span></div>}
@@ -440,15 +434,15 @@ export default function Admin() {
     } catch (err) { console.error(err); }
   };
 
-  // 🔍 تدقيق المطابقة المعدل - يجلب البيانات الحية من /api/scan
+  // 🔍 تدقيق المطابقة: كم إشارة عُرضت فعلاً في الرادار؟
   const runAudit = async () => {
     setAuditBusy(true); setAudit(null);
     try {
-      // 1️⃣ جلب الأسهم المعروضة حالياً في الرادار (من /api/scan?light=1)
+      // 1️⃣ جلب الإشارات المعروضة في الرادار (من /api/scan?light=1)
       const scanRes = await fetch("/api/scan?light=1");
       const scanData = scanRes.ok ? await scanRes.json() : {};
       
-      // استخراج الأسهم المعروضة من results + opportunities
+      // استخراج الرموز المعروضة من جميع الأقسام
       const shownSymbols = [];
       if (scanData.results) {
         shownSymbols.push(...scanData.results.map(r => r.symbol).filter(Boolean));
@@ -461,44 +455,33 @@ export default function Admin() {
         }
       }
       const uniqueShown = [...new Set(shownSymbols)];
-      const totalDisplayed = uniqueShown.length;
 
-      // 2️⃣ جلب جميع الأسهم من قاعدة البيانات (للتقرير)
+      // 2️⃣ جلب جميع الإشارات من التقرير (قاعدة البيانات)
       const all = summary?.signals || signals || [];
-      const statusBySym = {};
-      for (const s of all) {
-        if (!statusBySym[s.symbol] || s.status === "CLOSED") {
-          statusBySym[s.symbol] = s.status || "OPEN";
-        }
-      }
+      const uniqueReport = [...new Set(all.map(s => s.symbol).filter(Boolean))];
 
-      // 3️⃣ تصنيف الأسهم المعروضة فقط
-      const inReport = [];
-      const pending = [];
-      const missing = [];
-      for (const sym of uniqueShown) {
-        const st = statusBySym[sym];
-        if (!st) {
-          missing.push(sym);
-        } else if (st === "OPEN") {
-          pending.push(sym);
-        } else {
-          inReport.push(sym);
-        }
-      }
+      // 3️⃣ كم إشارة عُرضت فعلاً؟
+      const displayedInRadar = uniqueShown.length;
+      const totalInReport = uniqueReport.length;
+      const notDisplayed = uniqueReport.filter(sym => !uniqueShown.includes(sym));
+
+      // 4️⃣ تفاصيل الإشارات المعروضة وغير المعروضة
+      const displayedSymbols = uniqueShown;
+      const notDisplayedSymbols = notDisplayed;
 
       setAudit({
-        shown: uniqueShown.length,
-        totalDisplayed,
-        inReport,
-        pending,
-        missing,
-        ts: new Date(),
+        summary: {
+          totalInReport,
+          displayedInRadar,
+          notDisplayed: notDisplayed.length,
+          displayRate: totalInReport > 0 ? Math.round((displayedInRadar / totalInReport) * 100) : 0,
+        },
         details: {
-          displayedSymbols: uniqueShown,
-          allSignalsCount: all.length,
-          scanTotal: scanData.total || 0,
-        }
+          displayedSymbols,
+          notDisplayedSymbols,
+          allSymbols: uniqueReport,
+        },
+        ts: new Date(),
       });
     } catch (e) {
       setAudit({ error: e.message });
@@ -963,12 +946,12 @@ export default function Admin() {
           <>
             {loading && <div style={{ textAlign: "center", color: "#334155", padding: 30 }}>جاري التحميل...</div>}
 
-            {/* 🔍 تدقيق المطابقة المعدل */}
+            {/* 🔍 تدقيق المطابقة الجديد */}
             <div style={{ marginBottom: 18, padding: "14px 16px", borderRadius: 14, background: "rgba(99,102,241,.06)", border: "1px solid rgba(99,102,241,.2)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#a5b4fc" }}>🔍 تدقيق المطابقة</div>
-                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>هل كل سهم معروض للمشترك موجود في التقرير؟</div>
+                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>كم إشارة عُرضت فعلاً في الرادار؟</div>
                 </div>
                 <button onClick={runAudit} disabled={auditBusy} style={S.btn(auditBusy ? "rgba(255,255,255,.06)" : "rgba(99,102,241,.25)")}>
                   {auditBusy ? "⟳ جاري الفحص..." : "▶ افحص الآن"}
@@ -977,35 +960,41 @@ export default function Admin() {
               {audit && !audit.error && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)" }}>
-                      <div style={{ fontSize: 20, fontWeight: 900, color: "#a5b4fc" }}>{audit.shown}</div>
-                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>معروض للمشترك</div>
+                    <div style={{ flex: 1, minWidth: 80, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(99,102,241,.08)", border: "1px solid rgba(99,102,241,.2)" }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#818cf8" }}>{audit.summary.totalInReport}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>📊 في التقرير</div>
                     </div>
-                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(52,211,153,.08)", border: "1px solid rgba(52,211,153,.2)" }}>
-                      <div style={{ fontSize: 20, fontWeight: 900, color: "#34d399" }}>{audit.inReport.length}</div>
-                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>✅ في التقرير</div>
+                    <div style={{ flex: 1, minWidth: 80, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(52,211,153,.08)", border: "1px solid rgba(52,211,153,.2)" }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#34d399" }}>{audit.summary.displayedInRadar}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>✅ عُرضت في الرادار</div>
                     </div>
-                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(251,191,36,.08)", border: "1px solid rgba(251,191,36,.2)" }}>
-                      <div style={{ fontSize: 20, fontWeight: 900, color: "#fbbf24" }}>{audit.pending.length}</div>
-                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>⏳ بانتظار التقييم</div>
+                    <div style={{ flex: 1, minWidth: 80, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(248,113,113,.08)", border: "1px solid rgba(248,113,113,.2)" }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#f87171" }}>{audit.summary.notDisplayed}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>❌ لم تُعرض</div>
                     </div>
-                    <div style={{ flex: 1, minWidth: 90, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: audit.missing.length ? "rgba(248,113,113,.12)" : "rgba(255,255,255,.04)", border: `1px solid ${audit.missing.length ? "rgba(248,113,113,.35)" : "rgba(255,255,255,.07)"}` }}>
-                      <div style={{ fontSize: 20, fontWeight: 900, color: audit.missing.length ? "#f87171" : "#475569" }}>{audit.missing.length}</div>
-                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>🔴 غير موجود</div>
+                    <div style={{ flex: 1, minWidth: 80, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(251,191,36,.08)", border: "1px solid rgba(251,191,36,.2)" }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#fbbf24" }}>{audit.summary.displayRate}%</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>نسبة العرض</div>
                     </div>
                   </div>
-                  {audit.missing.length === 0 ? (
-                    <div style={{ fontSize: 12, color: "#34d399", marginTop: 10, fontWeight: 600 }}>
-                      ✅ مطابقة سليمة — كل سهم معروض إمّا في التقرير أو بانتظار التقييم. لا تسريب.
+                  {audit.summary.notDisplayed > 0 && (
+                    <div style={{ marginTop: 10, padding: "10px 12px", background: "rgba(248,113,113,.06)", borderRadius: 8, border: "1px solid rgba(248,113,113,.15)" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#f87171", marginBottom: 4 }}>❌ الأسهم اللي ما عُرضت:</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.6 }}>
+                        {audit.details.notDisplayedSymbols.join(" · ") || "—"}
+                      </div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 6 }}>
+                        💡 سبب عدم العرض: EP أقل من 60، أو لم تستوفِ شروط الفلترة وقت المسح
+                      </div>
                     </div>
-                  ) : (
-                    <div style={{ fontSize: 12, color: "#f87171", marginTop: 10, fontWeight: 600 }}>
-                      🔴 تنبيه: {audit.missing.length} سهم معروض للمشترك وغير محفوظ في القاعدة!<br />
-                      <span style={{ fontFamily: "monospace", color: "#fca5a5", fontWeight: 400 }}>{audit.missing.join(" · ")}</span>
+                  )}
+                  {audit.summary.displayRate >= 80 && (
+                    <div style={{ fontSize: 12, color: "#34d399", marginTop: 10, fontWeight: 600 }}>
+                      ✅ نسبة عرض ممتازة — أكثر من 80% من الإشارات ظهرت للمشتركين
                     </div>
                   )}
                   <div style={{ fontSize: 10, color: "#475569", marginTop: 8 }}>
-                    ⏳ "بانتظار التقييم" طبيعي لأسهم اليوم (تظهر في التقرير بعد إغلاق السوق وتشغيل التقييم).
+                    ⏳ التقييم: {audit.ts ? new Date(audit.ts).toLocaleTimeString() : "—"}
                   </div>
                 </div>
               )}
