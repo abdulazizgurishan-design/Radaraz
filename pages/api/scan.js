@@ -1,16 +1,54 @@
-// pages/api/scan.js — v4 (SNIPER + REBOUND + EARLY + STRUCTURE)
+// pages/api/scan.js — STANDALONE EDITION v3 (Multi-Timeframe + MACD + News + Target)
 // ═══════════════════════════════════════════════════════════════════
-//  ✅ إضافة تصنيف "قناص" (Sniper) — أعلى جودة + زخم قوي
-//  ✅ شروط القناص: SCORE ≥ 80 + RVOL ≥ 8 + تغيّر ≥ 5% + دخول صحيح
-//  ✅ إرسال is_sniper: true للواجهة
-//  ✅ متوافق مع Radar.js (قسم القناص)
+//  مسح مستقل تماماً — صفر اعتماد على جداول أخرى
+//  ─────────────────────────────────────────────────────────────────
+//  ترقيات هذا الإصدار:
+//   ✅ المتوسطات/RSI/ATR/MACD حسب نوع الصفقة:
+//        ⚡ مضاربة → فريم 60 دقيقة (سريع، يناسب اليوم)
+//        📈 استثمار → فريم يومي (يناسب المستثمر)
+//   ✅ إضافة MA50 + MACD(12,26,9) لتأكيد الاتجاه
+//   ✅ المتوسطات صارت "بوابة" (gate) لا مجرد بونص
+//   ✅ غربال صارم للأسهم أقل من $1
+//   ✅ طبقة الأخبار اللحظية (Polygon News) — تفصل الكاتشي عن الوهمي
+//   ✅ شارة 🎯 "الهدف" — التقاء كامل على الفريمين (نخبة)
+//   ✅ أهداف واقعية (مضاربة على ATR 60د = أضيق وأقرب للتحقق)
+//   ✅ إصلاح bug قسم الاستثمار (كان يستخدم "قيادي" بدل "استثمار")
+//
+//  ⚠️ ملاحظة توافق: شكل الرد للواجهة لم يتغيّر (نفس الحقول والأقسام).
+//     شارة "الهدف" تُعرض عبر حقل signal الموجود أصلاً — لا تعديل واجهة.
+//  ⚠️ هذا الإصدار يحفظ عمودين جديدين (is_target, news_age_h) — لازم تضيفهما
+//     في جدول signals أولاً (SQL في الأسفل) قبل الرفع، وإلا يفشل الحفظ.
 // ═══════════════════════════════════════════════════════════════════
 
-export const config = { maxDuration: 10 };   // Hobby: الحد الأقصى 10ث
+export const config = { maxDuration: 60 };
 
 const POLYGON_KEY  = process.env.POLYGON_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
+
+// ─── 🗄️ نظام التخزين المؤقت (Cache) ──────────────────────────────
+const CACHE = {
+  aggs: new Map(),      // لتخزين الشموع
+  news: new Map(),      // لتخزين الأخبار
+};
+
+function getCacheKey(symbol, mult, span, days, limit) {
+  return `${symbol}-${mult}-${span}-${days}-${limit}`;
+}
+
+function getCached(key, maxAge = 300000) { // 5 دقائق = 300000 ميلي ثانية
+  const entry = CACHE.aggs.get(key);
+  if (entry && Date.now() - entry.time < maxAge) {
+    console.log(`✅ تم استخدام التخزين المؤقت لـ ${key}`);
+    return entry.data;
+  }
+  return null;
+}
+
+function setCache(key, data) {
+  CACHE.aggs.set(key, { data, time: Date.now() });
+  console.log(`💾 تم حفظ ${key} في التخزين المؤقت`);
+}
 
 // ─── إعدادات الفلترة ───────────────────────────────────────────────
 const FILTER = {
@@ -21,7 +59,7 @@ const FILTER = {
   MAX_CHANGE:     40,            // فوق 40% = دخول متأخر/pump → استبعاد نهائي
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
-  HEAVY_LIMIT:    60,            // رُفع 55→60 (توسعة آمنة على Hobby — لا تزيد الوقت كثيراً)
+  HEAVY_LIMIT:    45,            // خُفّض 55→45: analyze_pct كان 53% (نصف الأسهم بلا تحليل). أقل عدداً = كلٌّ يُحلّل كاملاً.
   SAVE_MIN_EP:    60,            // رفعناه من 50 → 60 (جودة أعلى للحفظ والبوت)
   STRICT_PRICE:   1.00,          // تحت هذا السعر = غربال صارم
 };
@@ -29,28 +67,18 @@ const FILTER = {
 // ─── مزج البنية (Swing) في الاختيار — كله قابل للضبط ───────────────
 // الهدف: نعرض دخولات صحيحة، لا كل سهم مرتفع.
 const STRUCT = {
-  MIN_RR:        1.3,   // خُفّض 1.5→1.3 (إشارات أكثر، R:R لا يزال مجزياً)
-  MAX_POS:       0.72,  // خُفّض 0.66→0.72 (يسمح بدخول أوسع قليلاً دون ملاحقة)
+  MIN_RR:        1.5,   // أدنى عائد/مخاطرة بنيوي ليُعدّ "دخول صحيح"
+  MAX_POS:       0.66,  // أقصى موضع داخل المدى (0=دعم،1=مقاومة) ليُعدّ دخولاً مبكراً
   BONUS_VALID:   7,     // مكافأة الدخول الصحيح (يرفعه للأعلى)
   BONUS_OK:      2,     // مكافأة المقبول
   PENALTY_LATE:  6,     // خصم الملاحقة/غير المؤكد (يُنزّله)
   PENALTY_BADRR: 4,     // خصم إضافي لـ R:R < 1
   // إسقاط الملاحقة الواضحة فقط: سهم ارتفع كثير + دخوله سيء
   DROP_LATE:     true,  // فعّل/عطّل الإسقاط
-  DROP_CHANGE:   12,    // رُفع 10→12: لا نُسقط إلا إذا ارتفع أكثر من 12% (يسمح بأسهم قوية)
+  DROP_CHANGE:   10,    // لا نُسقط إلا إذا ارتفع أكثر من هذا
   DROP_POS:      0.80,  // + قريب من القمة (دخول متأخر)
   // 💎 حارس الجوهرة: لا نعرض سهماً هابطاً بلا تأكيد ارتداد
   STRICT_GEMS:   true,  // اعرض فقط: مؤكد صاعد أو ارتداد واضح
-};
-
-// ─── شروط القناص (Sniper) ──────────────────────────────────────────
-const SNIPER = {
-  MIN_SCORE:     80,    // أعلى جودة
-  MIN_RVOL:      8,     // زخم حجم قوي
-  MIN_CHANGE:    5,     // حركة قوية
-  MAX_CHANGE:    25,    // لا نطارد الأسهم المرتفعة جداً
-  MIN_VOLUME:    500_000, // سيولة عالية
-  REQUIRE_VALID_ENTRY: true, // يتطلب دخول صحيح
 };
 
 // ════════════════ أدوات المؤشرات ════════════════
@@ -319,38 +347,14 @@ const REBOUND = {
 };
 
 // عائد آخر ~3 شهور من شموع يومية (يثبت أن السهم قوي فعلاً، مو ضعيف رأس المال)
-// 🆕 محمي من القيم الشاذة (تجزئة الأسهم split / بيانات خاطئة) التي تُنتج نسباً خيالية (مثل 651%)
 function return3M(dailyCloses) {
   if (!dailyCloses || dailyCloses.length < 40) return null;
   const now = dailyCloses[dailyCloses.length - 1];
-  const idx = Math.max(0, dailyCloses.length - 63);   // ~63 يوم = 3 شهور
+  // ~63 يوم تداول = 3 شهور (أو أقدم متاح إن أقل)
+  const idx = Math.max(0, dailyCloses.length - 63);
   const then = dailyCloses[idx];
   if (!then || then <= 0) return null;
-
-  // 🛡️ حارس التجزئة/الشذوذ: نتحقق من القفزات المفاجئة بين الشموع المتتالية.
-  //    قفزة >40% بين يومين متتاليين = غالباً تجزئة أسهم (split) أو خطأ بيانات، لا حركة حقيقية.
-  //    في هذه الحالة نستخدم نافذة أقصر موثوقة (آخر 20 يوماً) بدل النافذة المشوّهة.
-  let hasSplitAnomaly = false;
-  for (let i = idx + 1; i < dailyCloses.length; i++) {
-    const prev = dailyCloses[i - 1], cur = dailyCloses[i];
-    if (prev > 0 && cur > 0) {
-      const jump = Math.abs(cur - prev) / prev;
-      if (jump > 0.40) { hasSplitAnomaly = true; break; }   // قفزة شاذة بين يومين
-    }
-  }
-
-  let base = then;
-  if (hasSplitAnomaly) {
-    // نافذة قصيرة موثوقة (آخر 20 يوماً) تتجنّب التشويه التاريخي
-    const shortIdx = Math.max(0, dailyCloses.length - 20);
-    base = dailyCloses[shortIdx];
-    if (!base || base <= 0) return null;
-  }
-
-  const ret = ((now - base) / base) * 100;
-  // 🛡️ سقف منطقي: عائد >300% في 3 شهور شبه مستحيل لسهم حقيقي = بيانات مشكوكة → نتجاهله
-  if (ret > 300 || ret < -95) return null;
-  return ret;
+  return ((now - then) / then) * 100;
 }
 
 // يحدّد إن كان السهم مرشّحاً لفلتر الارتداد:
@@ -647,18 +651,40 @@ async function fetchFullMarket() {
 
 // جلب شموع بفريم محدد (60 دقيقة للمضاربة / يومي للاستثمار)
 async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
+  // 1️⃣ نشوف إذا عندنا البيانات في التخزين المؤقت
+  const cacheKey = getCacheKey(symbol, multiplier, timespan, lookbackDays, limit);
+  const cached = getCached(cacheKey);
+  if (cached) {
+    return cached; // 🎯 نرجع البيانات بدون ما نطلب من API
+  }
+
+  // 2️⃣ ما لقينا → نطلب من API
   const to   = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - lookbackDays * 86400000).toISOString().slice(0, 10);
   const url  = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&limit=${limit}&apiKey=${POLYGON_KEY}`;
+  
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), 3500);
   try {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.log(`❌ فشل جلب ${symbol}: ${res.status}`);
+      return null;
+    }
     const data = await res.json();
-    return (data.results && data.results.length) ? data.results : null;
-  } catch { clearTimeout(id); return null; }
+    const results = (data.results && data.results.length) ? data.results : null;
+    
+    // 3️⃣ نحفظ النتيجة في التخزين المؤقت عشان نستخدمها مرة ثانية
+    if (results) {
+      setCache(cacheKey, results);
+    }
+    return results;
+  } catch (err) {
+    clearTimeout(id);
+    console.log(`⚠️ خطأ في جلب ${symbol}: ${err.message}`);
+    return null;
+  }
 }
 
 // إعداد الفريم حسب نوع الصفقة
@@ -714,7 +740,6 @@ function computeTech(bars) {
     rsi: rsiRaw != null ? Math.round(rsiRaw) : null,
     maSignal, maBonus: Math.min(maBonus, 20),
     priceAboveMA21: !!(sma21 && price > sma21),
-    sma21: sma21 || null,                            // 🆕 لبوابة الاتجاه الأوسع (قرب MA21)
     priceAboveEMA20: !!(ema20 && price > ema20),    // 🆕 للبوابة الأذكى (ارتداد مبكّر)
     aligned: !!(sma9 && sma21 && price > sma21 && sma9 > sma21), // اصطفاف صاعد كامل (كما هو)
     strongAligned,                                               // 🆕 اصطفاف EMA قوي (لرفع جودة 🎯)
@@ -728,16 +753,28 @@ function computeTech(bars) {
 
 // ════════════════ الأخبار اللحظية ════════════════
 async function fetchNews(symbol) {
+  // 1️⃣ نشوف إذا عندنا الأخبار في التخزين المؤقت
+  const cacheKey = `news-${symbol}`;
+  const cached = getCached(cacheKey, 120000); // دقيقتين للأخبار
+  if (cached) {
+    return cached;
+  }
+
   const url = `https://api.polygon.io/v2/reference/news?ticker=${symbol}&limit=3&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`;
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), 3500);
   try {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
-    if (!res.ok) return { ageH: null, sentiment: null, hasNews: false };
+    if (!res.ok) {
+      console.log(`❌ فشل جلب أخبار ${symbol}: ${res.status}`);
+      return { ageH: null, sentiment: null, hasNews: false };
+    }
     const data = await res.json();
     const results = data.results || [];
-    if (!results.length) return { ageH: null, sentiment: null, hasNews: false };
+    if (!results.length) {
+      return { ageH: null, sentiment: null, hasNews: false };
+    }
     const latest = results[0];
     const ageH = latest.published_utc ? (Date.now() - new Date(latest.published_utc).getTime()) / 3600000 : null;
     let sentiment = null;
@@ -745,8 +782,19 @@ async function fetchNews(symbol) {
       const ins = latest.insights.find(i => i.ticker === symbol);
       if (ins) sentiment = ins.sentiment;
     }
-    return { ageH: ageH != null ? +ageH.toFixed(1) : null, sentiment, hasNews: true };
-  } catch { clearTimeout(id); return { ageH: null, sentiment: null, hasNews: false }; }
+    const result = { 
+      ageH: ageH != null ? +ageH.toFixed(1) : null, 
+      sentiment, 
+      hasNews: true 
+    };
+    // 2️⃣ نحفظ في التخزين المؤقت
+    setCache(cacheKey, result);
+    return result;
+  } catch (err) {
+    clearTimeout(id);
+    console.log(`⚠️ خطأ في جلب أخبار ${symbol}: ${err.message}`);
+    return { ageH: null, sentiment: null, hasNews: false };
+  }
 }
 
 // ════════════════ 🔄 VIX Rank (لفلتر الارتداد) ════════════════════
@@ -796,12 +844,7 @@ async function saveSignals(signals) {
     is_target: s.is_target || false, news_age_h: s.news_age_h ?? null,
     vcp: s.vcp || false, vcp_contraction: s.vcp_contraction ?? null,   // 🆕 VCP (انكماش التذبذب)
     fresh_zone: s.fresh_zone || false,                                  // 🆕 دعم طازج
-    premarket_watch: s.premarket_watch || false,                        // 🆕 رصد مبكر (pre-market)
     structure: s.structure || null,   // 🆕 خريطة البنية كاملة (للبوت) — يتطلب عمود jsonb
-    // 🆕 تصنيف القناص (Sniper)
-    is_sniper: s.is_sniper || false,
-    sniper_type: s.sniper_type || null,
-    sniper_desc: s.sniper_desc || null,
     created_at: nowISO,   // وقت أول رصد — يثبت (يُكتب مرة واحدة عند أول إدخال)
   }));
   try {
@@ -821,7 +864,7 @@ async function saveSignals(signals) {
 // ════════════════ MAIN HANDLER ════════════════
 export default async function handler(req, res) {
   const t0 = Date.now();
-  const DEADLINE = t0 + 8500;   // 8.5ث — آمن تحت حد Hobby (10ث) مع هامش للجلب النهائي
+  const DEADLINE = t0 + 6500;   // ميزانية 6.5ث (حد Hobby 10ث) — مع مهلة الجلب 3.5ث للدفعة الأخيرة نبقى تحت 10ث
   const isSubscriber = req.query.sub === "1";
 
   try {
@@ -1073,46 +1116,20 @@ export default async function handler(req, res) {
       } else {
         // $1 فأعلى:
         if (tech) {
-          // ✅ عندنا تحليل فني كامل (من الشموع التاريخية — متاح حتى في pre-market):
-          //    نطبّق نفس بوابة الاتجاه الصارمة. هذا ما يميّزنا عن المواقع التي تفرز
-          //    "الأعلى ارتفاعاً/كمية" فقط — نحن نرصد القوة الفنية الحقيقية في أي وقت.
-          // بوابة الاتجاه: فوق MA21، أو قريب منها (±2%) مع زخم صاعd، أو ارتداد مبكر مؤكd
-          const nearMA21 = tech.sma21 && s.price >= tech.sma21 * 0.96;   // قريب من MA21 (تحتها بـ4% كحد)
-          const trendPass = tech.priceAboveMA21
-                         || (nearMA21 && tech.macd && tech.macd.bullish)
-                         || (tech.priceAboveEMA20 && tech.macd && tech.macd.bullish);
+          // عندنا بيانات → اتجاه صاعد: فوق MA21، أو ارتداد مبكّر فوق EMA20 + MACD صاعد
+          const trendPass = tech.priceAboveMA21 || (tech.priceAboveEMA20 && tech.macd && tech.macd.bullish);
           if (!trendPass) { s._drop = true; if (!s._dropReason) s._dropReason = "trend_gate"; }
-          else if (isPreMarket) { s.premarket_watch = true; }
         } else {
-          // لا شموع تاريخية كافية (سهم جديد/قليل التداول) → نرفض دائماً.
-          //    هؤلاء بالضبط من نتجنّبهم (لا تاريخ = لا تحليل = مخاطرة عمياء).
-          //    لا نخفّف هنا أبداً — الجودة الفنية شرط، لا استثناء حتى في pre-market.
-          s.ep = Math.min(s.ep, 60);
-          s._drop = true; if (!s._dropReason) s._dropReason = "no_tech";
+          // لا بيانات فنية (سهم جديد/تاريخ قصير) → ما نثق إلا بالمبكر
+          s.ep = Math.min(s.ep, 72);                 // سقف بدون تأكيد
+          if (s.changePct > 15) { s._drop = true; if (!s._dropReason) s._dropReason = "no_tech_ext"; }
+          else if (s.ep < 60) { s._drop = true; if (!s._dropReason) s._dropReason = "no_tech_lowep"; }
         }
       }
 
-      // 🆕 تصنيف القناص (Sniper) — أعلى جودة + زخم قوي
-      const isSniper = s.ep >= SNIPER.MIN_SCORE && 
-                       s.rvol >= SNIPER.MIN_RVOL &&
-                       s.changePct >= SNIPER.MIN_CHANGE &&
-                       s.changePct <= SNIPER.MAX_CHANGE &&
-                       s.volume >= SNIPER.MIN_VOLUME &&
-                       (!SNIPER.REQUIRE_VALID_ENTRY || (s.structure && s.structure.flag === "دخول صحيح ✅"));
-
-      s.is_sniper = isSniper;
-      if (isSniper) {
-        s.sniper_type = "🎯 قناص";
-        s.sniper_desc = `EP ${s.ep}% · RVOL ${s.rvol}x · تغيّر ${s.changePct}%`;
-        s.signal = "🎯 قناص";  // تغيير الإشارة لتظهر في الواجهة
-        s.is_hot = true;
-      }
-
       // إعادة تقييم HOT + الإشارة
-      if (!s.is_sniper) {
-        s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
-        s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
-      }
+      s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
+      s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
 
       // ── رصد مبكر ──
       const strongMA = ["تقاطع ذهبي 🌟", "صاعد قوي ⚡", "EMA صاعد"].includes(s.ma_signal);
@@ -1150,11 +1167,6 @@ export default async function handler(req, res) {
         s.signal = "🎯 الهدف";
         s.ep = Math.max(s.ep, 90);
         s.is_hot = true;
-        // إذا كان قناصاً ووصل للهدف، يبقى قناصاً
-        if (s.is_sniper) {
-          s.sniper_type = "🎯 قناص + هدف";
-          s.sniper_desc = `EP ${s.ep}% · RVOL ${s.rvol}x · هدف مؤكد`;
-        }
       }
     });
 
@@ -1163,7 +1175,6 @@ export default async function handler(req, res) {
     // الفرز مبنيّ على البنية: 🎯 نخبة → دخول صحيح → رصد مبكر → مقبول → زخم فقط → EP
     const tier = s => {
       if (s.is_target) return 5;                                          // نخبة (التقاء متعدّد الفريمات)
-      if (s.is_sniper) return 5;                                         // 🆕 القناص = أعلى درجة
       if (s.structure && s.structure.flag === "دخول صحيح ✅") return 4;   // دخول بنيوي صحيح
       if (s.early_watch) return 3;                                        // رصد مبكر
       if (s.structure && s.structure.flag === "مقبول") return 2;          // بنية مقبولة
@@ -1195,8 +1206,6 @@ export default async function handler(req, res) {
       timed_out:        top.filter(s => s._timedOut).length,        // لم يُحلّل (انتهت الميزانية)
       primary_confluence: top.filter(s => s._primaryConfluence).length,
       targets:          top.filter(s => s.is_target).length,
-      // 🆕 إحصائيات القناص
-      snipers:          top.filter(s => s.is_sniper).length,
       dropped_total:    top.filter(s => s._drop).length,
       dropped_late:     dropBy("late"),
       dropped_strict_gems: dropBy("strict_gems"),
@@ -1239,7 +1248,6 @@ export default async function handler(req, res) {
         target: survivors.filter(s => s.is_target).length,
         early:  survivors.filter(s => s.early_watch).length,
         rebound: survivors.filter(s => s.is_rebound).length,   // 🔄 عدد إشارات الارتداد
-        sniper: survivors.filter(s => s.is_sniper).length,     // 🆕 عدد إشارات القناص
         vix:    vixData.available ? { rank: vixRank, value: vixData.value } : { available: false },
         saved:  saveResult.saved || 0, saveResult,
         timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
@@ -1257,10 +1265,6 @@ export default async function handler(req, res) {
       levels_source: s.levels_source || "atr_basic", is_target: s.is_target || false,
       news_age_h: s.news_age_h ?? null,
       structure: s.structure || null,   // 🆕 مستويات البنية (Swing + فيبوناتشي)
-      // 🆕 تصنيف القناص
-      is_sniper: s.is_sniper || false,
-      sniper_type: s.sniper_type || null,
-      sniper_desc: s.sniper_desc || null,
     });
 
     const results     = survivors.map(toCard);
