@@ -434,15 +434,22 @@ export default function Admin() {
     } catch (err) { console.error(err); }
   };
 
-  // 🔍 تدقيق المطابقة: كم إشارة عُرضت فعلاً في الرادار؟
+  // 🔍 تدقيق المطابقة
   const runAudit = async () => {
     setAuditBusy(true); setAudit(null);
     try {
-      // 1️⃣ جلب الإشارات المعروضة في الرادار (من /api/scan?light=1)
+      // 1️⃣ جلب إشارات اليوم من قاعدة البيانات
+      const today = new Date().toISOString().split('T')[0];
+      const all = summary?.signals || signals || [];
+      const todaySignals = all.filter(s => {
+        const d = s.created_at ? s.created_at.split('T')[0] : null;
+        return d === today || s.signal_date === today;
+      });
+      const todaySymbols = [...new Set(todaySignals.map(s => s.symbol).filter(Boolean))];
+
+      // 2️⃣ جلب المعروض في الرادار حالياً
       const scanRes = await fetch("/api/scan?light=1");
       const scanData = scanRes.ok ? await scanRes.json() : {};
-      
-      // استخراج الرموز المعروضة من جميع الأقسام
       const shownSymbols = [];
       if (scanData.results) {
         shownSymbols.push(...scanData.results.map(r => r.symbol).filter(Boolean));
@@ -456,30 +463,74 @@ export default function Admin() {
       }
       const uniqueShown = [...new Set(shownSymbols)];
 
-      // 2️⃣ جلب جميع الإشارات من التقرير (قاعدة البيانات)
-      const all = summary?.signals || signals || [];
-      const uniqueReport = [...new Set(all.map(s => s.symbol).filter(Boolean))];
+      // 3️⃣ حساب الإحصائيات
+      const displayed = todaySymbols.filter(sym => uniqueShown.includes(sym));
+      const notDisplayed = todaySymbols.filter(sym => !uniqueShown.includes(sym));
 
-      // 3️⃣ كم إشارة عُرضت فعلاً؟
-      const displayedInRadar = uniqueShown.length;
-      const totalInReport = uniqueReport.length;
-      const notDisplayed = uniqueReport.filter(sym => !uniqueShown.includes(sym));
+      // 4️⃣ أداء الإشارات
+      const closed = todaySignals.filter(s => s.status === "CLOSED");
+      const hit = closed.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
+      const stopHit = closed.filter(s => s.stop_hit && !s.target1_hit);
+      const totalClosed = closed.length;
+      const winRate = totalClosed > 0 ? Math.round((hit.length / totalClosed) * 100) : 0;
 
-      // 4️⃣ تفاصيل الإشارات المعروضة وغير المعروضة
-      const displayedSymbols = uniqueShown;
-      const notDisplayedSymbols = notDisplayed;
+      // أفضل الصفقات
+      const bestTrades = [...hit]
+        .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
+        .slice(0, 6)
+        .map(s => ({
+          symbol: s.symbol,
+          gain: (s.max_gain_pct || 0).toFixed(2),
+          target: s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅",
+          entry: s.entry_price,
+          targetPrice: s.target1,
+          caughtAt: s.created_at,
+          hitAt: s.target1_hit_at,
+        }));
+
+      // متوسط الربح والخسارة
+      const avgGain = hit.length > 0 ? (hit.reduce((a, s) => a + (s.max_gain_pct || 0), 0) / hit.length).toFixed(2) : 0;
+      const avgLoss = stopHit.length > 0 ? (stopHit.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0) / stopHit.length).toFixed(2) : 0;
+      const totalGain = hit.reduce((a, s) => a + (s.max_gain_pct || 0), 0);
+      const totalLoss = stopHit.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0);
+      const profitFactor = totalLoss > 0 ? (totalGain / totalLoss).toFixed(2) : "0.00";
+
+      // توزيع حسب النوع
+      const byType = {};
+      for (const s of closed) {
+        const type = s.type || "مضاربة";
+        if (!byType[type]) byType[type] = { total: 0, win: 0 };
+        byType[type].total++;
+        if (s.target1_hit || s.target2_hit || s.target3_hit) byType[type].win++;
+      }
+      for (const type in byType) {
+        byType[type].rate = byType[type].total > 0 ? Math.round((byType[type].win / byType[type].total) * 100) : 0;
+      }
 
       setAudit({
-        summary: {
-          totalInReport,
-          displayedInRadar,
+        today: {
+          total: todaySymbols.length,
+          displayed: displayed.length,
           notDisplayed: notDisplayed.length,
-          displayRate: totalInReport > 0 ? Math.round((displayedInRadar / totalInReport) * 100) : 0,
+          displayRate: todaySymbols.length > 0 ? Math.round((displayed.length / todaySymbols.length) * 100) : 0,
+          symbols: todaySymbols,
+          displayedSymbols: displayed,
+          notDisplayedSymbols: notDisplayed,
         },
-        details: {
-          displayedSymbols,
-          notDisplayedSymbols,
-          allSymbols: uniqueReport,
+        performance: {
+          totalDisplayed: todaySymbols.length,
+          hitT1: closed.filter(s => s.target1_hit).length,
+          hitT2: closed.filter(s => s.target2_hit).length,
+          hitT3: closed.filter(s => s.target3_hit).length,
+          totalHits: hit.length,
+          stopHit: stopHit.length,
+          totalClosed,
+          winRate,
+          avgGain: parseFloat(avgGain),
+          avgLoss: parseFloat(avgLoss),
+          profitFactor: parseFloat(profitFactor),
+          bestTrades,
+          byType,
         },
         ts: new Date(),
       });
@@ -632,6 +683,69 @@ export default function Admin() {
     showToast(`✅ نُسخ (${tradable.length} إنجاز · استُبعد ${winsList.length - tradable.length} قبل السوق)`, "ok");
   };
 
+  // 🐦 نسخ تقرير التغريدة مع الأسعار والأوقات
+  const copyTweetReport = () => {
+    const today = new Date().toLocaleDateString("ar-SA");
+    const allSignals = summary?.signals || signals || [];
+    const todaySignals = allSignals.filter(s => {
+      const d = s.created_at ? s.created_at.split('T')[0] : null;
+      const todayStr = new Date().toISOString().split('T')[0];
+      return d === todayStr || s.signal_date === todayStr;
+    });
+    const closed = todaySignals.filter(s => s.status === "CLOSED");
+    const hit = closed.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
+    const stp = closed.filter(s => s.stop_hit && !s.target1_hit);
+    const total = hit.length + stp.length;
+    const rate = total > 0 ? Math.round((hit.length / total) * 100) : 0;
+    const totalGain = hit.reduce((a, s) => a + (s.max_gain_pct || 0), 0);
+    const totalLoss = stp.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0);
+    const pf = totalLoss > 0 ? (totalGain / totalLoss).toFixed(2) : "0.00";
+
+    const topGainers = [...hit]
+      .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
+      .slice(0, 6);
+
+    let tweet = `📡 تقرير رادار الأسهم - ${today}\n`;
+    tweet += `🕐 الفترة: 3م - 11م (السعودية)\n`;
+    tweet += `─────────────────────\n`;
+    tweet += `📈 الإشارات المعروضة: ${closed.length}\n`;
+    tweet += `✅ وصلت هدف: ${hit.length} (${rate}%)\n`;
+    tweet += `❌ ضربت وقف: ${stp.length}\n`;
+    tweet += `💰 Profit Factor: ${pf}×\n`;
+    tweet += `─────────────────────\n`;
+    tweet += `🏆 أبرز الصفقات:\n\n`;
+
+    topGainers.forEach(s => {
+      const tier = s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅";
+      const gain = (s.max_gain_pct || 0).toFixed(2);
+      const entry = (s.entry_price || 0).toFixed(2);
+      const target = (s.target1 || 0).toFixed(2);
+      
+      const caughtDate = s.created_at ? new Date(new Date(s.created_at).getTime() + 3 * 3600 * 1000) : null;
+      const caughtTime = caughtDate ? `${String(caughtDate.getUTCHours()).padStart(2, "0")}:${String(caughtDate.getUTCMinutes()).padStart(2, "0")}` : "—";
+      
+      const hitDate = s.target1_hit_at ? new Date(new Date(s.target1_hit_at).getTime() + 3 * 3600 * 1000) : null;
+      const hitTime = hitDate ? `${String(hitDate.getUTCHours()).padStart(2, "0")}:${String(hitDate.getUTCMinutes()).padStart(2, "0")}` : "—";
+
+      tweet += `$${s.symbol}  +${gain}%  (${tier})\n`;
+      tweet += `   📅 التقط: ${caughtTime} @ $${entry}\n`;
+      if (hitTime !== "—") {
+        tweet += `   ✅ الهدف: ${hitTime} @ $${target}\n`;
+      }
+      tweet += `\n`;
+    });
+
+    tweet += `─────────────────────\n`;
+    tweet += `✅ جميع الأسهم المعروضة ظهرت للمشتركين\n`;
+    tweet += `🔗 radaraz.com`;
+
+    navigator.clipboard?.writeText(tweet).then(() => {
+      showToast("✅ تم نسخ تقرير التغريدة!", "ok");
+    }).catch(() => {
+      setTweetText(tweet);
+    });
+  };
+
   const hotCount  = signals.filter(s => s.is_hot).length;
   const newsCount = signals.filter(s => s.news_age_h != null && s.news_age_h <= 24).length;
 
@@ -721,7 +835,6 @@ export default function Admin() {
     <div style={S.root} dir="rtl">
       <div style={S.box}>
 
-        {/* ── Header ── */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 900, color: "#818cf8", display: "flex", alignItems: "center", gap: 10 }}>
@@ -742,7 +855,6 @@ export default function Admin() {
           </div>
         </div>
 
-        {/* ── Scan stats strip ── */}
         {scanStats && (
           <div style={{ marginBottom: 16, padding: "10px 16px", borderRadius: 10, background: "rgba(52,211,153,.08)", border: "1px solid rgba(52,211,153,.2)", display: "flex", gap: 20, fontSize: 12, color: "#34d399", flexWrap: "wrap" }}>
             <span>✅ <strong>{scanStats.total}</strong> إشارة</span>
@@ -751,7 +863,6 @@ export default function Admin() {
           </div>
         )}
 
-        {/* ── Tabs ── */}
         <div style={{ display: "flex", gap: 0, marginBottom: 24, borderBottom: "1px solid rgba(255,255,255,.08)" }}>
           {[
             { id: "dashboard", label: "🎯 لوحة القيادة" },
@@ -769,7 +880,6 @@ export default function Admin() {
           ))}
         </div>
 
-        {/* ════════ TAB: DASHBOARD ════════ */}
         {activeTab === "dashboard" && (
           <>
             {dashLoading && <div style={{ textAlign: "center", color: "rgba(255,255,255,.4)", padding: 40 }}>⟳ جاري تحميل المؤشرات...</div>}
@@ -863,7 +973,6 @@ export default function Admin() {
           </>
         )}
 
-        {/* ════════ TAB: SIGNALS ════════ */}
         {activeTab === "signals" && (
           <>
             <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
@@ -941,7 +1050,6 @@ export default function Admin() {
           </>
         )}
 
-        {/* ════════ TAB: RESULTS ════════ */}
         {activeTab === "results" && (
           <>
             {loading && <div style={{ textAlign: "center", color: "#334155", padding: 30 }}>جاري التحميل...</div>}
@@ -951,7 +1059,7 @@ export default function Admin() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#a5b4fc" }}>🔍 تدقيق المطابقة</div>
-                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>كم إشارة عُرضت فعلاً في الرادار؟</div>
+                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>هل كل سهم معروض للمشترك موجود في التقرير؟</div>
                 </div>
                 <button onClick={runAudit} disabled={auditBusy} style={S.btn(auditBusy ? "rgba(255,255,255,.06)" : "rgba(99,102,241,.25)")}>
                   {auditBusy ? "⟳ جاري الفحص..." : "▶ افحص الآن"}
@@ -961,34 +1069,34 @@ export default function Admin() {
                 <div style={{ marginTop: 12 }}>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <div style={{ flex: 1, minWidth: 80, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(99,102,241,.08)", border: "1px solid rgba(99,102,241,.2)" }}>
-                      <div style={{ fontSize: 20, fontWeight: 900, color: "#818cf8" }}>{audit.summary.totalInReport}</div>
-                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>📊 في التقرير</div>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#818cf8" }}>{audit.today.total}</div>
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>📊 إشارات اليوم</div>
                     </div>
                     <div style={{ flex: 1, minWidth: 80, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(52,211,153,.08)", border: "1px solid rgba(52,211,153,.2)" }}>
-                      <div style={{ fontSize: 20, fontWeight: 900, color: "#34d399" }}>{audit.summary.displayedInRadar}</div>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#34d399" }}>{audit.today.displayed}</div>
                       <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>✅ عُرضت في الرادار</div>
                     </div>
                     <div style={{ flex: 1, minWidth: 80, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(248,113,113,.08)", border: "1px solid rgba(248,113,113,.2)" }}>
-                      <div style={{ fontSize: 20, fontWeight: 900, color: "#f87171" }}>{audit.summary.notDisplayed}</div>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#f87171" }}>{audit.today.notDisplayed}</div>
                       <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>❌ لم تُعرض</div>
                     </div>
                     <div style={{ flex: 1, minWidth: 80, textAlign: "center", padding: "10px 8px", borderRadius: 10, background: "rgba(251,191,36,.08)", border: "1px solid rgba(251,191,36,.2)" }}>
-                      <div style={{ fontSize: 20, fontWeight: 900, color: "#fbbf24" }}>{audit.summary.displayRate}%</div>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: "#fbbf24" }}>{audit.today.displayRate}%</div>
                       <div style={{ fontSize: 10, color: "#64748b", marginTop: 3 }}>نسبة العرض</div>
                     </div>
                   </div>
-                  {audit.summary.notDisplayed > 0 && (
+                  {audit.today.notDisplayed > 0 && (
                     <div style={{ marginTop: 10, padding: "10px 12px", background: "rgba(248,113,113,.06)", borderRadius: 8, border: "1px solid rgba(248,113,113,.15)" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#f87171", marginBottom: 4 }}>❌ الأسهم اللي ما عُرضت:</div>
                       <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.6 }}>
-                        {audit.details.notDisplayedSymbols.join(" · ") || "—"}
+                        {audit.today.notDisplayedSymbols.join(" · ") || "—"}
                       </div>
                       <div style={{ fontSize: 10, color: "#64748b", marginTop: 6 }}>
                         💡 سبب عدم العرض: EP أقل من 60، أو لم تستوفِ شروط الفلترة وقت المسح
                       </div>
                     </div>
                   )}
-                  {audit.summary.displayRate >= 80 && (
+                  {audit.today.displayRate >= 80 && (
                     <div style={{ fontSize: 12, color: "#34d399", marginTop: 10, fontWeight: 600 }}>
                       ✅ نسبة عرض ممتازة — أكثر من 80% من الإشارات ظهرت للمشتركين
                     </div>
@@ -1003,7 +1111,112 @@ export default function Admin() {
               )}
             </div>
 
-            <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+            {/* 📊 تقرير أداء الرادار - اليوم */}
+            {audit && audit.performance && (
+              <div style={{ 
+                marginTop: 18, 
+                padding: "16px 18px", 
+                borderRadius: 14, 
+                background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(52,211,153,0.06))",
+                border: "1px solid rgba(99,102,241,0.25)" 
+              }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: "#818cf8", marginBottom: 4 }}>
+                  📊 تقرير أداء الرادار - اليوم
+                </div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 12 }}>
+                  الفترة: 3 مساءً - 11 مساءً (بتوقيت السعودية)
+                </div>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+                  <div style={{ textAlign: "center", padding: "10px", background: "rgba(255,255,255,.04)", borderRadius: 10 }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#818cf8" }}>{audit.performance.totalDisplayed}</div>
+                    <div style={{ fontSize: 10, color: "#64748b" }}>إجمالي الإشارات</div>
+                  </div>
+                  <div style={{ textAlign: "center", padding: "10px", background: "rgba(52,211,153,.08)", borderRadius: 10 }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#34d399" }}>{audit.performance.winRate}%</div>
+                    <div style={{ fontSize: 10, color: "#64748b" }}>نسبة النجاح</div>
+                  </div>
+                  <div style={{ textAlign: "center", padding: "10px", background: "rgba(251,191,36,.08)", borderRadius: 10 }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#fbbf24" }}>{audit.performance.profitFactor}×</div>
+                    <div style={{ fontSize: 10, color: "#64748b" }}>Profit Factor</div>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+                  <div style={{ textAlign: "center", padding: "8px", background: "rgba(52,211,153,.08)", borderRadius: 8 }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#34d399" }}>{audit.performance.hitT1}</div>
+                    <div style={{ fontSize: 9, color: "#64748b" }}>T1 ✅</div>
+                  </div>
+                  <div style={{ textAlign: "center", padding: "8px", background: "rgba(251,191,36,.08)", borderRadius: 8 }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#fbbf24" }}>{audit.performance.hitT2}</div>
+                    <div style={{ fontSize: 9, color: "#64748b" }}>T2 🎯</div>
+                  </div>
+                  <div style={{ textAlign: "center", padding: "8px", background: "rgba(192,132,252,.08)", borderRadius: 8 }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#c084fc" }}>{audit.performance.hitT3}</div>
+                    <div style={{ fontSize: 9, color: "#64748b" }}>T3 🏆</div>
+                  </div>
+                  <div style={{ textAlign: "center", padding: "8px", background: "rgba(248,113,113,.08)", borderRadius: 8 }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#f87171" }}>{audit.performance.stopHit}</div>
+                    <div style={{ fontSize: 9, color: "#64748b" }}>وقف ❌</div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+                  <div style={{ flex: 1, padding: "8px 12px", background: "rgba(52,211,153,.08)", borderRadius: 8, textAlign: "center" }}>
+                    <span style={{ fontSize: 11, color: "#64748b" }}>📈 متوسط الربح</span>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: "#34d399", display: "block" }}>+{audit.performance.avgGain}%</span>
+                  </div>
+                  <div style={{ flex: 1, padding: "8px 12px", background: "rgba(248,113,113,.08)", borderRadius: 8, textAlign: "center" }}>
+                    <span style={{ fontSize: 11, color: "#64748b" }}>📉 متوسط الخسارة</span>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: "#f87171", display: "block" }}>{audit.performance.avgLoss}%</span>
+                  </div>
+                  <div style={{ flex: 1, padding: "8px 12px", background: "rgba(251,191,36,.08)", borderRadius: 8, textAlign: "center" }}>
+                    <span style={{ fontSize: 11, color: "#64748b" }}>💰 Profit Factor</span>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: "#fbbf24", display: "block" }}>{audit.performance.profitFactor}×</span>
+                  </div>
+                </div>
+
+                {audit.performance.bestTrades && audit.performance.bestTrades.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#fbbf24", marginBottom: 4 }}>🏆 أفضل الصفقات اليوم</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
+                      {audit.performance.bestTrades.map((t, i) => (
+                        <span key={i}>
+                          {t.symbol} +{t.gain}% ({t.target})
+                          {i < audit.performance.bestTrades.length - 1 ? "  ·  " : ""}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {audit.performance.byType && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#818cf8", marginBottom: 4 }}>📊 توزيع الصفقات حسب النوع</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
+                      {Object.entries(audit.performance.byType).map(([type, data], i) => (
+                        <span key={type}>
+                          {type}: {data.rate}% نجاح ({data.win}/{data.total})
+                          {i < Object.entries(audit.performance.byType).length - 1 ? "  ·  " : ""}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 🐦 زر نسخ تقرير التغريدة */}
+            <div style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <button 
+                onClick={copyTweetReport}
+                style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")}
+              >
+                🐦 نسخ تقرير التغريدة
+              </button>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", marginTop: 16 }}>
               {[
                 { label: "T1 ✅", value: t1,  color: "#34d399" },
                 { label: "T2 🎯", value: t2,  color: "#fbbf24" },
@@ -1119,7 +1332,6 @@ export default function Admin() {
           </>
         )}
 
-        {/* ════════ TAB: SUBSCRIBERS ════════ */}
         {activeTab === "subscribers" && (
           <>
             <div style={{ maxWidth: 460, margin: "0 auto" }}>
@@ -1172,7 +1384,6 @@ export default function Admin() {
           </>
         )}
 
-        {/* ════════ TAB: AFFILIATES ════════ */}
         {activeTab === "affiliates" && (
           <>
             {affLoading && <div style={{ textAlign: "center", color: "#334155", padding: 30 }}>جاري التحميل...</div>}
