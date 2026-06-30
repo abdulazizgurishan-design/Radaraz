@@ -1,0 +1,379 @@
+/* styles/globals.css */
+/* ───────────────────────────────────────────── */
+/*  التنسيقات العامة للمشروع + تنسيقات المفضلة */
+/* ───────────────────────────────────────────── */
+
+/* تنسيقات صفحة المفضلة */
+.favorites-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.favorites-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.favorites-header h1 {
+  margin: 0;
+  font-size: 28px;
+  color: #1a1a2e;
+}
+
+.count {
+  background: #f0f0f0;
+  padding: 4px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  color: #666;
+}
+
+.refresh-btn {
+  padding: 8px 24px;
+  border: none;
+  border-radius: 8px;
+  background: #0070f3;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.3s ease;
+}
+
+.refresh-btn:hover {
+  background: #0051a2;
+}
+
+.favorites-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 20px;
+}
+
+.favorite-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+  transition: all 0.3s ease;
+  border: 1px solid #f0f0f0;
+}
+
+.favorite-card:hover {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+  transform: translateY(-2px);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.symbol {
+  font-size: 24px;
+  font-weight: bold;
+  color: #1a1a2e;
+}
+
+.status {
+  padding: 4px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status.active {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.status.achieved {
+  background: #e8f5e9;
+  color: #388e3c;
+}
+
+.price-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 10px;
+  margin-bottom: 15px;
+  padding: 10px;
+  background: #fafafa;
+  border-radius: 8px;
+}
+
+.price-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.price-item .label {
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.price-item .value {
+  font-size: 18px;
+  font-weight: bold;
+  margin-top: 2px;
+}
+
+.price-item.change {
+  text-align: right;
+}
+
+.change-value {
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.change-value.green { color: #22c55e; }
+.change-value.red { color: #ef4444; }
+
+.targets-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.target {
+  background: #f8f9fa;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid #e8e8e8;
+}
+
+.target.stop-loss {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 15px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.date {
+  font-size: 13px;
+  color: #888;
+}
+
+.delete-btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #dc2626;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.3s ease;
+}
+
+.delete-btn:hover {
+  background: #fecaca;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  background: #fafafa;
+  border-radius: 16px;
+}
+
+.empty-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+}
+
+.empty-state h2 {
+  color: #1a1a2e;
+  margin-bottom: 10px;
+}
+
+.empty-state p {
+  color: #888;
+  margin-bottom: 20px;
+}
+
+.go-back {
+  display: inline-block;
+  padding: 12px 40px;
+  background: #0070f3;
+  color: white;
+  border-radius: 10px;
+  text-decoration: none;
+  font-weight: 500;
+  transition: background 0.3s ease;
+}
+
+.go-back:hover {
+  background: #0051a2;
+}
+
+.loading, .error {
+  text-align: center;
+  padding: 60px 20px;
+  font-size: 18px;
+}
+
+.error {
+  color: #dc2626;
+}
+
+/* زر المفضلة في بطاقة السهم */
+.favorite-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s ease;
+  background: #f0f0f0;
+  color: #333;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.favorite-btn:hover {
+  transform: scale(1.02);
+}
+
+.favorite-btn.active {
+  background: #ffd700;
+  color: #000;
+  box-shadow: 0 2px 10px rgba(255, 215, 0, 0.3);
+}
+
+.favorite-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* استجابة للجوال */
+@media (max-width: 768px) {
+  .favorites-header {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+  
+  .favorites-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .price-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  
+  .price-item.change {
+    text-align: left;
+    grid-column: span 2;
+  }
+}
+
+/* تنسيقات البطاقة الرئيسية (StockCard) */
+.stock-card {
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  border: 1px solid #f0f0f0;
+  transition: all 0.3s ease;
+}
+
+.stock-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+}
+
+.stock-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.stock-header .symbol {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.stock-header .price {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.stock-header .change {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.stock-header .change.positive {
+  color: #22c55e;
+}
+
+.stock-header .change.negative {
+  color: #ef4444;
+}
+
+.stock-info {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 10px;
+  padding: 8px 0;
+  border-top: 1px solid #f5f5f5;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.stock-info .info-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.stock-info .label {
+  font-size: 10px;
+  color: #999;
+  text-transform: uppercase;
+}
+
+.stock-info .value {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.stock-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.stock-levels .level {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  background: #f8f9fa;
+  border: 1px solid #eee;
+}
+
+.stock-levels .level.target1 { border-color: #22c55e; }
+.stock-levels .level.target2 { border-color: #3b82f6; }
+.stock-levels .level.target3 { border-color: #8b5cf6; }
+.stock-levels .level.stop-loss { border-color: #ef4444; background: #fef2f2; }
