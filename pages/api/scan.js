@@ -323,14 +323,38 @@ const REBOUND = {
 };
 
 // عائد آخر ~3 شهور من شموع يومية (يثبت أن السهم قوي فعلاً، مو ضعيف رأس المال)
+// 🆕 محمي من القيم الشاذة (تجزئة الأسهم split / بيانات خاطئة) التي تُنتج نسباً خيالية (مثل 651%)
 function return3M(dailyCloses) {
   if (!dailyCloses || dailyCloses.length < 40) return null;
   const now = dailyCloses[dailyCloses.length - 1];
-  // ~63 يوم تداول = 3 شهور (أو أقدم متاح إن أقل)
-  const idx = Math.max(0, dailyCloses.length - 63);
+  const idx = Math.max(0, dailyCloses.length - 63);   // ~63 يوم = 3 شهور
   const then = dailyCloses[idx];
   if (!then || then <= 0) return null;
-  return ((now - then) / then) * 100;
+
+  // 🛡️ حارس التجزئة/الشذوذ: نتحقق من القفزات المفاجئة بين الشموع المتتالية.
+  //    قفزة >40% بين يومين متتاليين = غالباً تجزئة أسهم (split) أو خطأ بيانات، لا حركة حقيقية.
+  //    في هذه الحالة نستخدم نافذة أقصر موثوقة (آخر 20 يوماً) بدل النافذة المشوّهة.
+  let hasSplitAnomaly = false;
+  for (let i = idx + 1; i < dailyCloses.length; i++) {
+    const prev = dailyCloses[i - 1], cur = dailyCloses[i];
+    if (prev > 0 && cur > 0) {
+      const jump = Math.abs(cur - prev) / prev;
+      if (jump > 0.40) { hasSplitAnomaly = true; break; }   // قفزة شاذة بين يومين
+    }
+  }
+
+  let base = then;
+  if (hasSplitAnomaly) {
+    // نافذة قصيرة موثوقة (آخر 20 يوماً) تتجنّب التشويه التاريخي
+    const shortIdx = Math.max(0, dailyCloses.length - 20);
+    base = dailyCloses[shortIdx];
+    if (!base || base <= 0) return null;
+  }
+
+  const ret = ((now - base) / base) * 100;
+  // 🛡️ سقف منطقي: عائد >300% في 3 شهور شبه مستحيل لسهم حقيقي = بيانات مشكوكة → نتجاهله
+  if (ret > 300 || ret < -95) return null;
+  return ret;
 }
 
 // يحدّد إن كان السهم مرشّحاً لفلتر الارتداد:
