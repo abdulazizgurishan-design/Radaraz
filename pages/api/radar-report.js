@@ -1,6 +1,6 @@
 // pages/api/radar-report.js
 // ─────────────────────────────────────────────
-//  تقرير الرادار المتكامل - يقرأ كل الإشارات
+//  تقرير الرادار - يقرأ كل الإشارات المسجلة
 // ─────────────────────────────────────────────
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -10,40 +10,31 @@ const MIN_EP = 60;
 export default async function handler(req, res) {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const saudiNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
-    const dateStr = saudiNow.toLocaleDateString("ar-SA", {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
 
-    // 1️⃣ جلب جميع إشارات اليوم (المفتوحة والمقفلة)
+    // 1️⃣ جلب جميع إشارات اليوم
     const r = await fetch(`${SUPABASE_URL}/rest/v1/signals?signal_date=eq.${today}&select=*&order=created_at.desc`, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     });
     const allSignals = await r.json();
 
-    // 2️⃣ جلب سجل الرادار اليومي (المعروضة في الرادار)
+    // 2️⃣ جلب سجل الرادار اليومي (كل الإشارات المعروضة)
     const logRes = await fetch(`${SUPABASE_URL}/rest/v1/daily_logs?date=eq.${today}&select=*`, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     });
     const logs = await logRes.json();
     const log = logs?.[0]?.log_data || { signals: [] };
 
-    // 3️⃣ الإشارات المعروضة في الرادار (من daily_logs)
+    // 3️⃣ الإشارات القوية المعروضة (EP ≥ 60)
     const displayedSymbols = log.signals
       .filter(s => (s.ep || 0) >= MIN_EP)
       .map(s => s.symbol);
 
-    // 4️⃣ الإشارات القوية (EP ≥ 60) المعروضة
     const displayedSignals = allSignals.filter(s =>
       displayedSymbols.includes(s.symbol) && (s.ep || s.score || 0) >= MIN_EP
     );
 
-    // 5️⃣ تحليل الإشارات المعروضة فقط
+    // 4️⃣ تحليل الإشارات المعروضة فقط
     const closed = displayedSignals.filter(s => s.status === "CLOSED");
-    const open = displayedSignals.filter(s => s.status === "OPEN");
     const hit = closed.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
     const stopHit = closed.filter(s => s.stop_hit && !s.target1_hit);
     const totalClosed = closed.length;
@@ -53,7 +44,7 @@ export default async function handler(req, res) {
     const totalLoss = stopHit.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0);
     const profitFactor = totalLoss > 0 ? (totalGain / totalLoss).toFixed(2) : "0.00";
 
-    // 6️⃣ أفضل الصفقات
+    // 5️⃣ أفضل الصفقات
     const topGainers = [...hit]
       .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
       .slice(0, 6)
@@ -67,13 +58,12 @@ export default async function handler(req, res) {
         hitAt: s.target1_hit_at,
       }));
 
-    // 7️⃣ التقرير النهائي المتكامل
+    // 6️⃣ التقرير النهائي
     const report = {
-      date: dateStr,
+      date: today,
       summary: {
         totalSignals: allSignals.length,
         displayedInRadar: displayedSignals.length,
-        open: open.length,
         closed: totalClosed,
         hit: hit.length,
         stopHit: stopHit.length,
