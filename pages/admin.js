@@ -389,6 +389,7 @@ export default function Admin() {
   const [datePeriod, setDatePeriod] = useState("today");
   const [audit, setAudit] = useState(null);
   const [auditBusy, setAuditBusy] = useState(false);
+  const [radarReport, setRadarReport] = useState(null);
 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -414,6 +415,7 @@ export default function Admin() {
       setDate(today.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
       fetchSummary();
       fetchSignals();
+      fetchRadarReport();
     }
   }, [auth]);
 
@@ -432,6 +434,18 @@ export default function Admin() {
       const data = await res.json();
       setSignals(data?.signals || []);
     } catch (err) { console.error(err); }
+  };
+
+  const fetchRadarReport = async () => {
+    try {
+      const res = await fetch("/api/radar-report");
+      const data = await res.json();
+      if (data.success) {
+        setRadarReport(data.report);
+      }
+    } catch (err) {
+      console.error("خطأ في جلب تقرير الرادار:", err);
+    }
   };
 
   // 🔍 تدقيق المطابقة
@@ -568,6 +582,7 @@ export default function Admin() {
         showToast(`✅ مسح اكتمل — ${data.total} إشارة · ${data.hot} HOT · ${data.saved} محفوظ`, "ok");
         await fetchSummary();
         await fetchSignals();
+        await fetchRadarReport();
       } else {
         showToast(`❌ خطأ: ${data.error}`, "err");
       }
@@ -866,7 +881,7 @@ export default function Admin() {
             <button style={S.btn("linear-gradient(135deg,#10b981,#059669)")} onClick={runScan} disabled={scanning}>
               {scanning ? "⏳ جاري المسح..." : "📡 تشغيل المسح"}
             </button>
-            <button style={S.btn("rgba(255,255,255,.08)")} onClick={() => { fetchSummary(); fetchSignals(); }}>
+            <button style={S.btn("rgba(255,255,255,.08)")} onClick={() => { fetchSummary(); fetchSignals(); fetchRadarReport(); }}>
               🔄 تحديث
             </button>
           </div>
@@ -1221,6 +1236,95 @@ export default function Admin() {
               </div>
             )}
 
+            {/* 📊 تقرير الرادار اليومي */}
+            <div style={{ marginTop: 18, padding: "16px 18px", borderRadius: 14, background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.2)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "#a5b4fc" }}>📊 تقرير الرادار اليومي</div>
+                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>جميع الإشارات التي عُرضت للمشتركين</div>
+                </div>
+                <button 
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('/api/radar-report');
+                      const data = await res.json();
+                      if (data.success) {
+                        setRadarReport(data.report);
+                        showToast('✅ تم تحديث التقرير', 'ok');
+                      } else {
+                        showToast('❌ فشل جلب التقرير', 'error');
+                      }
+                    } catch {
+                      showToast('❌ خطأ في الاتصال', 'error');
+                    }
+                  }}
+                  style={S.btn("rgba(99,102,241,0.25)")}
+                >
+                  🔄 تحديث
+                </button>
+              </div>
+              
+              {radarReport ? (
+                <div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+                    <div style={{ textAlign: "center", padding: "10px", background: "rgba(129,140,248,0.08)", borderRadius: 10 }}>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: "#818cf8" }}>{radarReport.summary.totalSignals}</div>
+                      <div style={{ fontSize: 9, color: "#64748b" }}>إجمالي الإشارات</div>
+                    </div>
+                    <div style={{ textAlign: "center", padding: "10px", background: "rgba(52,211,153,0.08)", borderRadius: 10 }}>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: "#34d399" }}>{radarReport.summary.displayedInRadar}</div>
+                      <div style={{ fontSize: 9, color: "#64748b" }}>عُرضت في الرادار</div>
+                    </div>
+                    <div style={{ textAlign: "center", padding: "10px", background: "rgba(251,191,36,0.08)", borderRadius: 10 }}>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: "#fbbf24" }}>{radarReport.summary.displayRate}%</div>
+                      <div style={{ fontSize: 9, color: "#64748b" }}>نسبة العرض</div>
+                    </div>
+                    <div style={{ textAlign: "center", padding: "10px", background: "rgba(52,211,153,0.08)", borderRadius: 10 }}>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: "#34d399" }}>{radarReport.summary.winRate}%</div>
+                      <div style={{ fontSize: 9, color: "#64748b" }}>نسبة النجاح</div>
+                    </div>
+                  </div>
+                  
+                  <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+                    <div style={{ flex: 1, background: "rgba(52,211,153,0.06)", padding: "10px", borderRadius: 10, textAlign: "center" }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#34d399" }}>{radarReport.summary.hit}</div>
+                      <div style={{ fontSize: 9, color: "#64748b" }}>✅ وصلت هدف</div>
+                    </div>
+                    <div style={{ flex: 1, background: "rgba(248,113,113,0.06)", padding: "10px", borderRadius: 10, textAlign: "center" }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171" }}>{radarReport.summary.stopHit}</div>
+                      <div style={{ fontSize: 9, color: "#64748b" }}>❌ ضربت وقف</div>
+                    </div>
+                    <div style={{ flex: 1, background: "rgba(251,191,36,0.06)", padding: "10px", borderRadius: 10, textAlign: "center" }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24" }}>{radarReport.summary.profitFactor}×</div>
+                      <div style={{ fontSize: 9, color: "#64748b" }}>💰 Profit Factor</div>
+                    </div>
+                  </div>
+                  
+                  {radarReport.topGainers && radarReport.topGainers.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24", marginBottom: 6 }}>🏆 أفضل الصفقات اليوم</div>
+                      {radarReport.topGainers.slice(0, 5).map((s, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: 4 }}>
+                          <span style={{ fontFamily: "monospace", color: "#e2e8f0" }}>{s.symbol}</span>
+                          <span style={{ color: "#34d399", fontWeight: 700 }}>+{s.gain}%</span>
+                          <span style={{ color: "#fbbf24", fontSize: 11 }}>{s.target}</span>
+                          <span style={{ color: "#64748b", fontSize: 11 }}>{s.caughtAt ? new Date(s.caughtAt).toLocaleTimeString() : ""}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div style={{ fontSize: 11, color: "#34d399", marginTop: 10, fontWeight: 600 }}>
+                    ✅ جميع الأسهم المعروضة ظهرت للمشتركين
+                  </div>
+                </div>
+              ) : (
+                <div style={{ textAlign: "center", padding: "20px", color: "#64748b", fontSize: 13 }}>
+                  اضغط "تحديث" لعرض التقرير
+                </div>
+              )}
+            </div>
+
             <div style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <button 
                 onClick={copyTweetReport}
@@ -1505,4 +1609,3 @@ export default function Admin() {
     </div>
   );
 }
-    
