@@ -1,7 +1,6 @@
 // pages/api/radar-report.js
 // ─────────────────────────────────────────────
-//  تقرير الرادار - الإشارات المعروضة فقط
-//  مطابق لنتائج لوحة التحكم
+//  تقرير الرادار المتكامل - يقرأ كل الإشارات
 // ─────────────────────────────────────────────
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -19,31 +18,32 @@ export default async function handler(req, res) {
       day: 'numeric'
     });
 
-    // 1️⃣ جلب جميع إشارات اليوم
+    // 1️⃣ جلب جميع إشارات اليوم (المفتوحة والمقفلة)
     const r = await fetch(`${SUPABASE_URL}/rest/v1/signals?signal_date=eq.${today}&select=*&order=created_at.desc`, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     });
     const allSignals = await r.json();
 
-    // 2️⃣ جلب سجل الرادار اليومي
+    // 2️⃣ جلب سجل الرادار اليومي (المعروضة في الرادار)
     const logRes = await fetch(`${SUPABASE_URL}/rest/v1/daily_logs?date=eq.${today}&select=*`, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     });
     const logs = await logRes.json();
     const log = logs?.[0]?.log_data || { signals: [] };
 
-    // 3️⃣ الإشارات المعروضة فعلاً في الرادار
+    // 3️⃣ الإشارات المعروضة في الرادار (من daily_logs)
     const displayedSymbols = log.signals
       .filter(s => (s.ep || 0) >= MIN_EP)
       .map(s => s.symbol);
 
-    // 4️⃣ الإشارات المعروضة فقط
+    // 4️⃣ الإشارات القوية (EP ≥ 60) المعروضة
     const displayedSignals = allSignals.filter(s =>
       displayedSymbols.includes(s.symbol) && (s.ep || s.score || 0) >= MIN_EP
     );
 
-    // 5️⃣ تحليل الإشارات المعروضة
+    // 5️⃣ تحليل الإشارات المعروضة فقط
     const closed = displayedSignals.filter(s => s.status === "CLOSED");
+    const open = displayedSignals.filter(s => s.status === "OPEN");
     const hit = closed.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
     const stopHit = closed.filter(s => s.stop_hit && !s.target1_hit);
     const totalClosed = closed.length;
@@ -67,24 +67,13 @@ export default async function handler(req, res) {
         hitAt: s.target1_hit_at,
       }));
 
-    // 7️⃣ توزيع حسب النوع
-    const byType = {};
-    for (const s of closed) {
-      const type = s.type || "مضاربة";
-      if (!byType[type]) byType[type] = { total: 0, win: 0 };
-      byType[type].total++;
-      if (s.target1_hit || s.target2_hit || s.target3_hit) byType[type].win++;
-    }
-    for (const type in byType) {
-      byType[type].rate = byType[type].total > 0 ? Math.round((byType[type].win / byType[type].total) * 100) : 0;
-    }
-
-    // 8️⃣ التقرير النهائي
+    // 7️⃣ التقرير النهائي المتكامل
     const report = {
       date: dateStr,
       summary: {
         totalSignals: allSignals.length,
         displayedInRadar: displayedSignals.length,
+        open: open.length,
         closed: totalClosed,
         hit: hit.length,
         stopHit: stopHit.length,
@@ -93,7 +82,6 @@ export default async function handler(req, res) {
         displayRate: allSignals.length > 0 ? Math.round((displayedSignals.length / allSignals.length) * 100) : 0,
       },
       topGainers: topGainers,
-      byType: byType,
       displayedSymbols: displayedSignals.map(s => s.symbol),
     };
 
