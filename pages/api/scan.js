@@ -1349,6 +1349,49 @@ export default async function handler(req, res) {
       saveResult = await saveSignals(toSave);
     }
 
+    // ─── 📊 تسجيل الإشارات المعروضة في daily_logs ──────────────────
+    if (survivors.length > 0) {
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const logEntry = {
+          date: today,
+          timestamp: new Date().toISOString(),
+          total: survivors.length,
+          signals: survivors.map(s => ({
+            symbol: s.symbol,
+            ep: s.ep,
+            change: s.changePct,
+            price: s.price,
+            type: s.type,
+            is_hot: s.is_hot,
+            is_target: s.is_target,
+            early_watch: s.early_watch,
+            structure: s.structure?.flag || null,
+            created_at: new Date().toISOString(),
+          })),
+        };
+
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/daily_logs`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+            Prefer: "resolution=ignore-duplicates",
+          },
+          body: JSON.stringify([{
+            date: today,
+            log_data: logEntry,
+            total_signals: survivors.length,
+            created_at: new Date().toISOString(),
+          }]),
+        });
+        
+        console.log(`📊 تم تسجيل ${survivors.length} إشارة في السجل اليومي`);
+      } catch (e) {
+        console.error('❌ خطأ في تسجيل السجل اليومي:', e.message);
+      }
+    }
     const dropBy = r => top.filter(s => s._dropReason === r).length;
     const debug = {
       market_scanned:   allTickers.length,
