@@ -13,6 +13,8 @@
 //   ✅ إضافة أقسام جديدة: مناطق مراقبة 🔵 + زخم متأخر 🚀 + فرص خفية 💎
 //   ✅ وقف خسارة ذكي: 4%-7% + بنية السوق (الدعم الحقيقي)
 //   ✅ نظام Pre-Market / After-Hours الديناميكي
+//   ✅ نظام الفترات الذهبية للتداول الآلي (4:30م-6:30م | 10م-11م)
+//   ✅ تحسين عدد الإشارات: خفض MIN_PRICE, MIN_VOLUME, MIN_CHANGE, SAVE_MIN_EP
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 60 };
@@ -50,16 +52,9 @@ function getMarketStatus() {
   const day = etNow.getDay();
   const isWeekend = day === 0 || day === 6;
   
-  // Pre-Market: 4:00ص - 9:30ص (نيويورك) = 11:00ص - 4:30م (السعودية)
   const isPreMarket = !isWeekend && (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
-  
-  // السوق مفتوح: 9:30ص - 4:00م (نيويورك) = 4:30م - 11:00م (السعودية)
   const isMarketOpen = !isWeekend && (etH > 9 || (etH === 9 && etM >= 30)) && etH < 16;
-  
-  // After-Hours: 4:00م - 8:00م (نيويورك) = 11:00م - 3:00ص (السعودية)
   const isAfterHours = !isWeekend && etH >= 16 && etH < 20;
-  
-  // مغلق: weekend أو بعد 8:00م
   const isClosed = isWeekend || etH >= 20 || etH < 4;
   
   let status, label, icon, warning, mode;
@@ -108,6 +103,59 @@ function getMarketStatus() {
   };
 }
 
+// ─── 🕐 نظام الفترات الذهبية للتداول الآلي ──────────────────────
+function getTradingSession() {
+  const saudiNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
+  const h = saudiNow.getHours(), m = saudiNow.getMinutes();
+  const minutes = h * 60 + m;
+  
+  const isSession1 = minutes >= 16 * 60 + 30 && minutes < 18 * 60 + 30;
+  const isSession2 = minutes >= 22 * 60 && minutes < 23 * 60;
+  const isGoldenHour = minutes >= 16 * 60 + 30 && minutes < 18 * 60;
+  
+  let session = "off";
+  let label = "🔴 خارج أوقات التداول الآلي";
+  let config = null;
+  
+  if (isSession1) {
+    session = "session1";
+    label = "🟢 الزخم الصباحي (4:30م - 6:30م)";
+    config = {
+      name: "الزخم الصباحي",
+      timeframe: "1min",
+      maxChange: 8,
+      minChange: 2,
+      targetMult: 1.5,
+      stopMult: 1.2,
+      minEP: 70,
+      minRVOL: 6,
+      maxHoldMinutes: 15,
+      strategy: "sniper_momentum",
+      maxPrice: 50,
+      minPrice: 3,
+    };
+  } else if (isSession2) {
+    session = "session2";
+    label = "🟡 الزخم المسائي (10:00م - 11:00م)";
+    config = {
+      name: "الزخم المسائي",
+      timeframe: "5min",
+      maxChange: 5,
+      minChange: 1.5,
+      targetMult: 1.2,
+      stopMult: 1.0,
+      minEP: 65,
+      minRVOL: 4,
+      maxHoldMinutes: 20,
+      strategy: "late_momentum",
+      maxPrice: 30,
+      minPrice: 2,
+    };
+  }
+  
+  return { session, label, config, isSession1, isSession2, isGoldenHour, minutes };
+}
+
 // ─── إعدادات ديناميكية حسب حالة السوق ──────────────────────────
 function getMarketConfig(mode) {
   const preMarketConfig = {
@@ -122,12 +170,12 @@ function getMarketConfig(mode) {
   };
   
   const openMarketConfig = {
-    MIN_PRICE: 3.00,
-    MIN_VOLUME: 500_000,
-    MIN_CHANGE: 3,
+    MIN_PRICE: 2.00,
+    MIN_VOLUME: 300_000,
+    MIN_CHANGE: 2,
     MAX_CHANGE: 35,
     HEAVY_LIMIT: 45,
-    SAVE_MIN_EP: 60,
+    SAVE_MIN_EP: 55,
     TIMEFRAME_MULT: 1,
     TIMEFRAME_SPAN: "minute",
   };
@@ -164,17 +212,40 @@ function getMarketConfig(mode) {
   return configs[mode] || openMarketConfig;
 }
 
-// ─── إعدادات الفلترة الأساسية ────────────────────────────────────
+// ─── 🎯 أهداف سريعة للصفقات الآلية ──────────────────────────────
+function calcFastTargets(price, atr, sessionConfig) {
+  const risk = (atr || price * 0.015) * sessionConfig.stopMult;
+  
+  const t1 = price + risk * sessionConfig.targetMult;
+  const t2 = price + risk * (sessionConfig.targetMult + 0.5);
+  const t3 = price + risk * (sessionConfig.targetMult + 1.0);
+  
+  return {
+    t1: +t1.toFixed(2),
+    t2: +t2.toFixed(2),
+    t3: +t3.toFixed(2),
+    sl: +(price - risk).toFixed(2),
+    risk: +risk.toFixed(2),
+    t1Pct: +(((t1 - price) / price) * 100).toFixed(2),
+    t2Pct: +(((t2 - price) / price) * 100).toFixed(2),
+    t3Pct: +(((t3 - price) / price) * 100).toFixed(2),
+    slPct: -((risk / price) * 100).toFixed(2),
+    strategy: sessionConfig.strategy,
+    session: sessionConfig.name,
+  };
+}
+
+// ─── إعدادات الفلترة ───────────────────────────────────────────────
 const FILTER = {
-  MIN_PRICE:      3.00,
+  MIN_PRICE:      2.00,      // 🆕 3.00 → 2.00
   MAX_PRICE:      500,
-  MIN_VOLUME:     500_000,
-  MIN_CHANGE:     3,
+  MIN_VOLUME:     300_000,   // 🆕 500_000 → 300_000
+  MIN_CHANGE:     2,         // 🆕 3 → 2
   MAX_CHANGE:     35,
   MAX_RVOL:       80,
   MAX_RESULTS:    60,
   HEAVY_LIMIT:    45,
-  SAVE_MIN_EP:    60,
+  SAVE_MIN_EP:    55,        // 🆕 60 → 55
   STRICT_PRICE:   1.00,
   WATCH_MIN_EP:   50,
   LATE_CHANGE:    15,
@@ -199,8 +270,8 @@ const STRUCT = {
 
 // ─── 🛑 إعدادات الوقف الذكي ──────────────────────────────────────
 const STOP_CONFIG = {
-  MIN_PCT: 0.04,  // 4% حد أدنى
-  MAX_PCT: 0.07,  // 7% حد أعلى
+  MIN_PCT: 0.04,
+  MAX_PCT: 0.07,
   SCALP_TARGET_MULT: 1.5,
   SMART_TARGET_MULT: 2.0,
 };
@@ -928,13 +999,14 @@ export default async function handler(req, res) {
     // ─── 🕐 حالة السوق والإعدادات الديناميكية ──────────────────────
     const marketStatus = getMarketStatus();
     const config = getMarketConfig(marketStatus.mode);
+    const tradingSession = getTradingSession();
     
-    // إذا كان السوق مغلق، نرجع رسالة
     if (marketStatus.mode === "closed") {
       return res.status(200).json({
         success: true,
         message: "⏳ السوق مغلق - سيتم تحديث الإشارات بعد فتح السوق",
         marketStatus,
+        tradingSession,
         results: [],
         leaders: [],
         speculation: [],
@@ -943,16 +1015,25 @@ export default async function handler(req, res) {
       });
     }
 
+    const isTradingSession = tradingSession.session !== "off";
+    const sessionConfig = tradingSession.config;
+
     const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
     const etH = etNow.getHours(), etM = etNow.getMinutes();
     const isPreMarket = marketStatus.isPreMarket;
     const isAfterHours = marketStatus.isAfterHours;
     
-    // إعدادات ديناميكية
-    const minVolume = isPreMarket || isAfterHours ? 50_000 : FILTER.MIN_VOLUME;
-    const minPrice = isPreMarket || isAfterHours ? 0.50 : FILTER.MIN_PRICE;
-    const minChange = isPreMarket || isAfterHours ? 2 : FILTER.MIN_CHANGE;
-    const maxChange = isPreMarket || isAfterHours ? 30 : FILTER.MAX_CHANGE;
+    let minVolume = isPreMarket || isAfterHours ? 50_000 : FILTER.MIN_VOLUME;
+    let minPrice = isPreMarket || isAfterHours ? 0.50 : FILTER.MIN_PRICE;
+    let minChange = isPreMarket || isAfterHours ? 2 : FILTER.MIN_CHANGE;
+    let maxChange = isPreMarket || isAfterHours ? 30 : FILTER.MAX_CHANGE;
+
+    if (isTradingSession) {
+      minVolume = 100_000;
+      minPrice = sessionConfig.minPrice || 2;
+      minChange = sessionConfig.minChange;
+      maxChange = sessionConfig.maxChange;
+    }
 
     const [allTickers, vixData] = await Promise.all([
       fetchFullMarket(),
@@ -961,7 +1042,6 @@ export default async function handler(req, res) {
     const vixRank = vixData.available ? vixData.rank : null;
     const t1 = Date.now();
 
-    // ─── فلترة المرشحين ──────────────────────────────────────────────
     const candidates = [];
     for (const tk of allTickers) {
       const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
@@ -969,7 +1049,7 @@ export default async function handler(req, res) {
       const volume = day.v || min.av || 0;
       if (!tk.ticker || tk.ticker.includes(".")) continue;
       if (!/^[A-Z]{1,6}$/.test(tk.ticker)) continue;
-      if (price < minPrice || price > FILTER.MAX_PRICE) continue;
+      if (price < minPrice || price > (sessionConfig?.maxPrice || FILTER.MAX_PRICE)) continue;
       if (volume < minVolume) continue;
       const prevClose = prev.c || day.o || price;
       let changePct = tk.todaysChangePerc;
@@ -986,7 +1066,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // ─── تقييم EP وتصنيف الصفقات ──────────────────────────────────
     const scored = candidates.map(s => {
       const ep = calcEP(s);
       const levels = calcLevels(s);
@@ -995,22 +1074,31 @@ export default async function handler(req, res) {
       const isScalp  = s.changePct >= 5 && s.rvol >= 5;
       const isInvest = s.price >= 20 && dollarVolume >= 100_000_000 && s.changePct <= 15;
       const type = isInvest ? "استثمار" : (isScalp ? "مضاربة" : "مضاربة");
+      
+      let signalLabel = ep >= 80 ? "💥 انفجاري" : ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
+      if (isTradingSession) {
+        signalLabel = `⚡ ${sessionConfig.strategy === "sniper_momentum" ? "قناص" : "زخم"} ${ep >= 80 ? "🔥" : "💪"}`;
+      }
+      
       return { ...s, ep, levels, is_hot, type, trade_style: type, dollarVolume,
-        signal: ep >= 80 ? "💥 انفجاري" : ep >= 60 ? "🔥 عالي" : "👀 مراقبة" };
+        signal: signalLabel,
+        isTradingSession,
+        sessionStrategy: isTradingSession ? sessionConfig.strategy : null,
+        sessionName: isTradingSession ? sessionConfig.name : null,
+      };
     });
 
-    // ─── ترتيب واختيار الأعلى ──────────────────────────────────────
     scored.sort((a, b) => (b.is_hot !== a.is_hot) ? (b.is_hot ? 1 : -1) : (b.ep !== a.ep) ? b.ep - a.ep : b.rvol - a.rvol);
     const top = scored.slice(0, config.HEAVY_LIMIT || FILTER.HEAVY_LIMIT);
 
-    // ─── التحليل الفني المتقدم ────────────────────────────────────
     await inBatches(top, 30, async (s) => {
       if (Date.now() > DEADLINE) { s._timedOut = true; return; }
       
-      // اختيار الفريم المناسب حسب حالة السوق
       let fr;
       if (isPreMarket || isAfterHours) {
         fr = { mult: 5, span: "minute", days: 7, limit: 500 };
+      } else if (isTradingSession) {
+        fr = { mult: 1, span: "minute", days: 5, limit: 300 };
       } else {
         fr = frameFor(s.trade_style);
       }
@@ -1049,10 +1137,17 @@ export default async function handler(req, res) {
         
         if (tech.bars && tech.bars.length >= 15) {
           s.structure = computeStructureLevels(s.price, tech.bars);
-          s.levels = s.trade_style === "مضاربة" 
-            ? calcScalpLevels(s.price, tech.bars, s.structure) 
-            : calcSmartLevels(s.price, tech.bars, s.structure);
-          s.levels_source = s.trade_style === "مضاربة" ? "scalp_60m_structure" : "smart_daily_structure";
+          
+          if (isTradingSession) {
+            const atr = calcATR14(tech.bars) || s.price * 0.02;
+            s.levels = calcFastTargets(s.price, atr, sessionConfig);
+            s.levels_source = `fast_${sessionConfig.strategy}`;
+          } else {
+            s.levels = s.trade_style === "مضاربة" 
+              ? calcScalpLevels(s.price, tech.bars, s.structure) 
+              : calcSmartLevels(s.price, tech.bars, s.structure);
+            s.levels_source = s.trade_style === "مضاربة" ? "scalp_60m_structure" : "smart_daily_structure";
+          }
           
           if (s.structure && s.structure.support) {
             const fz = freshZoneBonus(tech.bars, s.structure.support);
@@ -1069,7 +1164,6 @@ export default async function handler(req, res) {
         }
         s.week_max_jump = tech.recentMaxJump;
 
-        // ─── فلتر الارتداد ────────────────────────────────────────
         const rsiOK = s.rsi != null && s.rsi <= REBOUND.RSI_MAX;
         const dvolOK = s.price * (s.volume || 0) >= REBOUND.MIN_DOLLAR_VOL && s.price >= REBOUND.MIN_PRICE;
         const vixOK = vixRank == null || vixRank < REBOUND.MAX_VIX_RANK;
@@ -1111,7 +1205,6 @@ export default async function handler(req, res) {
         s.ma_signal = null; s.rsi = s.rsi ?? null; s.levels_source = "atr_basic"; s.week_max_jump = null;
       }
 
-      // ─── الأخبار ──────────────────────────────────────────────────
       const freshNews = news.hasNews && news.ageH != null && news.ageH <= 48;
       if (freshNews) {
         s.ep = Math.min(99, s.ep + (news.sentiment === "positive" ? 6 : 3));
@@ -1119,12 +1212,10 @@ export default async function handler(req, res) {
       if (s.changePct > 20 && !freshNews) s.ep = Math.max(0, s.ep - 8);
       s.news_age_h = news.ageH;
 
-      // ─── خصم الامتداد ────────────────────────────────────────────
       if (s.changePct > 12) {
         s.ep = Math.max(0, s.ep - Math.round((s.changePct - 12) * 0.7));
       }
 
-      // ─── طبقة جودة الدخول ────────────────────────────────────────
       if (STRETCH.ENABLED && tech) {
         if (tech.stretch9 != null && tech.stretch9 > STRETCH.WARN) {
           const pen = Math.min(STRETCH.PEN_CAP, Math.round((tech.stretch9 - STRETCH.WARN) * STRETCH.PEN_K));
@@ -1137,7 +1228,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // ─── مزج البنية ──────────────────────────────────────────────
       if (s.structure) {
         const st = s.structure;
         const band = st.resistance - st.support;
@@ -1174,7 +1264,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // ─── البوابة (Gate) ──────────────────────────────────────────
       if (s.price < FILTER.STRICT_PRICE) {
         const pass = tech && tech.aligned
           && s.rvol >= 5
@@ -1194,7 +1283,14 @@ export default async function handler(req, res) {
       }
 
       s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
-      s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
+      
+      if (isTradingSession) {
+        s.signal = `⚡ ${sessionConfig.strategy === "sniper_momentum" ? "قناص" : "زخم"} ${s.ep >= 80 ? "🔥" : "💪"}`;
+        s.session_label = sessionConfig.name;
+        s.session_strategy = sessionConfig.strategy;
+      } else {
+        s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
+      }
 
       const strongMA = ["تقاطع ذهبي 🌟", "صاعد قوي ⚡", "EMA صاعد"].includes(s.ma_signal);
       const inEarlyZone = s.changePct >= 2 && s.changePct <= 15;
@@ -1215,7 +1311,6 @@ export default async function handler(req, res) {
       s._primaryConfluence = primaryConfluence;
     });
 
-    // ─── تأكيد الهدف على الفريم الآخر ─────────────────────────────
     const finalists = top.filter(s => s._primaryConfluence);
     await inBatches(finalists, 12, async (s) => {
       if (Date.now() > DEADLINE) return;
@@ -1232,7 +1327,6 @@ export default async function handler(req, res) {
       }
     });
 
-    // ─── الناجون والترتيب ──────────────────────────────────────────
     let survivors = top.filter(s => !s._drop);
     const tier = s => {
       if (s.is_target) return 5;
@@ -1249,14 +1343,12 @@ export default async function handler(req, res) {
       return b.rvol - a.rvol;
     });
 
-    // ─── الحفظ ──────────────────────────────────────────────────────
     let saveResult = { skipped: true, reason: "subscriber scan" };
     if (!isSubscriber) {
       const toSave = survivors.filter(s => s.ep >= (config.SAVE_MIN_EP || FILTER.SAVE_MIN_EP));
       saveResult = await saveSignals(toSave);
     }
 
-    // ─── الإحصائيات ──────────────────────────────────────────────────
     const dropBy = r => top.filter(s => s._dropReason === r).length;
     const debug = {
       market_scanned:   allTickers.length,
@@ -1277,6 +1369,12 @@ export default async function handler(req, res) {
       survivors:        survivors.length,
       below_save_ep:    survivors.filter(s => s.ep < (config.SAVE_MIN_EP || FILTER.SAVE_MIN_EP)).length,
       saved:            saveResult.saved || 0,
+      session: {
+        active: isTradingSession,
+        label: tradingSession.label,
+        strategy: isTradingSession ? sessionConfig.strategy : null,
+        signals_count: survivors.filter(s => s.isTradingSession).length,
+      },
       rebound_funnel: {
         rsi_pass:   top.filter(s => s._rebRsi).length,
         dvol_pass:  top.filter(s => s._rebDvol).length,
@@ -1297,7 +1395,6 @@ export default async function handler(req, res) {
       drop_stretch_pct: pctOf(debug.dropped_stretch, debug.tech_analyzed),
     };
 
-    // ─── الرد الخفيف ──────────────────────────────────────────────────
     if (req.query.light === "1") {
       return res.status(200).json({
         success: true, light: true,
@@ -1306,6 +1403,11 @@ export default async function handler(req, res) {
         target: survivors.filter(s => s.is_target).length,
         early:  survivors.filter(s => s.early_watch).length,
         rebound: survivors.filter(s => s.is_rebound).length,
+        session: {
+          active: isTradingSession,
+          label: tradingSession.label,
+          signals: survivors.filter(s => s.isTradingSession).length,
+        },
         vix:    vixData.available ? { rank: vixRank, value: vixData.value } : { available: false },
         saved:  saveResult.saved || 0, saveResult,
         timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
@@ -1315,7 +1417,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // ─── تجهيز البيانات للعرض ──────────────────────────────────────
     const toCard = s => ({
       symbol: s.symbol, price: s.price, change_pct: s.changePct, score: s.ep, signal: s.signal,
       type: s.type, volume: s.volume, rvol: s.rvol, is_hot: s.is_hot, vwap: s.vwap,
@@ -1326,6 +1427,9 @@ export default async function handler(req, res) {
       structure: s.structure || null,
       vcp: s.vcp || false,
       vcp_contraction: s.vcp_contraction ?? null,
+      isTradingSession: s.isTradingSession || false,
+      sessionStrategy: s.sessionStrategy || null,
+      sessionName: s.sessionName || null,
     });
 
     const results     = survivors.map(toCard);
@@ -1334,7 +1438,6 @@ export default async function handler(req, res) {
     const early       = results.filter(s => s.early_watch);
     const movers      = buildMovers(allTickers, 15);
 
-    // ─── تصنيف الفرص المتقدمة ──────────────────────────────────────
     const opportunities = {
       ready: survivors.filter(s => 
         s.ep >= 70 && 
@@ -1377,6 +1480,8 @@ export default async function handler(req, res) {
     opportunities.late = filterUnique(opportunities.late);
     opportunities.hidden = filterUnique(opportunities.hidden);
 
+    const sessionTrades = survivors.filter(s => s.isTradingSession && !s._drop);
+
     const responseData = {
       success: true,
       total: results.length,
@@ -1389,6 +1494,13 @@ export default async function handler(req, res) {
       market_scanned: allTickers.length,
       after_filter: candidates.length,
       marketStatus,
+      tradingSession: {
+        active: isTradingSession,
+        label: tradingSession.label,
+        strategy: isTradingSession ? sessionConfig.strategy : null,
+        signals: sessionTrades.map(toCard),
+        count: sessionTrades.length,
+      },
       debug,
       results,
       leaders,
@@ -1420,6 +1532,7 @@ export default async function handler(req, res) {
       leaders: [], 
       speculation: [],
       marketStatus: getMarketStatus(),
+      tradingSession: getTradingSession(),
     });
   }
 }
