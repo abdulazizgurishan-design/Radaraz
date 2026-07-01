@@ -15,6 +15,7 @@
 //   ✅ نظام Pre-Market / After-Hours الديناميكي
 //   ✅ نظام الفترات الذهبية للتداول الآلي (4:30م-6:30م | 10م-11م)
 //   ✅ تحسين عدد الإشارات: خفض MIN_PRICE, MIN_VOLUME, MIN_CHANGE, SAVE_MIN_EP
+//   ✅ تسجيل كل الإشارات المعروضة في daily_logs (بدون تكرار)
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 60 };
@@ -237,15 +238,15 @@ function calcFastTargets(price, atr, sessionConfig) {
 
 // ─── إعدادات الفلترة ───────────────────────────────────────────────
 const FILTER = {
-  MIN_PRICE:      2.00,      // 🆕 3.00 → 2.00
+  MIN_PRICE:      2.00,
   MAX_PRICE:      500,
-  MIN_VOLUME:     300_000,   // 🆕 500_000 → 300_000
-  MIN_CHANGE:     2,         // 🆕 3 → 2
+  MIN_VOLUME:     300_000,
+  MIN_CHANGE:     2,
   MAX_CHANGE:     35,
   MAX_RVOL:       80,
   MAX_RESULTS:    60,
   HEAVY_LIMIT:    45,
-  SAVE_MIN_EP:    55,        // 🆕 60 → 55
+  SAVE_MIN_EP:    55,
   STRICT_PRICE:   1.00,
   WATCH_MIN_EP:   50,
   LATE_CHANGE:    15,
@@ -996,7 +997,6 @@ export default async function handler(req, res) {
   const isSubscriber = req.query.sub === "1";
 
   try {
-    // ─── 🕐 حالة السوق والإعدادات الديناميكية ──────────────────────
     const marketStatus = getMarketStatus();
     const config = getMarketConfig(marketStatus.mode);
     const tradingSession = getTradingSession();
@@ -1349,49 +1349,67 @@ export default async function handler(req, res) {
       saveResult = await saveSignals(toSave);
     }
 
-    // ─── 📊 تسجيل الإشارات المعروضة في daily_logs ──────────────────
+    // ─── 📊 تسجيل كل الإشارات المعروضة في daily_logs (بدون تكرار) ──
     if (survivors.length > 0) {
       try {
         const today = new Date().toISOString().split('T')[0];
-        const logEntry = {
-          date: today,
-          timestamp: new Date().toISOString(),
-          total: survivors.length,
-          signals: survivors.map(s => ({
-            symbol: s.symbol,
-            ep: s.ep,
-            change: s.changePct,
-            price: s.price,
-            type: s.type,
-            is_hot: s.is_hot,
-            is_target: s.is_target,
-            early_watch: s.early_watch,
-            structure: s.structure?.flag || null,
-            created_at: new Date().toISOString(),
-          })),
-        };
-
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/daily_logs`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: SUPABASE_KEY,
-            Authorization: `Bearer ${SUPABASE_KEY}`,
-            Prefer: "resolution=ignore-duplicates",
-          },
-          body: JSON.stringify([{
-            date: today,
-            log_data: logEntry,
-            total_signals: survivors.length,
-            created_at: new Date().toISOString(),
-          }]),
-        });
         
-        console.log(`📊 تم تسجيل ${survivors.length} إشارة في السجل اليومي`);
+        // جلب السجل الحالي
+        const existing = await fetch(`${SUPABASE_URL}/rest/v1/daily_logs?date=eq.${today}&select=*`, {
+          headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+        });
+        const existingLogs = await existing.json();
+        const existingLog = existingLogs?.[0]?.log_data || { signals: [] };
+        
+        // دمج الإشارات الجديدة مع القديمة (تجنب التكرار)
+        const existingSymbols = new Set(existingLog.signals.map(s => s.symbol));
+        const newSignals = survivors.filter(s => !existingSymbols.has(s.symbol));
+        
+        if (newSignals.length > 0) {
+          const mergedLog = {
+            date: today,
+            timestamp: new Date().toISOString(),
+            total: existingLog.signals.length + newSignals.length,
+            signals: [
+              ...existingLog.signals,
+              ...newSignals.map(s => ({
+                symbol: s.symbol,
+                ep: s.ep,
+                change: s.changePct,
+                price: s.price,
+                type: s.type,
+                is_hot: s.is_hot,
+                is_target: s.is_target,
+                early_watch: s.early_watch,
+                structure: s.structure?.flag || null,
+                created_at: new Date().toISOString(),
+              })),
+            ],
+          };
+
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/daily_logs`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`,
+              Prefer: "resolution=ignore-duplicates",
+            },
+            body: JSON.stringify([{
+              date: today,
+              log_data: mergedLog,
+              total_signals: mergedLog.signals.length,
+              created_at: new Date().toISOString(),
+            }]),
+          });
+          
+          console.log(`📊 تم تسجيل ${newSignals.length} إشارة جديدة في السجل اليومي (المجموع: ${mergedLog.signals.length})`);
+        }
       } catch (e) {
         console.error('❌ خطأ في تسجيل السجل اليومي:', e.message);
       }
     }
+
     const dropBy = r => top.filter(s => s._dropReason === r).length;
     const debug = {
       market_scanned:   allTickers.length,
