@@ -1,44 +1,42 @@
 // pages/api/radar-report.js
 // ─────────────────────────────────────────────
-//  تقرير الرادار اليومي - يثبت ظهور الإشارات
+//  تقرير الرادار اليومي - الإشارات المعروضة فقط
 // ─────────────────────────────────────────────
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const MIN_EP_FOR_DISPLAY = 60; // نفس عتبة الرادار
 
 export default async function handler(req, res) {
   try {
     const today = new Date().toISOString().split('T')[0];
     
-    // 1️⃣ جلب جميع إشارات اليوم من Supabase
+    // 1️⃣ جلب جميع إشارات اليوم
     const r = await fetch(`${SUPABASE_URL}/rest/v1/signals?signal_date=eq.${today}&select=*&order=created_at.desc`, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     });
     const allSignals = await r.json();
     
-    // 2️⃣ جلب سجل الرادار اليومي (إن وجد)
+    // 2️⃣ جلب سجل الرادار اليومي
     const logRes = await fetch(`${SUPABASE_URL}/rest/v1/daily_logs?date=eq.${today}&select=*`, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     });
     const logs = await logRes.json();
     const log = logs?.[0]?.log_data || { signals: [] };
     
-    // 3️⃣ تحليل الإشارات
-    const displayedSymbols = log.signals.map(s => s.symbol);
-    const allSymbols = allSignals.map(s => s.symbol);
+    // 3️⃣ الإشارات المعروضة في الرادار (EP ≥ 60)
+    const displayedSymbols = log.signals
+      .filter(s => (s.ep || 0) >= MIN_EP_FOR_DISPLAY)
+      .map(s => s.symbol);
     
-    // 4️⃣ تصنيف الإشارات
-    const displayed = allSignals.filter(s => displayedSymbols.includes(s.symbol));
-    const notDisplayed = allSignals.filter(s => !displayedSymbols.includes(s.symbol));
+    // 4️⃣ الإشارات القوية المحفوظة (EP ≥ 60)
+    const strongSignals = allSignals.filter(s => (s.ep || s.score || 0) >= MIN_EP_FOR_DISPLAY);
     
-    // 5️⃣ أفضل الصفقات (أعلى ربح)
-    const topGainers = [...displayed]
-      .filter(s => s.max_gain_pct && s.max_gain_pct > 0)
-      .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
-      .slice(0, 10);
+    // 5️⃣ الإشارات القوية المعروضة
+    const displayedStrong = strongSignals.filter(s => displayedSymbols.includes(s.symbol));
     
-    // 6️⃣ إحصائيات الأداء
-    const closed = displayed.filter(s => s.status === "CLOSED");
+    // 6️⃣ الإحصائيات (فقط المعروض)
+    const closed = displayedStrong.filter(s => s.status === "CLOSED");
     const hit = closed.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
     const stopHit = closed.filter(s => s.stop_hit && !s.target1_hit);
     const totalClosed = closed.length;
@@ -48,51 +46,28 @@ export default async function handler(req, res) {
     const totalLoss = stopHit.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0);
     const profitFactor = totalLoss > 0 ? (totalGain / totalLoss).toFixed(2) : "0.00";
     
-    // 7️⃣ بناء التقرير
+    // 7️⃣ أفضل الصفقات
+    const topGainers = [...displayedStrong]
+      .filter(s => s.max_gain_pct && s.max_gain_pct > 0)
+      .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
+      .slice(0, 10);
+    
     const report = {
       date: today,
       summary: {
-        totalSignals: allSignals.length,
-        displayedInRadar: displayed.length,
-        notDisplayed: notDisplayed.length,
-        displayRate: allSignals.length > 0 ? Math.round((displayed.length / allSignals.length) * 100) : 0,
+        totalDisplayed: displayedStrong.length,
+        totalSaved: strongSignals.length,
+        notDisplayed: strongSignals.length - displayedStrong.length,
+        displayRate: strongSignals.length > 0 ? Math.round((displayedStrong.length / strongSignals.length) * 100) : 0,
         closed: totalClosed,
         hit: hit.length,
         stopHit: stopHit.length,
         winRate,
         profitFactor: parseFloat(profitFactor),
       },
-      topGainers: topGainers.map(s => ({
-        symbol: s.symbol,
-        gain: (s.max_gain_pct || 0).toFixed(2),
-        target: s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅",
-        entryPrice: s.entry_price,
-        targetPrice: s.target1,
-        caughtAt: s.created_at,
-        hitAt: s.target1_hit_at,
-      })),
-      displayedSignals: displayed.map(s => ({
-        symbol: s.symbol,
-        ep: s.ep || s.score,
-        change: s.change_pct,
-        price: s.entry_price,
-        type: s.type,
-        status: s.status,
-        caughtAt: s.created_at,
-        hitAt: s.target1_hit_at,
-        maxGain: s.max_gain_pct,
-      })),
-      notDisplayedSignals: notDisplayed.map(s => ({
-        symbol: s.symbol,
-        ep: s.ep || s.score,
-        change: s.change_pct,
-        reason: s.ep < 60 ? "EP أقل من 60" : "لم يستوفِ شروط الفلترة",
-      })),
-      byHour: log.signals.reduce((acc, s) => {
-        const hour = s.created_at ? new Date(s.created_at).getHours() : 0;
-        acc[hour] = (acc[hour] || 0) + 1;
-        return acc;
-      }, {}),
+      topGainers,
+      displayedSymbols: displayedStrong.map(s => s.symbol),
+      allStrongSymbols: strongSignals.map(s => s.symbol),
     };
     
     return res.status(200).json({ success: true, report });
