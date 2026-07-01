@@ -627,7 +627,7 @@ function MarketMovers({ movers, t, lang }) {
   );
 }
 
-// ─── 🃏 بطاقة ذكية (شرح + خريطة + مؤشرات + ملاحظة) ───
+// ─── 🃏 بطاقة ذكية ───
 function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
   const en = lang === "en";
   const [showSimple, setShowSimple] = useState(false);
@@ -903,6 +903,25 @@ export default function Radar() {
   const [refreshing, setRefreshing] = useState(false);
   const [opportunities, setOpportunities] = useState({ ready: [], watch: [], late: [], hidden: [] });
   const [counts, setCounts] = useState({ ready: 0, watch: 0, late: 0, hidden: 0, total: 0 });
+  
+  // ─── 🕐 حالة السوق الديناميكية ──────────────────────────────────
+  const [marketStatus, setMarketStatus] = useState(null);
+
+  useEffect(() => {
+    const fetchMarketStatus = async () => {
+      try {
+        const res = await fetch('/api/market-status');
+        const data = await res.json();
+        setMarketStatus(data);
+      } catch (error) {
+        console.error('خطأ في جلب حالة السوق:', error);
+      }
+    };
+    
+    fetchMarketStatus();
+    const interval = setInterval(fetchMarketStatus, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const lastScanRef = useRef(0);
   const autoTimerRef = useRef(null);
@@ -1203,6 +1222,53 @@ export default function Radar() {
             <button style={S.logoutBtn} onClick={handleLogout}>{t.logout}</button>
           </div>
         </div>
+
+        {/* 🕐 حالة السوق */}
+        {marketStatus && (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "10px 16px",
+            borderRadius: 12,
+            marginBottom: 16,
+            background: marketStatus.mode === "premarket" ? "rgba(56,189,248,0.12)" :
+                        marketStatus.mode === "open" ? "rgba(52,211,153,0.12)" :
+                        marketStatus.mode === "afterhours" ? "rgba(251,191,36,0.12)" :
+                        "rgba(248,113,113,0.1)",
+            border: `1px solid ${marketStatus.mode === "premarket" ? "rgba(56,189,248,0.3)" :
+                                  marketStatus.mode === "open" ? "rgba(52,211,153,0.3)" :
+                                  marketStatus.mode === "afterhours" ? "rgba(251,191,36,0.3)" :
+                                  "rgba(248,113,113,0.3)"}`,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 20 }}>{marketStatus.icon}</span>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
+                  {marketStatus.label}
+                </div>
+                {marketStatus.warning && (
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+                    {marketStatus.warning}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", textAlign: "right" }}>
+              <div>
+                {marketStatus.mode === "premarket" && `🕐 Pre-Market: ${marketStatus.saudiTime.preMarketStart} - ${marketStatus.saudiTime.preMarketEnd}`}
+                {marketStatus.mode === "open" && `🕐 مفتوح: ${marketStatus.saudiTime.marketOpen} - ${marketStatus.saudiTime.marketClose}`}
+                {marketStatus.mode === "afterhours" && `🕐 After-Hours: ${marketStatus.saudiTime.marketClose} - 3:00ص`}
+                {marketStatus.mode === "closed" && `🕐 مغلق`}
+              </div>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>
+                {marketStatus.mode === "premarket" && "📊 شموع Pre-Market"}
+                {marketStatus.mode === "open" && "📊 شموع السوق"}
+                {marketStatus.mode === "afterhours" && "📊 شموع After-Hours"}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div style={S.statsRow}>
           {[
