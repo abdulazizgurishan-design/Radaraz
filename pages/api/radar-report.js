@@ -1,11 +1,11 @@
 // pages/api/radar-report.js
 // ─────────────────────────────────────────────
-//  تقرير الرادار اليومي - الإشارات المعروضة فقط
+//  تقرير الرادار - الإشارات القوية فقط (EP ≥ 60)
 // ─────────────────────────────────────────────
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const MIN_EP_FOR_DISPLAY = 60; // نفس عتبة الرادار
+const MIN_EP = 60; // نفس عتبة الرادار
 
 export default async function handler(req, res) {
   try {
@@ -24,18 +24,20 @@ export default async function handler(req, res) {
     const logs = await logRes.json();
     const log = logs?.[0]?.log_data || { signals: [] };
     
-    // 3️⃣ الإشارات المعروضة في الرادار (EP ≥ 60)
-    const displayedSymbols = log.signals
-      .filter(s => (s.ep || 0) >= MIN_EP_FOR_DISPLAY)
-      .map(s => s.symbol);
+    // 3️⃣ الإشارات القوية فقط (EP ≥ 60)
+    const strongSignals = allSignals.filter(s => (s.ep || s.score || 0) >= MIN_EP);
+    const strongSymbols = strongSignals.map(s => s.symbol);
     
-    // 4️⃣ الإشارات القوية المحفوظة (EP ≥ 60)
-    const strongSignals = allSignals.filter(s => (s.ep || s.score || 0) >= MIN_EP_FOR_DISPLAY);
+    // 4️⃣ الإشارات المعروضة في الرادار (EP ≥ 60)
+    const displayedSymbols = log.signals
+      .filter(s => (s.ep || 0) >= MIN_EP)
+      .map(s => s.symbol);
     
     // 5️⃣ الإشارات القوية المعروضة
     const displayedStrong = strongSignals.filter(s => displayedSymbols.includes(s.symbol));
+    const notDisplayed = strongSignals.filter(s => !displayedSymbols.includes(s.symbol));
     
-    // 6️⃣ الإحصائيات (فقط المعروض)
+    // 6️⃣ إحصائيات الإشارات القوية المعروضة فقط
     const closed = displayedStrong.filter(s => s.status === "CLOSED");
     const hit = closed.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
     const stopHit = closed.filter(s => s.stop_hit && !s.target1_hit);
@@ -52,12 +54,13 @@ export default async function handler(req, res) {
       .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
       .slice(0, 10);
     
+    // 8️⃣ التقرير النهائي
     const report = {
       date: today,
       summary: {
-        totalDisplayed: displayedStrong.length,
-        totalSaved: strongSignals.length,
-        notDisplayed: strongSignals.length - displayedStrong.length,
+        totalStrong: strongSignals.length,
+        displayed: displayedStrong.length,
+        notDisplayed: notDisplayed.length,
         displayRate: strongSignals.length > 0 ? Math.round((displayedStrong.length / strongSignals.length) * 100) : 0,
         closed: totalClosed,
         hit: hit.length,
@@ -65,9 +68,16 @@ export default async function handler(req, res) {
         winRate,
         profitFactor: parseFloat(profitFactor),
       },
-      topGainers,
+      topGainers: topGainers.map(s => ({
+        symbol: s.symbol,
+        gain: (s.max_gain_pct || 0).toFixed(2),
+        target: s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅",
+        entryPrice: s.entry_price,
+        targetPrice: s.target1,
+        caughtAt: s.created_at,
+        hitAt: s.target1_hit_at,
+      })),
       displayedSymbols: displayedStrong.map(s => s.symbol),
-      allStrongSymbols: strongSignals.map(s => s.symbol),
     };
     
     return res.status(200).json({ success: true, report });
