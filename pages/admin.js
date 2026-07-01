@@ -438,7 +438,6 @@ export default function Admin() {
   const runAudit = async () => {
     setAuditBusy(true); setAudit(null);
     try {
-      // 1️⃣ جلب إشارات اليوم من قاعدة البيانات
       const today = new Date().toISOString().split('T')[0];
       const all = summary?.signals || signals || [];
       const todaySignals = all.filter(s => {
@@ -447,7 +446,6 @@ export default function Admin() {
       });
       const todaySymbols = [...new Set(todaySignals.map(s => s.symbol).filter(Boolean))];
 
-      // 2️⃣ جلب المعروض في الرادار حالياً
       const scanRes = await fetch("/api/scan?light=1");
       const scanData = scanRes.ok ? await scanRes.json() : {};
       const shownSymbols = [];
@@ -463,18 +461,15 @@ export default function Admin() {
       }
       const uniqueShown = [...new Set(shownSymbols)];
 
-      // 3️⃣ حساب الإحصائيات
       const displayed = todaySymbols.filter(sym => uniqueShown.includes(sym));
       const notDisplayed = todaySymbols.filter(sym => !uniqueShown.includes(sym));
 
-      // 4️⃣ أداء الإشارات
       const closed = todaySignals.filter(s => s.status === "CLOSED");
       const hit = closed.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
       const stopHit = closed.filter(s => s.stop_hit && !s.target1_hit);
       const totalClosed = closed.length;
       const winRate = totalClosed > 0 ? Math.round((hit.length / totalClosed) * 100) : 0;
 
-      // أفضل الصفقات
       const bestTrades = [...hit]
         .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
         .slice(0, 6)
@@ -488,14 +483,12 @@ export default function Admin() {
           hitAt: s.target1_hit_at,
         }));
 
-      // متوسط الربح والخسارة
       const avgGain = hit.length > 0 ? (hit.reduce((a, s) => a + (s.max_gain_pct || 0), 0) / hit.length).toFixed(2) : 0;
       const avgLoss = stopHit.length > 0 ? (stopHit.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0) / stopHit.length).toFixed(2) : 0;
       const totalGain = hit.reduce((a, s) => a + (s.max_gain_pct || 0), 0);
       const totalLoss = stopHit.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0);
       const profitFactor = totalLoss > 0 ? (totalGain / totalLoss).toFixed(2) : "0.00";
 
-      // توزيع حسب النوع
       const byType = {};
       for (const s of closed) {
         const type = s.type || "مضاربة";
@@ -594,6 +587,30 @@ export default function Admin() {
         setResetResult(d);
         setResetKey("");
         setToast({ msg: "تم تحرير المفتاح ✅", type: "success" });
+      } else if (d.reason === "not_found") {
+        setToast({ msg: "المفتاح غير موجود", type: "error" });
+      } else if (d.reason === "unauthorized") {
+        setToast({ msg: "غير مصرّح", type: "error" });
+      } else {
+        setToast({ msg: "خطأ: " + (d.reason || "غير معروف"), type: "error" });
+      }
+    } catch {
+      setToast({ msg: "خطأ في الاتصال", type: "error" });
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  // ─── 📱➕ تفعيل جهاز ثانٍ للمفتاح ──────────────────────────────
+  const enableTwoDevices = async () => {
+    if (!resetKey.trim()) { setToast({ msg: "أدخل المفتاح", type: "error" }); return; }
+    setResetBusy(true); setResetResult(null);
+    try {
+      const res = await fetch(`/api/enable-two-devices?key=${encodeURIComponent(resetKey.trim())}&pass=${encodeURIComponent(pass)}`);
+      const d = await res.json();
+      if (d.success) {
+        setResetResult(d);
+        setToast({ msg: "✅ تم تفعيل جهازين لهذا المفتاح", type: "success" });
       } else if (d.reason === "not_found") {
         setToast({ msg: "المفتاح غير موجود", type: "error" });
       } else if (d.reason === "unauthorized") {
@@ -1054,12 +1071,11 @@ export default function Admin() {
           <>
             {loading && <div style={{ textAlign: "center", color: "#334155", padding: 30 }}>جاري التحميل...</div>}
 
-            {/* 🔍 تدقيق المطابقة الجديد */}
             <div style={{ marginBottom: 18, padding: "14px 16px", borderRadius: 14, background: "rgba(99,102,241,.06)", border: "1px solid rgba(99,102,241,.2)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#a5b4fc" }}>🔍 تدقيق المطابقة</div>
-                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>هل كل سهم معروض للمشترك موجود في التقرير؟</div>
+                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>كم إشارة عُرضت فعلاً في الرادار؟</div>
                 </div>
                 <button onClick={runAudit} disabled={auditBusy} style={S.btn(auditBusy ? "rgba(255,255,255,.06)" : "rgba(99,102,241,.25)")}>
                   {auditBusy ? "⟳ جاري الفحص..." : "▶ افحص الآن"}
@@ -1111,7 +1127,6 @@ export default function Admin() {
               )}
             </div>
 
-            {/* 📊 تقرير أداء الرادار - اليوم */}
             {audit && audit.performance && (
               <div style={{ 
                 marginTop: 18, 
@@ -1206,7 +1221,6 @@ export default function Admin() {
               </div>
             )}
 
-            {/* 🐦 زر نسخ تقرير التغريدة */}
             <div style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <button 
                 onClick={copyTweetReport}
@@ -1360,6 +1374,14 @@ export default function Admin() {
                   {resetBusy ? "⟳ جاري التحرير..." : "🔓 حرّر المفتاح"}
                 </button>
 
+                <button
+                  onClick={enableTwoDevices}
+                  disabled={resetBusy}
+                  style={{ width: "100%", padding: 13, background: "rgba(52,211,153,0.15)", border: "1px solid rgba(52,211,153,0.35)", borderRadius: 12, color: "#34d399", fontWeight: 700, fontSize: 14, cursor: resetBusy ? "not-allowed" : "pointer", fontFamily: "system-ui", marginTop: 10 }}
+                >
+                  📱➕ تفعيل جهاز ثانٍ (PC + جوال)
+                </button>
+
                 {resetResult && (
                   <div style={{ background: "rgba(0,212,170,0.1)", border: "1px solid rgba(0,212,170,0.3)", borderRadius: 12, padding: "16px", fontSize: 14, color: "#00d4aa", marginTop: 16, textAlign: "center" }}>
                     ✓ تم التحرير بنجاح
@@ -1483,3 +1505,4 @@ export default function Admin() {
     </div>
   );
 }
+    
