@@ -1,4 +1,5 @@
 // verify-key.js — التحقق من المفتاح + ربط الجهاز (حماية من المشاركة)
+// 🆕 يدعم جهازاً واحداً افتراضياً، أو جهازين عند تفعيلها من الأدمن (PC + جوال)
 const SUPABASE_URL = "https://ypxrrghhkjbeojzphdln.supabase.co";
 
 export default async function handler(req, res) {
@@ -43,13 +44,21 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2️⃣ منطق ربط الجهاز
-    const boundDevice = subscriber.device_id;
+    // 2️⃣ منطق ربط الجهاز (جهاز واحد افتراضياً، أو جهازان لو فُعّل من الأدمن)
+    const boundDevice  = subscriber.device_id;
+    const boundDevice2 = subscriber.device_id_2;
+    const allowTwo     = subscriber.allow_two_devices === true;
 
     // لو ما أُرسلت بصمة جهاز (توافق قديم) — نسمح بدون ربط
     if (deviceId) {
-      if (!boundDevice) {
-        // أول دخول → اربط المفتاح بهذا الجهاز
+      const isKnown = (boundDevice  && boundDevice  === deviceId) ||
+                      (boundDevice2 && boundDevice2 === deviceId);
+
+      if (isKnown) {
+        // جهاز معروف (الأول أو الثاني) → يكمل ✅
+
+      } else if (!boundDevice) {
+        // أول دخول → اربط الجهاز الأول
         await fetch(
           `${SUPABASE_URL}/rest/v1/subscribers?access_key=eq.${key}`,
           {
@@ -66,15 +75,34 @@ export default async function handler(req, res) {
             }),
           }
         );
-      } else if (boundDevice !== deviceId) {
-        // جهاز مختلف → رفض (مشاركة محتملة)
+
+      } else if (allowTwo && !boundDevice2) {
+        // الجهاز الأول مربوط + مسموح جهازان + الثاني فاضٍ → اربط الجهاز الثاني
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/subscribers?access_key=eq.${key}`,
+          {
+            method: "PATCH",
+            headers: {
+              apikey: process.env.SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+              "Content-Type": "application/json",
+              Prefer: "return=minimal",
+            },
+            body: JSON.stringify({
+              device_id_2: deviceId,
+              device2_locked_at: now.toISOString(),
+            }),
+          }
+        );
+
+      } else {
+        // جهاز غير معروف + (لا مساحة للثاني أو غير مسموح) → رفض (مشاركة محتملة)
         return res.status(200).json({
           valid: false,
           reason: "device_mismatch",
           email: subscriber.email,
         });
       }
-      // boundDevice === deviceId → نفس الجهاز، يكمل ✅
     }
 
     return res.status(200).json({
