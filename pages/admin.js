@@ -716,66 +716,59 @@ export default function Admin() {
   };
 
   // 🐦 نسخ تقرير التغريدة مع الأسعار والأوقات
-  const copyTweetReport = () => {
-    const today = new Date().toLocaleDateString("ar-SA");
-    const allSignals = summary?.signals || signals || [];
-    const todaySignals = allSignals.filter(s => {
-      const d = s.created_at ? s.created_at.split('T')[0] : null;
-      const todayStr = new Date().toISOString().split('T')[0];
-      return d === todayStr || s.signal_date === todayStr;
-    });
-    const closed = todaySignals.filter(s => s.status === "CLOSED");
-    const hit = closed.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
-    const stp = closed.filter(s => s.stop_hit && !s.target1_hit);
-    const total = hit.length + stp.length;
-    const rate = total > 0 ? Math.round((hit.length / total) * 100) : 0;
-    const totalGain = hit.reduce((a, s) => a + (s.max_gain_pct || 0), 0);
-    const totalLoss = stp.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0);
-    const pf = totalLoss > 0 ? (totalGain / totalLoss).toFixed(2) : "0.00";
-
-    const topGainers = [...hit]
-      .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
-      .slice(0, 6);
-
-    let tweet = `📡 تقرير رادار الأسهم - ${today}\n`;
-    tweet += `🕐 الفترة: 3م - 11م (السعودية)\n`;
-    tweet += `─────────────────────\n`;
-    tweet += `📈 الإشارات المعروضة: ${closed.length}\n`;
-    tweet += `✅ وصلت هدف: ${hit.length} (${rate}%)\n`;
-    tweet += `❌ ضربت وقف: ${stp.length}\n`;
-    tweet += `💰 Profit Factor: ${pf}×\n`;
-    tweet += `─────────────────────\n`;
-    tweet += `🏆 أبرز الصفقات:\n\n`;
-
-    topGainers.forEach(s => {
-      const tier = s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅";
-      const gain = (s.max_gain_pct || 0).toFixed(2);
-      const entry = (s.entry_price || 0).toFixed(2);
-      const target = (s.target1 || 0).toFixed(2);
+  const copyTweetReport = async () => {
+    try {
+      // جلب تقرير الرادار (الإشارات المعروضة فقط)
+      const res = await fetch('/api/radar-report');
+      const data = await res.json();
       
-      const caughtDate = s.created_at ? new Date(new Date(s.created_at).getTime() + 3 * 3600 * 1000) : null;
-      const caughtTime = caughtDate ? `${String(caughtDate.getUTCHours()).padStart(2, "0")}:${String(caughtDate.getUTCMinutes()).padStart(2, "0")}` : "—";
-      
-      const hitDate = s.target1_hit_at ? new Date(new Date(s.target1_hit_at).getTime() + 3 * 3600 * 1000) : null;
-      const hitTime = hitDate ? `${String(hitDate.getUTCHours()).padStart(2, "0")}:${String(hitDate.getUTCMinutes()).padStart(2, "0")}` : "—";
-
-      tweet += `$${s.symbol}  +${gain}%  (${tier})\n`;
-      tweet += `   📅 التقط: ${caughtTime} @ $${entry}\n`;
-      if (hitTime !== "—") {
-        tweet += `   ✅ الهدف: ${hitTime} @ $${target}\n`;
+      if (!data.success || !data.report) {
+        showToast("❌ فشل جلب تقرير الرادار", "error");
+        return;
       }
-      tweet += `\n`;
-    });
 
-    tweet += `─────────────────────\n`;
-    tweet += `✅ جميع الأسهم المعروضة ظهرت للمشتركين\n`;
-    tweet += `🔗 radaraz.com`;
+      const report = data.report;
+      const today = new Date().toLocaleDateString("ar-SA");
+      const summary = report.summary;
 
-    navigator.clipboard?.writeText(tweet).then(() => {
-      showToast("✅ تم نسخ تقرير التغريدة!", "ok");
-    }).catch(() => {
-      setTweetText(tweet);
-    });
+      let tweet = `📡 تقرير رادار الأسهم - ${today}\n`;
+      tweet += `🕐 الفترة: 3م - 11م (السعودية)\n`;
+      tweet += `─────────────────────\n`;
+      tweet += `📈 الإشارات المعروضة: ${summary.displayedInRadar || 0}\n`;
+      tweet += `✅ وصلت هدف: ${summary.hit || 0} (${summary.winRate || 0}%)\n`;
+      tweet += `❌ ضربت وقف: ${summary.stopHit || 0}\n`;
+      tweet += `💰 Profit Factor: ${summary.profitFactor || 0}×\n`;
+      tweet += `📈 متوسط الربح: ${summary.avgGain || 0}%\n`;
+      tweet += `📉 متوسط الخسارة: ${summary.avgLoss || 0}%\n`;
+      tweet += `─────────────────────\n`;
+      tweet += `🏆 أبرز الصفقات:\n\n`;
+
+      const topGainers = report.topGainers || [];
+      topGainers.slice(0, 6).forEach(s => {
+        const target = s.target || "T1 ✅";
+        const gain = s.gain || "0.00";
+        const caught = s.caughtAt ? new Date(s.caughtAt).toLocaleTimeString() : "";
+        const hit = s.hitAt ? new Date(s.hitAt).toLocaleTimeString() : "";
+        const entry = s.entry || 0;
+        const targetPrice = s.targetPrice || 0;
+
+        tweet += `$${s.symbol}  +${gain}%  (${target})\n`;
+        if (caught) tweet += `   📅 التقط: ${caught} @ $${entry.toFixed(2)}\n`;
+        if (hit) tweet += `   ✅ الهدف: ${hit} @ $${targetPrice.toFixed(2)}\n`;
+        tweet += `\n`;
+      });
+
+      tweet += `─────────────────────\n`;
+      tweet += `✅ جميع الأسهم المعروضة ظهرت للمشتركين\n`;
+      tweet += `🔗 radaraz.com`;
+
+      await navigator.clipboard.writeText(tweet);
+      showToast("✅ تم نسخ تقرير التغريدة (الإشارات المعروضة)", "ok");
+
+    } catch (error) {
+      console.error("خطأ في نسخ التقرير:", error);
+      showToast("❌ خطأ في نسخ التقرير", "error");
+    }
   };
 
   const hotCount  = signals.filter(s => s.is_hot).length;
@@ -1263,9 +1256,10 @@ export default function Admin() {
                   🔄 تحديث
                 </button>
               </div>
-              
+
               {radarReport ? (
                 <div>
+                  {/* إحصائيات سريعة */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
                     <div style={{ textAlign: "center", padding: "10px", background: "rgba(129,140,248,0.08)", borderRadius: 10 }}>
                       <div style={{ fontSize: 22, fontWeight: 900, color: "#818cf8" }}>{radarReport.summary.totalSignals}</div>
@@ -1284,7 +1278,8 @@ export default function Admin() {
                       <div style={{ fontSize: 9, color: "#64748b" }}>نسبة النجاح</div>
                     </div>
                   </div>
-                  
+
+                  {/* الأهداف والوقف */}
                   <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
                     <div style={{ flex: 1, background: "rgba(52,211,153,0.06)", padding: "10px", borderRadius: 10, textAlign: "center" }}>
                       <div style={{ fontSize: 14, fontWeight: 700, color: "#34d399" }}>{radarReport.summary.hit}</div>
@@ -1298,10 +1293,15 @@ export default function Admin() {
                       <div style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24" }}>{radarReport.summary.profitFactor}×</div>
                       <div style={{ fontSize: 9, color: "#64748b" }}>💰 Profit Factor</div>
                     </div>
+                    <div style={{ flex: 1, background: "rgba(129,140,248,0.06)", padding: "10px", borderRadius: 10, textAlign: "center" }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#818cf8" }}>{radarReport.summary.avgGain}% / {radarReport.summary.avgLoss}%</div>
+                      <div style={{ fontSize: 9, color: "#64748b" }}>📈 ربح / 📉 خسارة</div>
+                    </div>
                   </div>
-                  
+
+                  {/* أفضل الصفقات */}
                   {radarReport.topGainers && radarReport.topGainers.length > 0 && (
-                    <div style={{ marginBottom: 10 }}>
+                    <div style={{ marginBottom: 14 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24", marginBottom: 6 }}>🏆 أفضل الصفقات اليوم</div>
                       {radarReport.topGainers.slice(0, 5).map((s, i) => (
                         <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: 4 }}>
@@ -1313,7 +1313,101 @@ export default function Admin() {
                       ))}
                     </div>
                   )}
-                  
+
+                  {/* 📉 تشخيص الخسائر */}
+                  {radarReport.topLosers && radarReport.topLosers.length > 0 && (
+                    <div style={{ marginTop: 14, padding: "14px 16px", borderRadius: 12, background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.2)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#f87171", marginBottom: 10 }}>
+                        📉 تشخيص الخسائر ({radarReport.lossStats?.total || 0} صفقة)
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                        <div style={{ background: "rgba(248,113,113,0.08)", padding: "6px 12px", borderRadius: 8 }}>
+                          <span style={{ fontSize: 11, color: "#94a3b8" }}>متوسط الخسارة</span>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#f87171", display: "block" }}>{radarReport.lossStats?.avgLoss || 0}%</span>
+                        </div>
+                        <div style={{ background: "rgba(248,113,113,0.08)", padding: "6px 12px", borderRadius: 8 }}>
+                          <span style={{ fontSize: 11, color: "#94a3b8" }}>متوسط الوقف</span>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24", display: "block" }}>{radarReport.lossStats?.closeStopAvg || 0}%</span>
+                        </div>
+                        <div style={{ background: "rgba(239,68,68,0.08)", padding: "6px 12px", borderRadius: 8 }}>
+                          <span style={{ fontSize: 11, color: "#94a3b8" }}>🔴 شديدة</span>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#ef4444", display: "block" }}>{radarReport.lossStats?.severe || 0}</span>
+                        </div>
+                        <div style={{ background: "rgba(251,191,36,0.08)", padding: "6px 12px", borderRadius: 8 }}>
+                          <span style={{ fontSize: 11, color: "#94a3b8" }}>🟡 تحذير</span>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24", display: "block" }}>{radarReport.lossStats?.warning || 0}</span>
+                        </div>
+                      </div>
+
+                      {radarReport.lossStats?.byReason && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 6 }}>🔍 أسباب الخسائر:</div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {Object.entries(radarReport.lossStats.byReason).map(([reason, count]) => (
+                              <span key={reason} style={{
+                                fontSize: 10,
+                                padding: "3px 10px",
+                                borderRadius: 12,
+                                background: count >= 3 ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.1)",
+                                color: count >= 3 ? "#ef4444" : "#fbbf24",
+                                border: `1px solid ${count >= 3 ? "rgba(239,68,68,0.3)" : "rgba(251,191,36,0.2)"}`,
+                              }}>
+                                {reason} ({count})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {radarReport.topLosers.slice(0, 5).map((s, i) => (
+                        <div key={i} style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "8px 10px",
+                          background: "rgba(255,255,255,0.03)",
+                          borderRadius: 8,
+                          marginBottom: 6,
+                          borderRight: `3px solid ${s.severity === "🔴" ? "#ef4444" : "#fbbf24"}`,
+                        }}>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#e2e8f0" }}>{s.symbol}</span>
+                              <span style={{ fontSize: 10, color: s.severity === "🔴" ? "#ef4444" : "#fbbf24" }}>
+                                {s.severity}
+                              </span>
+                              <span style={{ fontSize: 10, color: "#64748b" }}>{s.type}</span>
+                            </div>
+                            <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
+                              {s.reasons.slice(0, 2).join(" · ")}
+                              {s.reasons.length > 2 && <span style={{ color: "#64748b" }}> +{s.reasons.length - 2} أسباب</span>}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171" }}>-{s.loss}%</div>
+                            <div style={{ fontSize: 9, color: "#64748b" }}>وقف {s.stopPct}%</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* توزيع حسب النوع */}
+                  {radarReport.byType && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#818cf8", marginBottom: 4 }}>📊 توزيع الصفقات حسب النوع</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
+                        {Object.entries(radarReport.byType).map(([type, data], i) => (
+                          <span key={type}>
+                            {type}: {data.rate}% نجاح ({data.win}/{data.total})
+                            {i < Object.entries(radarReport.byType).length - 1 ? "  ·  " : ""}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div style={{ fontSize: 11, color: "#34d399", marginTop: 10, fontWeight: 600 }}>
                     ✅ جميع الأسهم المعروضة ظهرت للمشتركين
                   </div>
