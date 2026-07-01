@@ -3,18 +3,16 @@
 //  مسح مستقل تماماً — صفر اعتماد على جداول أخرى
 //  ─────────────────────────────────────────────────────────────────
 //  ترقيات هذا الإصدار:
-//   ✅ المتوسطات/RSI/ATR/MACD حسب نوع الصفقة:
-//        ⚡ مضاربة → فريم 60 دقيقة (سريع، يناسب اليوم)
-//        📈 استثمار → فريم يومي (يناسب المستثمر)
+//   ✅ المتوسطات/RSI/ATR/MACD حسب نوع الصفقة
 //   ✅ إضافة MA50 + MACD(12,26,9) لتأكيد الاتجاه
 //   ✅ المتوسطات صارت "بوابة" (gate) لا مجرد بونص
 //   ✅ غربال صارم للأسهم أقل من $1
-//   ✅ طبقة الأخبار اللحظية (Polygon News) — تفصل الكاتشي عن الوهمي
+//   ✅ طبقة الأخبار اللحظية (Polygon News)
 //   ✅ شارة 🎯 "الهدف" — التقاء كامل على الفريمين (نخبة)
 //   ✅ أهداف واقعية (مضاربة على ATR 60د = أضيق وأقرب للتحقق)
-//   ✅ إصلاح bug قسم الاستثمار (كان يستخدم "قيادي" بدل "استثمار")
 //   ✅ إضافة أقسام جديدة: مناطق مراقبة 🔵 + زخم متأخر 🚀 + فرص خفية 💎
 //   ✅ وقف خسارة ذكي: 4%-7% + بنية السوق (الدعم الحقيقي)
+//   ✅ نظام Pre-Market / After-Hours الديناميكي
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 60 };
@@ -45,23 +43,142 @@ function setCache(key, data) {
   CACHE.aggs.set(key, { data, time: Date.now() });
 }
 
-// ─── إعدادات الفلترة ───────────────────────────────────────────────
+// ─── 🕐 نظام حالة السوق الديناميكي ──────────────────────────────
+function getMarketStatus() {
+  const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const etH = etNow.getHours(), etM = etNow.getMinutes();
+  const day = etNow.getDay();
+  const isWeekend = day === 0 || day === 6;
+  
+  // Pre-Market: 4:00ص - 9:30ص (نيويورك) = 11:00ص - 4:30م (السعودية)
+  const isPreMarket = !isWeekend && (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
+  
+  // السوق مفتوح: 9:30ص - 4:00م (نيويورك) = 4:30م - 11:00م (السعودية)
+  const isMarketOpen = !isWeekend && (etH > 9 || (etH === 9 && etM >= 30)) && etH < 16;
+  
+  // After-Hours: 4:00م - 8:00م (نيويورك) = 11:00م - 3:00ص (السعودية)
+  const isAfterHours = !isWeekend && etH >= 16 && etH < 20;
+  
+  // مغلق: weekend أو بعد 8:00م
+  const isClosed = isWeekend || etH >= 20 || etH < 4;
+  
+  let status, label, icon, warning, mode;
+  if (isPreMarket) {
+    status = "premarket";
+    label = "🔵 Pre-Market";
+    icon = "🔵";
+    warning = "⚠️ سيولة أقل · تقلب أعلى · تداول بحذر";
+    mode = "premarket";
+  } else if (isMarketOpen) {
+    status = "open";
+    label = "🟢 السوق مفتوح";
+    icon = "🟢";
+    warning = "";
+    mode = "open";
+  } else if (isAfterHours) {
+    status = "afterhours";
+    label = "🟡 After-Hours";
+    icon = "🟡";
+    warning = "⚠️ سيولة منخفضة · تداول بحذر";
+    mode = "afterhours";
+  } else {
+    status = "closed";
+    label = "🔴 السوق مغلق";
+    icon = "🔴";
+    warning = "⏳ سيتم تحديث الإشارات بعد فتح السوق";
+    mode = "closed";
+  }
+  
+  return {
+    status,
+    label,
+    icon,
+    warning,
+    mode,
+    isPreMarket,
+    isMarketOpen,
+    isAfterHours,
+    isClosed,
+    saudiTime: {
+      preMarketStart: "11:00 ص",
+      preMarketEnd: "4:30 م",
+      marketOpen: "4:30 م",
+      marketClose: "11:00 م",
+    }
+  };
+}
+
+// ─── إعدادات ديناميكية حسب حالة السوق ──────────────────────────
+function getMarketConfig(mode) {
+  const preMarketConfig = {
+    MIN_PRICE: 0.50,
+    MIN_VOLUME: 50_000,
+    MIN_CHANGE: 2,
+    MAX_CHANGE: 30,
+    HEAVY_LIMIT: 30,
+    SAVE_MIN_EP: 50,
+    TIMEFRAME_MULT: 5,
+    TIMEFRAME_SPAN: "minute",
+  };
+  
+  const openMarketConfig = {
+    MIN_PRICE: 3.00,
+    MIN_VOLUME: 500_000,
+    MIN_CHANGE: 3,
+    MAX_CHANGE: 35,
+    HEAVY_LIMIT: 45,
+    SAVE_MIN_EP: 60,
+    TIMEFRAME_MULT: 1,
+    TIMEFRAME_SPAN: "minute",
+  };
+  
+  const afterHoursConfig = {
+    MIN_PRICE: 0.50,
+    MIN_VOLUME: 50_000,
+    MIN_CHANGE: 2,
+    MAX_CHANGE: 25,
+    HEAVY_LIMIT: 25,
+    SAVE_MIN_EP: 45,
+    TIMEFRAME_MULT: 5,
+    TIMEFRAME_SPAN: "minute",
+  };
+  
+  const closedConfig = {
+    MIN_PRICE: 0,
+    MIN_VOLUME: 0,
+    MIN_CHANGE: 0,
+    MAX_CHANGE: 0,
+    HEAVY_LIMIT: 0,
+    SAVE_MIN_EP: 0,
+    TIMEFRAME_MULT: 0,
+    TIMEFRAME_SPAN: "minute",
+  };
+  
+  const configs = {
+    premarket: preMarketConfig,
+    open: openMarketConfig,
+    afterhours: afterHoursConfig,
+    closed: closedConfig,
+  };
+  
+  return configs[mode] || openMarketConfig;
+}
+
+// ─── إعدادات الفلترة الأساسية ────────────────────────────────────
 const FILTER = {
-  MIN_PRICE:      3.00,      // 🆕 رفعنا من 0.30 إلى 3 (نستبعد الأسهم الرخيصة جداً)
+  MIN_PRICE:      3.00,
   MAX_PRICE:      500,
-  MIN_VOLUME:     500_000,   // 🆕 رفعنا من 300K إلى 500K (سيولة أفضل)
+  MIN_VOLUME:     500_000,
   MIN_CHANGE:     3,
-  MAX_CHANGE:     35,        // 🆕 خفضنا من 40 إلى 35 (نمنع الدخول المتأخر جداً)
-  MAX_RVOL:       80,        // 🆕 خفضنا من 100 إلى 80
+  MAX_CHANGE:     35,
+  MAX_RVOL:       80,
   MAX_RESULTS:    60,
   HEAVY_LIMIT:    45,
   SAVE_MIN_EP:    60,
   STRICT_PRICE:   1.00,
-  // 🆕 إعدادات الأقسام الجديدة
   WATCH_MIN_EP:   50,
   LATE_CHANGE:    15,
   HIDDEN_VOLUME:  300000,
-  // 🆕 فلتر HIGH المحسن
   HIGH_MIN_EP:    75,
   HIGH_MIN_RVOL:  8,
 };
@@ -84,8 +201,8 @@ const STRUCT = {
 const STOP_CONFIG = {
   MIN_PCT: 0.04,  // 4% حد أدنى
   MAX_PCT: 0.07,  // 7% حد أعلى
-  SCALP_TARGET_MULT: 1.5,  // مضاربة: الهدف الأول = المخاطرة × 1.5
-  SMART_TARGET_MULT: 2.0,  // استثمار: الهدف الأول = المخاطرة × 2.0
+  SCALP_TARGET_MULT: 1.5,
+  SMART_TARGET_MULT: 2.0,
 };
 
 // ════════════════ أدوات المؤشرات ════════════════
@@ -240,31 +357,23 @@ function calcFibTargets(bars, price) {
 
 // ─── 🛑 حساب الوقف الذكي (حسب بنية السوق) ──────────────────────
 function calculateSmartStop(price, structure, atr) {
-  // 1️⃣ الحدود القصوى والدنيا للوقف
-  const MAX_STOP_PCT = STOP_CONFIG.MAX_PCT;  // 7%
-  const MIN_STOP_PCT = STOP_CONFIG.MIN_PCT;  // 4%
+  const MAX_STOP_PCT = STOP_CONFIG.MAX_PCT;
+  const MIN_STOP_PCT = STOP_CONFIG.MIN_PCT;
   
-  // 2️⃣ الوقف من بنية السوق (الدعم الحقيقي)
   let stopFromStructure = null;
   if (structure && structure.support) {
-    stopFromStructure = structure.support * 0.995; // تحت الدعم بقليل
+    stopFromStructure = structure.support * 0.995;
   }
   
-  // 3️⃣ الوقف من ATR (احتياطي)
   const atrStop = price - (atr || price * 0.03) * 1.2;
-  
-  // 4️⃣ اختيار الوقف المناسب (الأولوية للبنية)
   let stop = stopFromStructure || atrStop;
   
-  // 5️⃣ التأكد من عدم تجاوز الحدود
-  const maxStop = price * (1 - MIN_STOP_PCT);  // أعلى وقف (4%)
-  const minStop = price * (1 - MAX_STOP_PCT);  // أدنى وقف (7%)
+  const maxStop = price * (1 - MIN_STOP_PCT);
+  const minStop = price * (1 - MAX_STOP_PCT);
   
-  // الوقف لا يقل عن 4% ولا يتجاوز 7%
-  stop = Math.min(stop, maxStop);   // لا يقل عن 4%
-  stop = Math.max(stop, minStop);   // لا يتجاوز 7%
+  stop = Math.min(stop, maxStop);
+  stop = Math.max(stop, minStop);
   
-  // 6️⃣ التأكد أن الوقف أقل من السعر
   if (stop >= price) {
     stop = price * (1 - MIN_STOP_PCT);
   }
@@ -279,18 +388,14 @@ function calculateSmartStop(price, structure, atr) {
 // ─── أهداف المضاربة (Scalp) مع الوقف الذكي ──────────────────────
 function calcScalpLevels(price, bars, structure) {
   const atr = calcATR14(bars) || price * 0.03;
-  
-  // 🛑 حساب الوقف الذكي
   const stopData = calculateSmartStop(price, structure, atr);
   const sl = stopData.stop;
   const risk = price - sl;
   
-  // 🎯 الأهداف (نسبة إلى المخاطرة)
-  let t1 = price + risk * 1.5;   // 1:1.5
-  let t2 = price + risk * 2.5;   // 1:2.5
-  let t3 = price + risk * 4.0;   // 1:4
+  let t1 = price + risk * 1.5;
+  let t2 = price + risk * 2.5;
+  let t3 = price + risk * 4.0;
   
-  // التأكد من ترتيب الأهداف
   t2 = Math.max(t2, t1 * 1.02);
   t3 = Math.max(t3, t2 * 1.02);
   
@@ -312,22 +417,17 @@ function calcScalpLevels(price, bars, structure) {
 // ─── أهداف الاستثمار (Smart) مع الوقف الذكي ──────────────────────
 function calcSmartLevels(price, bars, structure) {
   const atr = calcATR14(bars) || price * 0.05;
-  
-  // 🛑 حساب الوقف الذكي
   const stopData = calculateSmartStop(price, structure, atr);
   const sl = stopData.stop;
   const risk = price - sl;
   
-  // تحليل الدعم والمقاومة الإضافي
   const { resistances, supports } = calcSupportResistance(bars, price);
   const fibs = calcFibTargets(bars, price);
   
-  // 🎯 أهداف الاستثمار (أوسع)
-  let t1 = price + risk * 2.0;   // 1:2
-  let t2 = price + risk * 3.5;   // 1:3.5
-  let t3 = price + risk * 5.0;   // 1:5
+  let t1 = price + risk * 2.0;
+  let t2 = price + risk * 3.5;
+  let t3 = price + risk * 5.0;
   
-  // استخدام المقاومات إن وجدت
   if (resistances.length > 0 && resistances[0] > t1) {
     t1 = Math.min(resistances[0], t1 * 1.2);
   }
@@ -338,7 +438,6 @@ function calcSmartLevels(price, bars, structure) {
     t3 = Math.max(t3, fibs[1]);
   }
   
-  // التأكد من ترتيب الأهداف
   t2 = Math.max(t2, t1 * 1.04);
   t3 = Math.max(t3, t2 * 1.05);
   
@@ -360,11 +459,11 @@ const SMART_STOP = {
   ENABLED: true,
   NOISE_ATR_MULT: 1.2,
   NOISE_MIN_PCT:  0.04,
-  SCALP_FLOOR:    0.04,  // 🆕 4% حد أدنى
-  SCALP_CAP:      0.07,  // 🆕 7% حد أعلى
+  SCALP_FLOOR:    0.04,
+  SCALP_CAP:      0.07,
   SCALP_ATR_K:    1.2,
-  SMART_FLOOR:    0.04,  // 🆕 4% حد أدنى
-  SMART_CAP:      0.07,  // 🆕 7% حد أعلى
+  SMART_FLOOR:    0.04,
+  SMART_CAP:      0.07,
   SMART_ATR_K:    1.3,
   MIN_RR:         1.3,
   SCALP_T1_CAP:   0.30,
@@ -419,7 +518,6 @@ function calcReboundLevels(price) {
   };
 }
 
-// ─── تطبيق الوقف الذكي على البنية ──────────────────────────────
 function applyStructureLevels(price, levels, structure, tradeStyle) {
   if (!SMART_STOP.ENABLED || !structure) return levels;
   if (!structure.support || !structure.stop || structure.stop >= price) return levels;
@@ -427,15 +525,11 @@ function applyStructureLevels(price, levels, structure, tradeStyle) {
   const atr = levels?.atr14 || price * 0.03;
   const isScalp = tradeStyle === "مضاربة";
   
-  // ─── 🛑 الوقف الذكي من البنية ──────────────────────────────────
-  // 1. من بنية السوق (الدعم)
   let sl = structure.stop;
   
-  // 2. الحدود القصوى والدنيا
-  const MIN_STOP_PCT = 0.04;  // 4% حد أدنى
-  const MAX_STOP_PCT = 0.07;  // 7% حد أعلى
+  const MIN_STOP_PCT = 0.04;
+  const MAX_STOP_PCT = 0.07;
   
-  // 3. التأكد من الحدود
   const minStop = price * (1 - MAX_STOP_PCT);
   const maxStop = price * (1 - MIN_STOP_PCT);
   
@@ -449,7 +543,6 @@ function applyStructureLevels(price, levels, structure, tradeStyle) {
   const risk = price - sl;
   if (risk <= 0) return levels;
 
-  // ─── 🎯 الأهداف من البنية ──────────────────────────────────────
   const t1Cap = isScalp ? SMART_STOP.SCALP_T1_CAP : SMART_STOP.SMART_T1_CAP;
   
   const cand = [structure.resistance, structure.t1, structure.t2, structure.t3]
@@ -488,13 +581,11 @@ function applyStructureLevels(price, levels, structure, tradeStyle) {
   };
 }
 
-// ─── أهداف تقريبية (fallback) ──────────────────────────────────
 function calcLevels(s) {
   const price = s.price;
   const tr  = Math.max(s.high - s.low, Math.abs(s.high - s.prevClose), Math.abs(s.low - s.prevClose));
   const atr = Math.max(tr, price * 0.02);
   
-  // وقف ذكي (4%-7%)
   const stopPct = Math.min(Math.max(0.04, atr / price * 1.2), 0.07);
   const sl = price * (1 - stopPct);
   const risk = price - sl;
@@ -513,7 +604,6 @@ function calcLevels(s) {
   };
 }
 
-// ════════════════ محرّك مستويات البنية (Swing + Fibonacci) ════════════════
 function findPivots(bars, w = 2) {
   const highs = [], lows = [];
   for (let i = w; i < bars.length - w; i++) {
@@ -584,10 +674,9 @@ function computeStructureLevels(price, bars) {
   };
 }
 
-// ════════════════ EP MODEL ════════════════
 function buildMovers(tickers, n = 15) {
-  const MIN_PRICE = 3;  // 🆕 رفعنا من 1 إلى 3
-  const MIN_DOLLAR_VOL = 2e6;  // 🆕 رفعنا من 1M إلى 2M
+  const MIN_PRICE = 3;
+  const MIN_DOLLAR_VOL = 2e6;
   const rows = [];
   for (const tk of tickers) {
     if (!tk.ticker || tk.ticker.includes(".")) continue;
@@ -644,7 +733,6 @@ function calcEP(s) {
   return Math.max(0, Math.min(ep, 99));
 }
 
-// ════════════════ جلب السوق ════════════════
 async function inBatches(items, size, fn) {
   for (let i = 0; i < items.length; i += size) {
     await Promise.all(items.slice(i, i + size).map(fn));
@@ -828,28 +916,43 @@ async function saveSignals(signals) {
   } catch (err) { return { saved: 0, error: err.message }; }
 }
 
-// ════════════════ MAIN HANDLER ════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  MAIN HANDLER
+// ═══════════════════════════════════════════════════════════════════
 export default async function handler(req, res) {
   const t0 = Date.now();
   const DEADLINE = t0 + 6500;
   const isSubscriber = req.query.sub === "1";
 
   try {
-    const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const etH = etNow.getHours(), etM = etNow.getMinutes();
-    const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
-    const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
-
-    // 🛑 إيقاف المسح بعد 21:00 (تجنب التقلبات الليلية)
-    if (etH >= 21 && !isPreMarket) {
-      return res.status(200).json({ 
-        success: true, 
-        message: "تم إيقاف المسح بعد 21:00 (تجنب التقلبات الليلية)",
-        results: [], 
-        leaders: [], 
-        speculation: [] 
+    // ─── 🕐 حالة السوق والإعدادات الديناميكية ──────────────────────
+    const marketStatus = getMarketStatus();
+    const config = getMarketConfig(marketStatus.mode);
+    
+    // إذا كان السوق مغلق، نرجع رسالة
+    if (marketStatus.mode === "closed") {
+      return res.status(200).json({
+        success: true,
+        message: "⏳ السوق مغلق - سيتم تحديث الإشارات بعد فتح السوق",
+        marketStatus,
+        results: [],
+        leaders: [],
+        speculation: [],
+        opportunities: { ready: [], watch: [], late: [], hidden: [] },
+        counts: { ready: 0, watch: 0, late: 0, hidden: 0, total: 0 },
       });
     }
+
+    const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const etH = etNow.getHours(), etM = etNow.getMinutes();
+    const isPreMarket = marketStatus.isPreMarket;
+    const isAfterHours = marketStatus.isAfterHours;
+    
+    // إعدادات ديناميكية
+    const minVolume = isPreMarket || isAfterHours ? 50_000 : FILTER.MIN_VOLUME;
+    const minPrice = isPreMarket || isAfterHours ? 0.50 : FILTER.MIN_PRICE;
+    const minChange = isPreMarket || isAfterHours ? 2 : FILTER.MIN_CHANGE;
+    const maxChange = isPreMarket || isAfterHours ? 30 : FILTER.MAX_CHANGE;
 
     const [allTickers, vixData] = await Promise.all([
       fetchFullMarket(),
@@ -858,6 +961,7 @@ export default async function handler(req, res) {
     const vixRank = vixData.available ? vixData.rank : null;
     const t1 = Date.now();
 
+    // ─── فلترة المرشحين ──────────────────────────────────────────────
     const candidates = [];
     for (const tk of allTickers) {
       const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
@@ -865,13 +969,13 @@ export default async function handler(req, res) {
       const volume = day.v || min.av || 0;
       if (!tk.ticker || tk.ticker.includes(".")) continue;
       if (!/^[A-Z]{1,6}$/.test(tk.ticker)) continue;
-      if (price < FILTER.MIN_PRICE || price > FILTER.MAX_PRICE) continue;
+      if (price < minPrice || price > FILTER.MAX_PRICE) continue;
       if (volume < minVolume) continue;
       const prevClose = prev.c || day.o || price;
       let changePct = tk.todaysChangePerc;
       if (changePct == null || changePct === 0) changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
-      if (changePct < FILTER.MIN_CHANGE) continue;
-      if (changePct > FILTER.MAX_CHANGE) continue;
+      if (changePct < minChange) continue;
+      if (changePct > maxChange) continue;
       const gapPct = (day.o && prevClose) ? ((day.o - prevClose) / prevClose) * 100 : 0;
       let rvol = (prev.v && prev.v > 0) ? +(volume / prev.v).toFixed(1) : 0;
       if (rvol > FILTER.MAX_RVOL) continue;
@@ -882,6 +986,7 @@ export default async function handler(req, res) {
       });
     }
 
+    // ─── تقييم EP وتصنيف الصفقات ──────────────────────────────────
     const scored = candidates.map(s => {
       const ep = calcEP(s);
       const levels = calcLevels(s);
@@ -894,12 +999,22 @@ export default async function handler(req, res) {
         signal: ep >= 80 ? "💥 انفجاري" : ep >= 60 ? "🔥 عالي" : "👀 مراقبة" };
     });
 
+    // ─── ترتيب واختيار الأعلى ──────────────────────────────────────
     scored.sort((a, b) => (b.is_hot !== a.is_hot) ? (b.is_hot ? 1 : -1) : (b.ep !== a.ep) ? b.ep - a.ep : b.rvol - a.rvol);
-    const top = scored.slice(0, FILTER.HEAVY_LIMIT);
+    const top = scored.slice(0, config.HEAVY_LIMIT || FILTER.HEAVY_LIMIT);
 
+    // ─── التحليل الفني المتقدم ────────────────────────────────────
     await inBatches(top, 30, async (s) => {
       if (Date.now() > DEADLINE) { s._timedOut = true; return; }
-      const fr = frameFor(s.trade_style);
+      
+      // اختيار الفريم المناسب حسب حالة السوق
+      let fr;
+      if (isPreMarket || isAfterHours) {
+        fr = { mult: 5, span: "minute", days: 7, limit: 500 };
+      } else {
+        fr = frameFor(s.trade_style);
+      }
+      
       const wantNews = s.changePct > 10 || s.rvol > 6 || s.ep >= 65;
       s._newsFetched = wantNews;
       const [bars, news] = await Promise.all([
@@ -931,8 +1046,8 @@ export default async function handler(req, res) {
             s.vcp_contraction = vcpRes.contraction;
           }
         }
+        
         if (tech.bars && tech.bars.length >= 15) {
-          // 🆕 استخدام الدوال المعدلة مع بنية السوق
           s.structure = computeStructureLevels(s.price, tech.bars);
           s.levels = s.trade_style === "مضاربة" 
             ? calcScalpLevels(s.price, tech.bars, s.structure) 
@@ -946,7 +1061,6 @@ export default async function handler(req, res) {
             s.zone_touches = fz.touches;
           }
           
-          // تطبيق الوقف الذكي على البنية
           const smart = applyStructureLevels(s.price, s.levels, s.structure, s.trade_style);
           if (smart.smart_structure) { s.levels = smart; s.levels_source += "+structure"; }
         } else {
@@ -955,6 +1069,7 @@ export default async function handler(req, res) {
         }
         s.week_max_jump = tech.recentMaxJump;
 
+        // ─── فلتر الارتداد ────────────────────────────────────────
         const rsiOK = s.rsi != null && s.rsi <= REBOUND.RSI_MAX;
         const dvolOK = s.price * (s.volume || 0) >= REBOUND.MIN_DOLLAR_VOL && s.price >= REBOUND.MIN_PRICE;
         const vixOK = vixRank == null || vixRank < REBOUND.MAX_VIX_RANK;
@@ -996,6 +1111,7 @@ export default async function handler(req, res) {
         s.ma_signal = null; s.rsi = s.rsi ?? null; s.levels_source = "atr_basic"; s.week_max_jump = null;
       }
 
+      // ─── الأخبار ──────────────────────────────────────────────────
       const freshNews = news.hasNews && news.ageH != null && news.ageH <= 48;
       if (freshNews) {
         s.ep = Math.min(99, s.ep + (news.sentiment === "positive" ? 6 : 3));
@@ -1003,10 +1119,12 @@ export default async function handler(req, res) {
       if (s.changePct > 20 && !freshNews) s.ep = Math.max(0, s.ep - 8);
       s.news_age_h = news.ageH;
 
+      // ─── خصم الامتداد ────────────────────────────────────────────
       if (s.changePct > 12) {
         s.ep = Math.max(0, s.ep - Math.round((s.changePct - 12) * 0.7));
       }
 
+      // ─── طبقة جودة الدخول ────────────────────────────────────────
       if (STRETCH.ENABLED && tech) {
         if (tech.stretch9 != null && tech.stretch9 > STRETCH.WARN) {
           const pen = Math.min(STRETCH.PEN_CAP, Math.round((tech.stretch9 - STRETCH.WARN) * STRETCH.PEN_K));
@@ -1019,6 +1137,7 @@ export default async function handler(req, res) {
         }
       }
 
+      // ─── مزج البنية ──────────────────────────────────────────────
       if (s.structure) {
         const st = s.structure;
         const band = st.resistance - st.support;
@@ -1055,6 +1174,7 @@ export default async function handler(req, res) {
         }
       }
 
+      // ─── البوابة (Gate) ──────────────────────────────────────────
       if (s.price < FILTER.STRICT_PRICE) {
         const pass = tech && tech.aligned
           && s.rvol >= 5
@@ -1095,6 +1215,7 @@ export default async function handler(req, res) {
       s._primaryConfluence = primaryConfluence;
     });
 
+    // ─── تأكيد الهدف على الفريم الآخر ─────────────────────────────
     const finalists = top.filter(s => s._primaryConfluence);
     await inBatches(finalists, 12, async (s) => {
       if (Date.now() > DEADLINE) return;
@@ -1111,6 +1232,7 @@ export default async function handler(req, res) {
       }
     });
 
+    // ─── الناجون والترتيب ──────────────────────────────────────────
     let survivors = top.filter(s => !s._drop);
     const tier = s => {
       if (s.is_target) return 5;
@@ -1127,12 +1249,14 @@ export default async function handler(req, res) {
       return b.rvol - a.rvol;
     });
 
+    // ─── الحفظ ──────────────────────────────────────────────────────
     let saveResult = { skipped: true, reason: "subscriber scan" };
     if (!isSubscriber) {
-      const toSave = survivors.filter(s => s.ep >= FILTER.SAVE_MIN_EP);
+      const toSave = survivors.filter(s => s.ep >= (config.SAVE_MIN_EP || FILTER.SAVE_MIN_EP));
       saveResult = await saveSignals(toSave);
     }
 
+    // ─── الإحصائيات ──────────────────────────────────────────────────
     const dropBy = r => top.filter(s => s._dropReason === r).length;
     const debug = {
       market_scanned:   allTickers.length,
@@ -1151,7 +1275,7 @@ export default async function handler(req, res) {
       dropped_trend_gate: dropBy("trend_gate"),
       dropped_no_tech:  dropBy("no_tech_ext") + dropBy("no_tech_lowep"),
       survivors:        survivors.length,
-      below_save_ep:    survivors.filter(s => s.ep < FILTER.SAVE_MIN_EP).length,
+      below_save_ep:    survivors.filter(s => s.ep < (config.SAVE_MIN_EP || FILTER.SAVE_MIN_EP)).length,
       saved:            saveResult.saved || 0,
       rebound_funnel: {
         rsi_pass:   top.filter(s => s._rebRsi).length,
@@ -1173,6 +1297,7 @@ export default async function handler(req, res) {
       drop_stretch_pct: pctOf(debug.dropped_stretch, debug.tech_analyzed),
     };
 
+    // ─── الرد الخفيف ──────────────────────────────────────────────────
     if (req.query.light === "1") {
       return res.status(200).json({
         success: true, light: true,
@@ -1185,10 +1310,12 @@ export default async function handler(req, res) {
         saved:  saveResult.saved || 0, saveResult,
         timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
         market_scanned: allTickers.length, after_filter: candidates.length,
+        marketStatus,
         debug,
       });
     }
 
+    // ─── تجهيز البيانات للعرض ──────────────────────────────────────
     const toCard = s => ({
       symbol: s.symbol, price: s.price, change_pct: s.changePct, score: s.ep, signal: s.signal,
       type: s.type, volume: s.volume, rvol: s.rvol, is_hot: s.is_hot, vwap: s.vwap,
@@ -1205,10 +1332,9 @@ export default async function handler(req, res) {
     const leaders     = results.filter(s => s.type === "استثمار");
     const speculation = results.filter(s => s.type !== "استثمار");
     const early       = results.filter(s => s.early_watch);
+    const movers      = buildMovers(allTickers, 15);
 
-    const movers = buildMovers(allTickers, 15);
-
-    // ─── 📊 تصنيف الفرص المتقدمة ───
+    // ─── تصنيف الفرص المتقدمة ──────────────────────────────────────
     const opportunities = {
       ready: survivors.filter(s => 
         s.ep >= 70 && 
@@ -1262,6 +1388,7 @@ export default async function handler(req, res) {
       timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
       market_scanned: allTickers.length,
       after_filter: candidates.length,
+      marketStatus,
       debug,
       results,
       leaders,
@@ -1286,6 +1413,13 @@ export default async function handler(req, res) {
     return res.status(200).json(responseData);
 
   } catch (error) {
-    return res.status(200).json({ success: false, error: error.message, results: [], leaders: [], speculation: [] });
+    return res.status(200).json({ 
+      success: false, 
+      error: error.message, 
+      results: [], 
+      leaders: [], 
+      speculation: [],
+      marketStatus: getMarketStatus(),
+    });
   }
 }
