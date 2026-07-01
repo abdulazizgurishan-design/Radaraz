@@ -1,6 +1,7 @@
 // pages/api/radar-report.js
 // ─────────────────────────────────────────────
-//  تقرير الرادار - فقط الإشارات المعروضة
+//  تقرير الرادار - الإشارات المعروضة فقط
+//  مطابق لنتائج لوحة التحكم
 // ─────────────────────────────────────────────
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -11,11 +12,11 @@ export default async function handler(req, res) {
   try {
     const today = new Date().toISOString().split('T')[0];
     const saudiNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
-    const dateStr = saudiNow.toLocaleDateString("ar-SA", { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+    const dateStr = saudiNow.toLocaleDateString("ar-SA", {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
     });
 
     // 1️⃣ جلب جميع إشارات اليوم
@@ -36,12 +37,12 @@ export default async function handler(req, res) {
       .filter(s => (s.ep || 0) >= MIN_EP)
       .map(s => s.symbol);
 
-    // 4️⃣ الإشارات القوية المعروضة
-    const displayedSignals = allSignals.filter(s => 
+    // 4️⃣ الإشارات المعروضة فقط
+    const displayedSignals = allSignals.filter(s =>
       displayedSymbols.includes(s.symbol) && (s.ep || s.score || 0) >= MIN_EP
     );
 
-    // 5️⃣ تحليل الإشارات المعروضة فقط
+    // 5️⃣ تحليل الإشارات المعروضة
     const closed = displayedSignals.filter(s => s.status === "CLOSED");
     const hit = closed.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
     const stopHit = closed.filter(s => s.stop_hit && !s.target1_hit);
@@ -52,7 +53,7 @@ export default async function handler(req, res) {
     const totalLoss = stopHit.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0);
     const profitFactor = totalLoss > 0 ? (totalGain / totalLoss).toFixed(2) : "0.00";
 
-    // 6️⃣ أفضل الصفقات المعروضة
+    // 6️⃣ أفضل الصفقات
     const topGainers = [...hit]
       .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
       .slice(0, 6)
@@ -66,19 +67,34 @@ export default async function handler(req, res) {
         hitAt: s.target1_hit_at,
       }));
 
-    // 7️⃣ التقرير النهائي
+    // 7️⃣ توزيع حسب النوع
+    const byType = {};
+    for (const s of closed) {
+      const type = s.type || "مضاربة";
+      if (!byType[type]) byType[type] = { total: 0, win: 0 };
+      byType[type].total++;
+      if (s.target1_hit || s.target2_hit || s.target3_hit) byType[type].win++;
+    }
+    for (const type in byType) {
+      byType[type].rate = byType[type].total > 0 ? Math.round((byType[type].win / byType[type].total) * 100) : 0;
+    }
+
+    // 8️⃣ التقرير النهائي
     const report = {
       date: dateStr,
       summary: {
-        totalDisplayed: displayedSignals.length,
+        totalSignals: allSignals.length,
+        displayedInRadar: displayedSignals.length,
         closed: totalClosed,
         hit: hit.length,
         stopHit: stopHit.length,
-        winRate,
+        winRate: winRate,
         profitFactor: parseFloat(profitFactor),
         displayRate: allSignals.length > 0 ? Math.round((displayedSignals.length / allSignals.length) * 100) : 0,
       },
-      topGainers,
+      topGainers: topGainers,
+      byType: byType,
+      displayedSymbols: displayedSignals.map(s => s.symbol),
     };
 
     return res.status(200).json({ success: true, report });
