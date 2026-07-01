@@ -1,3 +1,4 @@
+
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 
 // حقن حركة نبض اللمبة مرة واحدة (آمن مع SSR)
