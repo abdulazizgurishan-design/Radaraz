@@ -715,7 +715,7 @@ export default function Admin() {
     showToast(`✅ نُسخ (${tradable.length} إنجاز · استُبعد ${winsList.length - tradable.length} قبل السوق)`, "ok");
   };
 
-  // 🐦 نسخ تقرير التغريدة مع الأسعار والأوقات
+// 🐦 نسخ تقرير التغريدة (الإشارات المعروضة فقط)
   const copyTweetReport = async () => {
     try {
       // جلب تقرير الرادار (الإشارات المعروضة فقط)
@@ -744,32 +744,47 @@ export default function Admin() {
       tweet += `🏆 أبرز الصفقات:\n\n`;
 
       const topGainers = report.topGainers || [];
-      topGainers.slice(0, 6).forEach(s => {
-        const target = s.target || "T1 ✅";
-        const gain = s.gain || "0.00";
-        const caught = s.caughtAt ? new Date(s.caughtAt).toLocaleTimeString() : "";
-        const hit = s.hitAt ? new Date(s.hitAt).toLocaleTimeString() : "";
-        const entry = s.entry || 0;
-        const targetPrice = s.targetPrice || 0;
+      if (topGainers.length === 0) {
+        tweet += `   لا توجد صفقات رابحة اليوم\n\n`;
+      } else {
+        topGainers.slice(0, 6).forEach(s => {
+          const target = s.target || "T1 ✅";
+          const gain = s.gain || "0.00";
+          const caught = s.caughtAt ? new Date(s.caughtAt).toLocaleTimeString() : "";
+          const hit = s.hitAt ? new Date(s.hitAt).toLocaleTimeString() : "";
+          const entry = s.entry || 0;
+          const targetPrice = s.targetPrice || 0;
 
-        tweet += `$${s.symbol}  +${gain}%  (${target})\n`;
-        if (caught) tweet += `   📅 التقط: ${caught} @ $${entry.toFixed(2)}\n`;
-        if (hit) tweet += `   ✅ الهدف: ${hit} @ $${targetPrice.toFixed(2)}\n`;
-        tweet += `\n`;
-      });
+          tweet += `$${s.symbol}  +${gain}%  (${target})\n`;
+          if (caught) tweet += `   📅 التقط: ${caught} @ $${entry.toFixed(2)}\n`;
+          if (hit) tweet += `   ✅ الهدف: ${hit} @ $${targetPrice.toFixed(2)}\n`;
+          tweet += `\n`;
+        });
+      }
+
+      // 📉 تشخيص الخسائر (اختصار)
+      const topLosers = report.topLosers || [];
+      if (topLosers.length > 0) {
+        tweet += `─────────────────────\n`;
+        tweet += `📉 أبرز الخاسرين:\n`;
+        topLosers.slice(0, 3).forEach(s => {
+          tweet += `   $${s.symbol} -${s.loss}% (${s.reasons.slice(0, 1).join("")})\n`;
+        });
+      }
 
       tweet += `─────────────────────\n`;
       tweet += `✅ جميع الأسهم المعروضة ظهرت للمشتركين\n`;
       tweet += `🔗 radaraz.com`;
 
       await navigator.clipboard.writeText(tweet);
-      showToast("✅ تم نسخ تقرير التغريدة (الإشارات المعروضة)", "ok");
+      showToast(`✅ تم نسخ تقرير التغريدة (${summary.displayedInRadar || 0} إشارة معروضة)`, "ok");
 
     } catch (error) {
       console.error("خطأ في نسخ التقرير:", error);
       showToast("❌ خطأ في نسخ التقرير", "error");
     }
   };
+
 
   const hotCount  = signals.filter(s => s.is_hot).length;
   const newsCount = signals.filter(s => s.news_age_h != null && s.news_age_h <= 24).length;
