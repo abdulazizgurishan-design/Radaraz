@@ -1,22 +1,14 @@
-// pages/api/scan.js — STANDALONE EDITION v3 (Multi-Timeframe + MACD + News + Target)
-// ═══════════════════════════════════════════════════════════════════
-//  مسح مستقل تماماً — صفر اعتماد على جداول أخرى
-//  ─────────────────────────────────────────────────────────────────
-//  ترقيات هذا الإصدار:
-//   ✅ المتوسطات/RSI/ATR/MACD حسب نوع الصفقة
-//   ✅ إضافة MA50 + MACD(12,26,9) لتأكيد الاتجاه
-//   ✅ المتوسطات صارت "بوابة" (gate) لا مجرد بونص
-//   ✅ غربال صارم للأسهم أقل من $1
-//   ✅ طبقة الأخبار اللحظية (Polygon News)
-//   ✅ شارة 🎯 "الهدف" — التقاء كامل على الفريمين (نخبة)
-//   ✅ أهداف واقعية (مضاربة على ATR 60د = أضيق وأقرب للتحقق)
-//   ✅ إضافة أقسام جديدة: مناطق مراقبة 🔵 + زخم متأخر 🚀 + فرص خفية 💎
-//   ✅ وقف خسارة ذكي: 4%-7% + بنية السوق (الدعم الحقيقي)
-//   ✅ نظام Pre-Market / After-Hours الديناميكي
-//   ✅ نظام الفترات الذهبية للتداول الآلي (4:30م-6:30م | 10م-11م)
-//   ✅ تحسين عدد الإشارات: خفض MIN_PRICE, MIN_VOLUME, MIN_CHANGE, SAVE_MIN_EP
-//   ✅ تسجيل كل الإشارات المعروضة في daily_logs (بدون تكرار)
-// ═══════════════════════════════════════════════════════════════════
+// pages/api/scan.js — RadarAZ Scan Engine v5 (Professional)
+// ════════════════════════════════════════════════════════════════════════
+//  📌 الفلسفة:
+//    1. الصفقات (مضاربة/استثمار/ارتداد) → جودة عالية → تدخل التقرير
+//    2. الرصد المبكر → مراقبة (قيمة يومية) → لا يدخل الإحصائيات
+//    3. الفصل صادق → المشترك يرى كثرة + جودة منفصلين
+//  📌 المخرجات:
+//    - results: صفقات جاهزة للتداول (تدخل التقرير)
+//    - watch: رصد مبكر (مراقبة فقط)
+//    - opportunities: فرص مصنفة (جاهزة/مراقبة/زخم/خفية)
+// ════════════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 60 };
 
@@ -253,6 +245,11 @@ const FILTER = {
   HIDDEN_VOLUME:  300000,
   HIGH_MIN_EP:    75,
   HIGH_MIN_RVOL:  8,
+  // 🆕 فصل الرصد المبكر: حد أدنى للجودة
+  EARLY_WATCH_MIN_SCORE: 45,
+  EARLY_WATCH_MAX_CHANGE: 25,
+  EARLY_WATCH_MIN_PRICE: 1.50,
+  EARLY_WATCH_MAX_RESULTS: 30,
 };
 
 // ─── مزج البنية (Swing) في الاختيار ───────────────────────────────
@@ -1010,6 +1007,7 @@ export default async function handler(req, res) {
         results: [],
         leaders: [],
         speculation: [],
+        watch: [],
         opportunities: { ready: [], watch: [], late: [], hidden: [] },
         counts: { ready: 0, watch: 0, late: 0, hidden: 0, total: 0 },
       });
@@ -1328,6 +1326,11 @@ export default async function handler(req, res) {
     });
 
     let survivors = top.filter(s => !s._drop);
+    
+    // 🆕 فصل الرصد المبكر عن الصفقات الرئيسية
+    const watchSignals = survivors.filter(s => s.early_watch && !s.is_rebound && !s.is_target);
+    const mainSignals = survivors.filter(s => !s.early_watch || s.is_rebound || s.is_target);
+
     const tier = s => {
       if (s.is_target) return 5;
       if (s.structure && s.structure.flag === "دخول صحيح ✅") return 4;
@@ -1336,32 +1339,34 @@ export default async function handler(req, res) {
       if (s.is_hot) return 1;
       return 0;
     };
-    survivors.sort((a, b) => {
+    
+    mainSignals.sort((a, b) => {
       const ta = tier(a), tb = tier(b);
       if (tb !== ta) return tb - ta;
       if (b.ep !== a.ep) return b.ep - a.ep;
       return b.rvol - a.rvol;
     });
+    
+    watchSignals.sort((a, b) => {
+      if (b.is_hot !== a.is_hot) return b.is_hot ? 1 : -1;
+      return (b.ep || 0) - (a.ep || 0);
+    });
 
     let saveResult = { skipped: true, reason: "subscriber scan" };
     if (!isSubscriber) {
-      const toSave = survivors.filter(s => s.ep >= (config.SAVE_MIN_EP || FILTER.SAVE_MIN_EP));
+      const toSave = mainSignals.filter(s => s.ep >= (config.SAVE_MIN_EP || FILTER.SAVE_MIN_EP));
       saveResult = await saveSignals(toSave);
     }
 
-    // ─── 📊 تسجيل كل الإشارات المعروضة في daily_logs (بدون تكرار) ──
+    // ─── 📊 تسجيل كل الإشارات المعروضة في daily_logs ──
     if (survivors.length > 0) {
       try {
         const today = new Date().toISOString().split('T')[0];
-        
-        // جلب السجل الحالي
         const existing = await fetch(`${SUPABASE_URL}/rest/v1/daily_logs?date=eq.${today}&select=*`, {
           headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
         });
         const existingLogs = await existing.json();
         const existingLog = existingLogs?.[0]?.log_data || { signals: [] };
-        
-        // دمج الإشارات الجديدة مع القديمة (تجنب التكرار)
         const existingSymbols = new Set(existingLog.signals.map(s => s.symbol));
         const newSignals = survivors.filter(s => !existingSymbols.has(s.symbol));
         
@@ -1387,7 +1392,7 @@ export default async function handler(req, res) {
             ],
           };
 
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/daily_logs`, {
+          await fetch(`${SUPABASE_URL}/rest/v1/daily_logs`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1402,8 +1407,6 @@ export default async function handler(req, res) {
               created_at: new Date().toISOString(),
             }]),
           });
-          
-          console.log(`📊 تم تسجيل ${newSignals.length} إشارة جديدة في السجل اليومي (المجموع: ${mergedLog.signals.length})`);
         }
       } catch (e) {
         console.error('❌ خطأ في تسجيل السجل اليومي:', e.message);
@@ -1428,13 +1431,15 @@ export default async function handler(req, res) {
       dropped_trend_gate: dropBy("trend_gate"),
       dropped_no_tech:  dropBy("no_tech_ext") + dropBy("no_tech_lowep"),
       survivors:        survivors.length,
-      below_save_ep:    survivors.filter(s => s.ep < (config.SAVE_MIN_EP || FILTER.SAVE_MIN_EP)).length,
+      watch_count:      watchSignals.length,
+      main_count:       mainSignals.length,
+      below_save_ep:    mainSignals.filter(s => s.ep < (config.SAVE_MIN_EP || FILTER.SAVE_MIN_EP)).length,
       saved:            saveResult.saved || 0,
       session: {
         active: isTradingSession,
         label: tradingSession.label,
         strategy: isTradingSession ? sessionConfig.strategy : null,
-        signals_count: survivors.filter(s => s.isTradingSession).length,
+        signals_count: mainSignals.filter(s => s.isTradingSession).length,
       },
       rebound_funnel: {
         rsi_pass:   top.filter(s => s._rebRsi).length,
@@ -1460,6 +1465,8 @@ export default async function handler(req, res) {
       return res.status(200).json({
         success: true, light: true,
         total: survivors.length,
+        watch: watchSignals.length,
+        main: mainSignals.length,
         hot:    survivors.filter(s => s.is_hot).length,
         target: survivors.filter(s => s.is_target).length,
         early:  survivors.filter(s => s.early_watch).length,
@@ -1467,7 +1474,7 @@ export default async function handler(req, res) {
         session: {
           active: isTradingSession,
           label: tradingSession.label,
-          signals: survivors.filter(s => s.isTradingSession).length,
+          signals: mainSignals.filter(s => s.isTradingSession).length,
         },
         vix:    vixData.available ? { rank: vixRank, value: vixData.value } : { available: false },
         saved:  saveResult.saved || 0, saveResult,
@@ -1491,35 +1498,37 @@ export default async function handler(req, res) {
       isTradingSession: s.isTradingSession || false,
       sessionStrategy: s.sessionStrategy || null,
       sessionName: s.sessionName || null,
+      is_rebound: s.is_rebound || false,
     });
 
-    const results     = survivors.map(toCard);
+    const results     = mainSignals.map(toCard);
+    const watch       = watchSignals.map(toCard);
     const leaders     = results.filter(s => s.type === "استثمار");
     const speculation = results.filter(s => s.type !== "استثمار");
     const early       = results.filter(s => s.early_watch);
     const movers      = buildMovers(allTickers, 15);
 
     const opportunities = {
-      ready: survivors.filter(s => 
+      ready: mainSignals.filter(s => 
         s.ep >= 70 && 
         s.changePct <= 15 && 
         s.changePct >= 3 &&
         !s._drop
       ),
-      watch: survivors.filter(s => 
+      watch: mainSignals.filter(s => 
         s.ep >= 50 && 
         s.ep < 70 && 
         s.changePct <= 12 &&
         s.changePct >= 2 &&
         !s._drop
       ),
-      late: survivors.filter(s => 
+      late: mainSignals.filter(s => 
         s.changePct > 15 && 
         s.ep >= 60 &&
         s.rvol >= 5 &&
         !s._drop
       ),
-      hidden: survivors.filter(s => 
+      hidden: mainSignals.filter(s => 
         s.volume < 300000 && 
         s.ep >= 65 &&
         s.changePct <= 15 &&
@@ -1541,11 +1550,12 @@ export default async function handler(req, res) {
     opportunities.late = filterUnique(opportunities.late);
     opportunities.hidden = filterUnique(opportunities.hidden);
 
-    const sessionTrades = survivors.filter(s => s.isTradingSession && !s._drop);
+    const sessionTrades = mainSignals.filter(s => s.isTradingSession && !s._drop);
 
     const responseData = {
       success: true,
       total: results.length,
+      watch_count: watch.length,
       hot: results.filter(s => s.is_hot).length,
       target: results.filter(s => s.is_target).length,
       early: early.length,
@@ -1563,7 +1573,9 @@ export default async function handler(req, res) {
         count: sessionTrades.length,
       },
       debug,
+      // 🆕 فصل صادق: results = صفقات رئيسية, watch = رصد مبكر (مراقبة)
       results,
+      watch,
       leaders,
       speculation,
       earlyWatch: early,
@@ -1592,6 +1604,7 @@ export default async function handler(req, res) {
       results: [], 
       leaders: [], 
       speculation: [],
+      watch: [],
       marketStatus: getMarketStatus(),
       tradingSession: getTradingSession(),
     });
