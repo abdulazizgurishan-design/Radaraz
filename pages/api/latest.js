@@ -1,6 +1,11 @@
 // pages/api/latest.js
 // قراءة سريعة للفرص المحفوظة من Supabase (بدون مسح حيّ) — تظهر فوراً عند فتح الصفحة.
 // الكرون يمسح ويحفظ؛ المستخدم يقرأ من هنا (كاش) ثم تُحدّث الواجهة بمسح حيّ بالخلفية.
+// ════════════════════════════════════════════════════════════════════════
+//  ✅ ختم العرض: كل إشارة تظهر للمشترك تُختم بـ displayed=true
+//  ✅ التقرير لاحقاً يقرأ المختومة فقط = ما شاهده المشترك فعلاً
+//  ✅ ختم مرة واحدة فقط (لا تكرار)
+// ════════════════════════════════════════════════════════════════════════
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ypxrrghhkjbeojzphdln.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
@@ -13,6 +18,33 @@ async function query(path) {
   });
   if (!r.ok) return { ok: false, status: r.status, rows: [] };
   return { ok: true, status: r.status, rows: await r.json() };
+}
+
+// ─── ختم العرض ──────────────────────────────────────────────────────────
+async function stampDisplayed(rows) {
+  if (!rows || !rows.length) return;
+  
+  try {
+    const toStamp = rows.filter(r => r.id && !r.displayed).map(r => r.id);
+    if (!toStamp.length) return;
+    
+    await fetch(`${SUPABASE_URL}/rest/v1/signals?id=in.(${toStamp.join(",")})`, {
+      method: "PATCH",
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ 
+        displayed: true, 
+        displayed_at: new Date().toISOString() 
+      }),
+    });
+  } catch (err) {
+    // الختم تحسين — فشله لا يمنع العرض
+    console.error("⚠️ فشل ختم العرض:", err.message);
+  }
 }
 
 export default async function handler(req, res) {
@@ -81,12 +113,32 @@ export default async function handler(req, res) {
       rows.sort((a, b) => (b.score || 0) - (a.score || 0));
     }
 
+    // ─── ✅ ختم العرض ──────────────────────────────────────────────────
+    // نختم فقط إذا:
+    // 1. عندنا نتائج
+    // 2. ليس fallback (عرض إشارات قديمة من أيام سابقة)
+    // 3. السوق مفتوح أو Pre-Market (عرض حقيقي)
+    if (rows.length && !fallback) {
+      const now = new Date();
+      const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const day = et.getDay();
+      const mins = et.getHours() * 60 + et.getMinutes();
+      const isWeekend = day === 0 || day === 6;
+      const isTrading = !isWeekend && mins >= 9 * 60 + 30 && mins < 16 * 60;
+      const isPre = !isWeekend && mins >= 4 * 60 && mins < 9 * 60 + 30;
+      
+      if (isTrading || isPre) {
+        await stampDisplayed(rows);
+      }
+    }
+
     return res.status(200).json({
       results: rows,
       count: rows.length,
       cached: true,
       fallback,
       signal_date: today,
+      displayed_stamped: !fallback && rows.length > 0,
     });
   } catch (e) {
     return res.status(200).json({ results: [], cached: true, error: e.message });
