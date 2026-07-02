@@ -366,6 +366,94 @@ function ResultCard({ s, copiedId, onCopy }) {
   );
 }
 
+// ─── 🆕 بناء التقرير الشامل ──────────────────────────────────────
+function buildFullReport(list, period, periodLabels) {
+  const periodLabel = periodLabels[period] || "الكل";
+  const wins = list.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
+  const losses = list.filter(s => s.stop_hit && !s.target1_hit);
+  const flat = list.filter(s => !s.target1_hit && !s.target2_hit && !s.target3_hit && !s.stop_hit);
+  const decided = wins.length + losses.length;
+  const rate = decided ? Math.round((wins.length / decided) * 100) : 0;
+
+  let grossWin = 0;
+  for (const s of wins) {
+    const t = s.target3_hit ? s.target3 : s.target2_hit ? s.target2 : s.target1;
+    if (s.entry_price > 0 && t > 0) grossWin += ((t - s.entry_price) / s.entry_price) * 100;
+  }
+  const grossLoss = losses.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0);
+  const pf = grossLoss > 0 ? (grossWin / grossLoss).toFixed(2) : (grossWin > 0 ? "∞" : "0.00");
+
+  const bySec = {};
+  for (const s of list) {
+    const sec = sectionOf(s);
+    if (!bySec[sec]) bySec[sec] = { total: 0, win: 0 };
+    bySec[sec].total++;
+    if (s.target1_hit || s.target2_hit || s.target3_hit) bySec[sec].win++;
+  }
+
+  const L = [];
+  L.push(`📊 تقرير RadarAZ الشامل — ${periodLabel}`);
+  L.push(`═══════════════════════════`);
+  L.push(`📈 الفرص: ${list.length} · ✅ رابح: ${wins.length} · 🛑 وقف: ${losses.length}${flat.length ? ` · ➖ بلا حسم: ${flat.length}` : ""}`);
+  L.push(`🎯 نسبة النجاح: ${rate}% (من المحسوم) · 💰 PF: ${pf}×`);
+  L.push(``);
+  L.push(`📂 حسب القسم:`);
+  for (const [sec, d] of Object.entries(bySec)) {
+    const r = d.total ? Math.round((d.win / d.total) * 100) : 0;
+    L.push(`  ${sec}: ${d.win}/${d.total} (${r}%)`);
+  }
+
+  if (wins.length) {
+    L.push(``);
+    L.push(`✅ الرابحون (${wins.length}):`);
+    L.push(`───────────────────────────`);
+    [...wins].sort((a, b) => {
+      const g = s => {
+        const t = s.target3_hit ? s.target3 : s.target2_hit ? s.target2 : s.target1;
+        return s.entry_price > 0 && t > 0 ? (t - s.entry_price) / s.entry_price : 0;
+      };
+      return g(b) - g(a);
+    }).forEach(s => {
+      const tier = s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅";
+      const tNum = s.target3_hit ? s.target3 : s.target2_hit ? s.target2 : s.target1;
+      const g = (s.entry_price > 0 && tNum > 0) ? (((tNum - s.entry_price) / s.entry_price) * 100).toFixed(2) : "0";
+      const hitAt = s.target3_hit ? (s.target3_hit_at || s.target1_hit_at) : s.target2_hit ? (s.target2_hit_at || s.target1_hit_at) : s.target1_hit_at;
+      L.push(`🎯 $${s.symbol}  +${g}%  (${tier}) · ${sectionOf(s)}`);
+      L.push(`   📅 رُصد: ${astStr(s.created_at) || "—"} @ $${(s.entry_price || 0).toFixed(2)}`);
+      L.push(`   ✅ الهدف: ${astStr(hitAt) || "—"} @ $${(tNum || 0).toFixed(2)}`);
+    });
+  }
+
+  if (losses.length) {
+    L.push(``);
+    L.push(`🛑 ضرب الوقف (${losses.length}):`);
+    L.push(`───────────────────────────`);
+    losses.forEach(s => {
+      const reasons = [];
+      if ((s.entry_price || 0) < 1) reasons.push("سهم بنس");
+      if ((s.change_pct || 0) > 40) reasons.push("قفز >40% قبل الرصد");
+      if ((s.rsi || 0) >= 72) reasons.push("RSI متشبّع");
+      if (s.news_age_h == null || s.news_age_h > 48) reasons.push("بلا خبر حديث");
+      L.push(`❌ $${s.symbol}  ${(s.close_gain_pct || 0).toFixed(2)}% · ${sectionOf(s)}`);
+      L.push(`   📅 رُصد: ${astStr(s.created_at) || "—"} @ $${(s.entry_price || 0).toFixed(2)}`);
+      if (reasons.length) L.push(`   🔬 التشخيص: ${reasons.join(" · ")}`);
+    });
+  }
+
+  L.push(``);
+  L.push(`═══════════════════════════`);
+  L.push(`📊 ليست نصيحة استثمارية · 🔗 radaraz.com`);
+  return L.join("\n");
+}
+
+function sectionOf(s) {
+  if (s.type === "ارتداد") return "🔄 ارتداد";
+  if (s.premarket_watch) return "🌅 رصد مبكر (قبل السوق)";
+  if (s.early_watch) return "🔍 رصد مبكر";
+  if (s.type === "استثمار") return "📈 استثمار";
+  return "⚡ مضاربة";
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN
 // ═══════════════════════════════════════════════════════════════════
@@ -390,6 +478,7 @@ export default function Admin() {
   const [audit, setAudit] = useState(null);
   const [auditBusy, setAuditBusy] = useState(false);
   const [radarReport, setRadarReport] = useState(null);
+  const [showFullReport, setShowFullReport] = useState(false);
 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -401,6 +490,13 @@ export default function Admin() {
   const [affiliates,  setAffiliates]  = useState([]);
   const [affTotals,   setAffTotals]   = useState({});
   const [affLoading,  setAffLoading]  = useState(false);
+
+  const periodLabels = {
+    today: "اليوم",
+    yesterday: "أمس",
+    week: "آخر 7 أيام",
+    all: "الكل",
+  };
 
   const showToast = (msg, type = "ok") => {
     setToast({ msg, type });
@@ -715,6 +811,23 @@ export default function Admin() {
     showToast(`✅ نُسخ (${tradable.length} إنجاز · استُبعد ${winsList.length - tradable.length} قبل السوق)`, "ok");
   };
 
+  // 🆕 نسخ التقرير الشامل
+  const copyFullReport = () => {
+    const list = closedSignals;
+    if (!list.length) { showToast("لا توجد بيانات للفترة المحددة", "err"); return; }
+    const report = buildFullReport(list, datePeriod, periodLabels);
+    copyText(report, "التقرير الشامل");
+    setShowFullReport(false);
+  };
+
+  const handleFullReport = () => {
+    const list = closedSignals;
+    if (!list.length) { showToast("لا توجد بيانات للفترة المحددة", "err"); return; }
+    const report = buildFullReport(list, datePeriod, periodLabels);
+    setTweetText(report);
+    setShowFullReport(true);
+  };
+
 // 🐦 نسخ تقرير التغريدة (الإشارات المعروضة فقط)
   const copyTweetReport = async () => {
     try {
@@ -784,7 +897,6 @@ export default function Admin() {
       showToast("❌ خطأ في نسخ التقرير", "error");
     }
   };
-
 
   const hotCount  = signals.filter(s => s.is_hot).length;
   const newsCount = signals.filter(s => s.news_age_h != null && s.news_age_h <= 24).length;
@@ -1434,7 +1546,14 @@ export default function Admin() {
               )}
             </div>
 
+            {/* 🆕 زر التقرير الشامل */}
             <div style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <button 
+                onClick={handleFullReport}
+                style={S.btn("linear-gradient(135deg,#8b5cf6,#6366f1)")}
+              >
+                📊 التقرير الشامل
+              </button>
               <button 
                 onClick={copyTweetReport}
                 style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")}
