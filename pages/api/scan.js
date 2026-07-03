@@ -9,6 +9,7 @@
 //   ✅ تقليل HEAVY_LIMIT في Pre-Market (30 بدلاً من 60)
 //   ✅ قبول الأسهم ذات الحرف الواحد في buildMovers
 //   ✅ متوافق مع trade.js v9 (نفس الفلسفة)
+//   ✅ إصلاح: إضافة دالة inBatches المفقودة
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 10 };
@@ -27,7 +28,7 @@ function getCacheKey(symbol, mult, span, days, limit) {
   return `${symbol}-${mult}-${span}-${days}-${limit}`;
 }
 
-function getCached(key, maxAge = 300000) { // 5 دقائق
+function getCached(key, maxAge = 300000) {
   const entry = CACHE.aggs.get(key);
   if (entry && Date.now() - entry.time < maxAge) {
     return entry.data;
@@ -37,6 +38,13 @@ function getCached(key, maxAge = 300000) { // 5 دقائق
 
 function setCache(key, data) {
   CACHE.aggs.set(key, { data, time: Date.now() });
+}
+
+// ─── تنفيذ على دفعات ──────────────────────────────────────────────
+async function inBatches(items, size, fn) {
+  for (let i = 0; i < items.length; i += size) {
+    await Promise.all(items.slice(i, i + size).map(fn));
+  }
 }
 
 // ─── إعدادات الفلترة ───────────────────────────────────────────────
@@ -49,7 +57,7 @@ const FILTER = {
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
   HEAVY_LIMIT:    60,
-  PREMARKET_LIMIT: 30,  // 🆕 أقل في Pre-Market
+  PREMARKET_LIMIT: 30,
   SAVE_MIN_EP:    60,
   STRICT_PRICE:   1.00,
 };
@@ -480,7 +488,6 @@ function buildMovers(tickers, n = 15) {
   const rows = [];
   for (const tk of tickers) {
     if (!tk.ticker || tk.ticker.includes(".")) continue;
-    // 🆕 قبول الأسهم ذات الحرف الواحد (A, B, C, F, G, etc)
     if (!/^[A-Z]{1,5}$/.test(tk.ticker)) continue;
     const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
     const price = min.vw || min.c || tk.lastTrade?.p || day.c || prev.c || 0;
@@ -535,7 +542,6 @@ function calcEP(s) {
 }
 
 // ════════════════ جلب السوق ════════════════
-// 🆕 مع إعادة المحاولة (Retry)
 async function fetchFullMarket() {
   const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -560,7 +566,6 @@ async function fetchFullMarket() {
   throw new Error("Failed to fetch market after 3 attempts");
 }
 
-// 🆕 مع Cache
 async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
   const cacheKey = `${symbol}-${multiplier}-${timespan}-${lookbackDays}-${limit}`;
   const cached = getCached(cacheKey);
@@ -590,10 +595,9 @@ function frameFor(style) {
     : { mult: 1, span: "day", days: 140, limit: 200 };
 }
 
-// 🆕 مع Cache للأخبار
 async function fetchNews(symbol) {
   const cacheKey = `news-${symbol}`;
-  const cached = getCached(cacheKey, 120000); // 2 دقيقة
+  const cached = getCached(cacheKey, 120000);
   if (cached) return cached;
   const url = `https://api.polygon.io/v2/reference/news?ticker=${symbol}&limit=3&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`;
   const controller = new AbortController();
@@ -791,11 +795,9 @@ export default async function handler(req, res) {
 
     scored.sort((a, b) => (b.is_hot !== a.is_hot) ? (b.is_hot ? 1 : -1) : (b.ep !== a.ep) ? b.ep - a.ep : b.rvol - a.rvol);
 
-    // 🆕 تقليل HEAVY_LIMIT في Pre-Market
     const heavyLimit = isPreMarket ? FILTER.PREMARKET_LIMIT : FILTER.HEAVY_LIMIT;
     const top = scored.slice(0, heavyLimit);
 
-    // 🆕 تحسين inBatches: تتوقف عند تجاوز DEADLINE
     await inBatches(top, 30, async (s) => {
       if (Date.now() > DEADLINE) {
         s._timedOut = true;
@@ -997,7 +999,6 @@ export default async function handler(req, res) {
       s._primaryConfluence = primaryConfluence;
     });
 
-    // تأكيد الهدف على الفريم الآخر
     const finalists = top.filter(s => s._primaryConfluence);
     await inBatches(finalists, 12, async (s) => {
       if (Date.now() > DEADLINE) return;
@@ -1014,7 +1015,6 @@ export default async function handler(req, res) {
       }
     });
 
-    // تطبيق الإسقاط
     let survivors = top.filter(s => !s._drop);
     const tier = s => {
       if (s.is_target) return 5;
