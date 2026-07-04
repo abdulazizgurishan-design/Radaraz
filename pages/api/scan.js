@@ -4,12 +4,14 @@
 //  ─────────────────────────────────────────────────────────────────
 //  ترقيات هذا الإصدار:
 //   ✅ نظام Cache للشموع والأخبار (يقلل طلبات API 80%)
-//   ✅ تحسين fetchFullMarket مع Retry (3 محاولات)
+//   ✅ تحسين fetchFullMarket مع Retry (2 محاولات، مهلة 4 ث)
 //   ✅ تحسين inBatches للتوقف عند DEADLINE
 //   ✅ تقليل HEAVY_LIMIT في Pre-Market (30 بدلاً من 60)
 //   ✅ قبول الأسهم ذات الحرف الواحد في buildMovers
 //   ✅ متوافق مع trade.js v9 (نفس الفلسفة)
-//   ✅ إصلاح: إضافة دالة inBatches المفقودة
+//   ✅ إضافة سقف للكاش (يمنع تضخم الذاكرة)
+//   ✅ فتحة القمع: MIN_CHANGE 3% → 2%
+//   ✅ تصدير market_regime للواجهة
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 10 };
@@ -36,7 +38,9 @@ function getCached(key, maxAge = 300000) {
   return null;
 }
 
+// ✅ تعديل 1: سقف للكاش (يمنع تضخم الذاكرة)
 function setCache(key, data) {
+  if (CACHE.aggs.size > 300) CACHE.aggs.clear();
   CACHE.aggs.set(key, { data, time: Date.now() });
 }
 
@@ -52,7 +56,7 @@ const FILTER = {
   MIN_PRICE:      0.30,
   MAX_PRICE:      500,
   MIN_VOLUME:     300_000,
-  MIN_CHANGE:     3,
+  MIN_CHANGE:     2,        // ✅ تعديل 2: 3% → 2%
   MAX_CHANGE:     40,
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
@@ -542,28 +546,29 @@ function calcEP(s) {
 }
 
 // ════════════════ جلب السوق ════════════════
+// ✅ تعديل 3: إصلاح fetchFullMarket (مهلة 30 ث → 4 ث)
 async function fetchFullMarket() {
   const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 30000);
+    const id = setTimeout(() => controller.abort(), 4000);
     try {
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(id);
       if (!res.ok) {
-        if (attempt === 2) throw new Error(`Polygon ${res.status}`);
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        if (attempt === 1) throw new Error(`Polygon ${res.status}`);
+        await new Promise(r => setTimeout(r, 250));
         continue;
       }
       const data = await res.json();
       return data.tickers || [];
     } catch (err) {
       clearTimeout(id);
-      if (attempt === 2) throw err;
-      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      if (attempt === 1) throw err;
+      await new Promise(r => setTimeout(r, 250));
     }
   }
-  throw new Error("Failed to fetch market after 3 attempts");
+  throw new Error("Failed to fetch market after 2 attempts");
 }
 
 async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
@@ -1111,8 +1116,10 @@ export default async function handler(req, res) {
     const early = results.filter(s => s.early_watch);
     const movers = buildMovers(allTickers, 15);
 
+    // ✅ تعديل 4: تصدير market_regime للواجهة
     return res.status(200).json({
       success: true, total: results.length,
+      market_regime: debug.market_regime,
       hot: results.filter(s => s.is_hot).length,
       target: results.filter(s => s.is_target).length,
       early: early.length, saved: saveResult.saved || 0, saveResult,
