@@ -1,5 +1,5 @@
-// pages/api/mark-displayed.js
-// ختم الإشارات التي عُرضت للمشتركين (للتقارير)
+// pages/api/mark-displayed.js — v2 (مُصحح)
+// ختم الإشارات المعروضة فعلاً للمشترك — لصفوف اليوم فقط
 // ═══════════════════════════════════════════════════════════════════
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.RADARAZ_SUPABASE_URL;
@@ -11,39 +11,35 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { symbols } = req.body;
-    if (!symbols || !symbols.length) {
+    const { symbols } = req.body || {};
+    if (!Array.isArray(symbols) || !symbols.length) {
       return res.status(200).json({ success: true, stamped: 0 });
     }
 
-    // ختم الإشارات التي عُرضت
-    const { error } = await fetch(`${SUPABASE_URL}/rest/v1/signals`, {
-      method: "PATCH",
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-        "Content-Type": "application/json",
-        Prefer: "return=minimal",
-      },
-      body: JSON.stringify({
-        displayed: true,
-        displayed_at: new Date().toISOString(),
-      }),
-      // نطبق على الرموز الموجودة في القائمة
-      // نستخدم فلتر in
-    });
+    // 🛡️ تعقيم: أحرف كبيرة فقط 1-6، بلا تكرار، سقف 300 (يمنع حقن فلاتر PostgREST)
+    const clean = [...new Set(
+      symbols.filter(s => typeof s === "string" && /^[A-Z]{1,6}$/.test(s))
+    )].slice(0, 300);
+    if (!clean.length) {
+      return res.status(200).json({ success: true, stamped: 0 });
+    }
 
-    // Supabase PATCH مع in filter
-    const symbolsStr = symbols.map(s => `"${s}"`).join(",");
-    const url = `${SUPABASE_URL}/rest/v1/signals?symbol=in.(${symbolsStr})&displayed=eq.false`;
-    
+    // 📅 نفس تاريخ scan.js (بتوقيت نيويورك) — الختم لصفوف اليوم فقط
+    const sigDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }))
+      .toISOString().split("T")[0];
+
+    const url = `${SUPABASE_URL}/rest/v1/signals`
+      + `?symbol=in.(${clean.join(",")})`
+      + `&signal_date=eq.${sigDate}`
+      + `&or=(displayed.is.null,displayed.eq.false)`;
+
     const r = await fetch(url, {
       method: "PATCH",
       headers: {
         apikey: SUPABASE_KEY,
         Authorization: `Bearer ${SUPABASE_KEY}`,
         "Content-Type": "application/json",
-        Prefer: "return=minimal",
+        Prefer: "return=representation",
       },
       body: JSON.stringify({
         displayed: true,
@@ -51,20 +47,18 @@ export default async function handler(req, res) {
       }),
     });
 
-    if (!r.ok) {
+    let stamped = 0;
+    if (r.ok) {
+      const rows = await r.json();
+      stamped = Array.isArray(rows) ? rows.length : 0;
+    } else {
       console.error(`❌ mark-displayed: ${r.status}`);
     }
 
-    return res.status(200).json({
-      success: true,
-      stamped: symbols.length,
-    });
+    return res.status(200).json({ success: r.ok, stamped, status: r.status });
 
   } catch (error) {
     console.error("❌ mark-displayed error:", error);
-    return res.status(200).json({
-      success: false,
-      error: error.message,
-    });
+    return res.status(200).json({ success: false, error: error.message });
   }
 }
