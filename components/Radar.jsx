@@ -903,6 +903,7 @@ export default function Radar() {
   const [refreshing, setRefreshing] = useState(false);
   const [opportunities, setOpportunities] = useState({ ready: [], watch: [], late: [], hidden: [] });
   const [counts, setCounts] = useState({ ready: 0, watch: 0, late: 0, hidden: 0, total: 0 });
+  const [marketRegime, setMarketRegime] = useState(null); // ✅ تعديل 1: إضافة marketRegime state
   
   // ─── 🕐 حالة السوق الديناميكية ──────────────────────────────────
   const [marketStatus, setMarketStatus] = useState(null);
@@ -1058,15 +1059,21 @@ export default function Radar() {
       setSpeculation(spec.map(toCard));
       setEarlyWatch(early.map(toCard));
       if (data.movers) setMovers(data.movers);
-      
-      if (data.opportunities) {
-        setOpportunities(data.opportunities);
-        setCounts(data.counts || { ready: 0, watch: 0, late: 0, hidden: 0, total: 0 });
-      }
-      
-      setTotal(allCards.length);
+      if (data.market_regime) setMarketRegime(data.market_regime); // ✅ تعديل 2: نبض السوق
 
-      // ✅ ختم العرض — التقارير تطابق ما شاهده المشترك فعلاً
+      // 🧩 بناء الطبقات محلياً — لا يعتمد على حقل opportunities من الخادم (✅ تعديل 2)
+      const tiers = { ready: [], watch: [], late: [], hidden: [] };
+      for (const c of allCards) {
+        const flag = (c.structure && c.structure.flag) || "";
+        if (c.is_target || flag.includes("دخول صحيح")) tiers.ready.push(c);
+        else if (c.early_watch || flag === "مقبول") tiers.watch.push(c);
+        else if (c.change_pct >= 12) tiers.late.push(c);
+        else if ((c.score || 0) >= 70 && (c.volume || 0) < 1_000_000) tiers.hidden.push(c);
+      }
+      setOpportunities(tiers);
+      setCounts({ ready: tiers.ready.length, watch: tiers.watch.length, late: tiers.late.length, hidden: tiers.hidden.length, total: allCards.length });
+      
+      // ✅ ختم العرض — التقارير تطابق ما شاهده المشترك فعلاً (✅ تعديل 2)
       if (allCards.length) {
         fetch("/api/mark-displayed", {
           method: "POST",
@@ -1075,6 +1082,7 @@ export default function Radar() {
         }).catch(() => {});
       }
 
+      setTotal(allCards.length);
       setLastUpdate(new Date());
 
       const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -1093,50 +1101,15 @@ export default function Radar() {
     }
   }, []);
 
-  // ─── 📡 تحميل البيانات الحية من /api/scan (بدلاً من /api/latest) ──
+  // ✅ تعديل 3: إلغاء المسح المزدوج
   const loadCached = useCallback(async () => {
-    try {
-      // 🆕 نجلب من /api/scan مباشرة (بيانات حية)
-      const res = await fetch("/api/scan?light=1");
-      if (!res.ok) return;
-      const data = await res.json();
-      
-      // استخراج الإشارات من results
-      let cards = [];
-      if (data.results) {
-        cards = data.results.filter(s => (s.score || 0) >= DISPLAY_MIN_SCORE);
-      }
-      
-      // إذا ما في نتائج، نأخذ من الأقسام
-      if (cards.length === 0 && data.opportunities) {
-        for (const key of ['ready', 'watch', 'late', 'hidden']) {
-          if (data.opportunities[key]) {
-            cards.push(...data.opportunities[key]);
-          }
-        }
-      }
-      
-      // تحديث الحالة
-      setResults(cards);
-      setTotal(cards.length);
-      setLastUpdate(new Date());
-      setDone(true);
-      
-      // تحديث حالة السوق إذا كانت موجودة
-      if (data.marketStatus) {
-        setMarketStatus(data.marketStatus);
-      }
-      
-      console.log(`📡 تم تحميل ${cards.length} إشارة حية من الرادار`);
-      
-    } catch (err) {
-      console.error('خطأ في تحميل البيانات:', err);
-    }
+    // أُلغي: كان light=1 يشغّل مسحاً كاملاً ثانياً على الخادم بلا نتائج قابلة للعرض
+    return;
   }, []);
 
   useEffect(() => {
     if (!auth) return;
-    loadCached().finally(() => scan({ background: true }));
+    scan({ background: false }); // ✅ تعديل 3: background: false
   }, [auth]);
 
   useEffect(() => {
@@ -1275,6 +1248,20 @@ export default function Radar() {
           </div>
         )}
 
+        {/* 🌡️ نبض السوق من الرادار (✅ تعديل 4) */}
+        {marketRegime && (
+          <div style={{
+            padding: "8px 14px", borderRadius: 10, marginBottom: 14, fontSize: 12, fontWeight: 600,
+            background: marketRegime.includes("ضعيف") ? "rgba(251,191,36,0.08)" : "rgba(52,211,153,0.08)",
+            border: `1px solid ${marketRegime.includes("ضعيف") ? "rgba(251,191,36,0.25)" : "rgba(52,211,153,0.25)"}`,
+            color: marketRegime.includes("ضعيف") ? "#fbbf24" : "#34d399",
+          }}>
+            {marketRegime.includes("ضعيف")
+              ? (lang === "en" ? "🛡️ Weak market today — the radar is stricter to protect you. Fewer signals = higher quality." : "🛡️ سوق ضعيف اليوم — الرادار متشدد لحمايتك · الفرص القليلة أعلى جودة")
+              : (lang === "en" ? "✅ Strong market — favorable conditions for signals." : "✅ سوق قوي — ظروف مواتية للإشارات")}
+          </div>
+        )}
+
         <div style={S.statsRow}>
           {[
             { label: t.scanRange, value: total || "—", color: "#6366f1", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.2)" },
@@ -1340,7 +1327,7 @@ export default function Radar() {
         )}
 
         {/* 🔥 فرص جاهزة */}
-        {!loading && done && opportunities.ready.length > 0 && (
+        {!loading && done && filter === "all" && opportunities.ready.length > 0 && ( // ✅ تعديل 5
           <CollapsibleSection 
             title={t.ready} 
             subtitle={t.readySub} 
@@ -1365,7 +1352,7 @@ export default function Radar() {
         )}
 
         {/* 🔵 مناطق مراقبة */}
-        {!loading && done && opportunities.watch.length > 0 && (
+        {!loading && done && filter === "all" && opportunities.watch.length > 0 && ( // ✅ تعديل 5
           <CollapsibleSection 
             title={t.watch} 
             subtitle={t.watchSub} 
@@ -1390,7 +1377,7 @@ export default function Radar() {
         )}
 
         {/* 🚀 زخم متأخر */}
-        {!loading && done && opportunities.late.length > 0 && (
+        {!loading && done && filter === "all" && opportunities.late.length > 0 && ( // ✅ تعديل 5
           <CollapsibleSection 
             title={t.late} 
             subtitle={t.lateSub} 
@@ -1415,7 +1402,7 @@ export default function Radar() {
         )}
 
         {/* 💎 فرص خفية */}
-        {!loading && done && opportunities.hidden.length > 0 && (
+        {!loading && done && filter === "all" && opportunities.hidden.length > 0 && ( // ✅ تعديل 5
           <CollapsibleSection 
             title={t.hidden} 
             subtitle={t.hiddenSub} 
