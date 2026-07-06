@@ -1,4 +1,3 @@
-
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 
 // حقن حركة نبض اللمبة مرة واحدة (آمن مع SSR)
@@ -1066,6 +1065,16 @@ export default function Radar() {
       }
       
       setTotal(allCards.length);
+
+      // ✅ ختم العرض — التقارير تطابق ما شاهده المشترك فعلاً
+      if (allCards.length) {
+        fetch("/api/mark-displayed", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols: allCards.map(c => c.symbol) }),
+        }).catch(() => {});
+      }
+
       setLastUpdate(new Date());
 
       const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
