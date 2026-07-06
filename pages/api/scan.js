@@ -1,17 +1,10 @@
-// pages/api/scan.js — STANDALONE EDITION v4 (متكامل مع الإصدار الأخير)
+// pages/api/scan.js — STANDALONE EDITION v5 (الإضافات الذكية)
 // ═══════════════════════════════════════════════════════════════════
-//  مسح مستقل تماماً — صفر اعتماد على جداول أخرى
-//  ─────────────────────────────────────────────────────────────────
-//  ترقيات هذا الإصدار:
-//   ✅ نظام Cache للشموع والأخبار (يقلل طلبات API 80%)
-//   ✅ تحسين fetchFullMarket مع Retry (2 محاولات، مهلة 4 ث)
-//   ✅ تحسين inBatches للتوقف عند DEADLINE
-//   ✅ تقليل HEAVY_LIMIT في Pre-Market (30 بدلاً من 60)
-//   ✅ قبول الأسهم ذات الحرف الواحد في buildMovers
-//   ✅ متوافق مع trade.js v9 (نفس الفلسفة)
-//   ✅ إضافة سقف للكاش (يمنع تضخم الذاكرة)
-//   ✅ فتحة القمع: MIN_CHANGE 3% → 2%
-//   ✅ تصدير market_regime للواجهة
+//  🆕 الإضافات الذكية:
+//   ✅ إشارات الاختراق (Breakout Detection)
+//   ✅ تصنيف الخطر (Risk Score)
+//   ✅ تنبيهات ما قبل الانفجار (Pre-Breakout Alerts)
+//   ✅ متوسط الحجم المتداول (Avg Volume)
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 10 };
@@ -38,7 +31,6 @@ function getCached(key, maxAge = 300000) {
   return null;
 }
 
-// ✅ تعديل 1: سقف للكاش (يمنع تضخم الذاكرة)
 function setCache(key, data) {
   if (CACHE.aggs.size > 300) CACHE.aggs.clear();
   CACHE.aggs.set(key, { data, time: Date.now() });
@@ -56,7 +48,7 @@ const FILTER = {
   MIN_PRICE:      0.30,
   MAX_PRICE:      500,
   MIN_VOLUME:     300_000,
-  MIN_CHANGE:     2,        // ✅ تعديل 2: 3% → 2%
+  MIN_CHANGE:     2,
   MAX_CHANGE:     40,
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
@@ -485,6 +477,46 @@ function computeStructureLevels(price, bars) {
   };
 }
 
+// ════════════════ الإضافات الذكية ════════════════
+
+// 1️⃣ إشارات الاختراق
+function detectBreakout(price, resistance, volume, avgVolume) {
+  if (!resistance || !volume || !avgVolume) return false;
+  return price > resistance && volume > avgVolume * 2;
+}
+
+// 2️⃣ تصنيف الخطر
+function calculateRiskScore(s) {
+  let risk = 0;
+  if (s.atr14 && s.atr14 > s.price * 0.05) risk += 3;
+  else if (s.atr14 && s.atr14 > s.price * 0.03) risk += 2;
+  if (s.volume && s.volume < 500_000) risk += 2;
+  if (s.news_age_h != null && s.news_age_h < 2 && s.news_sentiment === 'negative') risk += 2;
+  if (s.price < 5) risk += 1;
+  if (s.rsi != null && s.rsi > 72) risk += 1;
+  return Math.min(risk, 10);
+}
+
+// 3️⃣ تنبيهات ما قبل الانفجار
+function detectPreBreakout(bars, resistance, volume, avgVolume) {
+  if (!bars || bars.length < 10 || !resistance) return false;
+  const recent = bars.slice(-5);
+  const price = bars[bars.length - 1].c;
+  const distanceToResistance = (resistance - price) / price;
+  const volTrend = volume > avgVolume * 1.3;
+  const nearResistance = distanceToResistance < 0.02 && distanceToResistance > 0;
+  const recentCloses = recent.map(b => b.c);
+  const uptrend = recentCloses[recentCloses.length - 1] > recentCloses[0];
+  return nearResistance && volTrend && uptrend;
+}
+
+// 4️⃣ متوسط الحجم (مساعد)
+function getAvgVolume(bars) {
+  if (!bars || bars.length < 20) return 0;
+  const volumes = bars.map(b => b.v);
+  return volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+}
+
 // ════════════════ حركة السوق ════════════════
 function buildMovers(tickers, n = 15) {
   const MIN_PRICE = 1;
@@ -546,7 +578,6 @@ function calcEP(s) {
 }
 
 // ════════════════ جلب السوق ════════════════
-// ✅ تعديل 3: إصلاح fetchFullMarket (مهلة 30 ث → 4 ث)
 async function fetchFullMarket() {
   const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -913,6 +944,19 @@ export default async function handler(req, res) {
         s.ep = Math.max(0, s.ep - Math.round((s.changePct - 12) * 0.7));
       }
 
+      // 🆕 حساب الإضافات الذكية
+      if (tech && tech.bars && tech.bars.length >= 20) {
+        const avgVol = getAvgVolume(tech.bars);
+        const resistance = s.structure?.resistance || null;
+        s._breakout = detectBreakout(s.price, resistance, s.volume || 0, avgVol);
+        s._riskScore = calculateRiskScore(s);
+        s._preBreakout = detectPreBreakout(tech.bars, resistance, s.volume || 0, avgVol);
+      } else {
+        s._breakout = false;
+        s._riskScore = 5;
+        s._preBreakout = false;
+      }
+
       if (STRETCH.ENABLED && tech) {
         if (tech.stretch9 != null && tech.stretch9 > STRETCH.WARN) {
           const pen = Math.min(STRETCH.PEN_CAP, Math.round((tech.stretch9 - STRETCH.WARN) * STRETCH.PEN_K));
@@ -1092,6 +1136,9 @@ export default async function handler(req, res) {
         target: survivors.filter(s => s.is_target).length,
         early: survivors.filter(s => s.early_watch).length,
         rebound: survivors.filter(s => s.is_rebound).length,
+        breakout: survivors.filter(s => s._breakout).length,
+        preBreakout: survivors.filter(s => s._preBreakout).length,
+        avgRiskScore: survivors.length > 0 ? Math.round(survivors.reduce((a, s) => a + (s._riskScore || 5), 0) / survivors.length) : 0,
         vix: vixData.available ? { rank: vixRank, value: vixData.value } : { available: false },
         saved: saveResult.saved || 0, saveResult,
         timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
@@ -1108,6 +1155,10 @@ export default async function handler(req, res) {
       levels_source: s.levels_source || "atr_basic", is_target: s.is_target || false,
       news_age_h: s.news_age_h ?? null,
       structure: s.structure || null,
+      // 🆕 الإضافات الذكية
+      breakout: s._breakout || false,
+      riskScore: s._riskScore || 5,
+      preBreakout: s._preBreakout || false,
     });
 
     const results = survivors.map(toCard);
@@ -1116,13 +1167,16 @@ export default async function handler(req, res) {
     const early = results.filter(s => s.early_watch);
     const movers = buildMovers(allTickers, 15);
 
-    // ✅ تعديل 4: تصدير market_regime للواجهة
     return res.status(200).json({
       success: true, total: results.length,
       market_regime: debug.market_regime,
       hot: results.filter(s => s.is_hot).length,
       target: results.filter(s => s.is_target).length,
-      early: early.length, saved: saveResult.saved || 0, saveResult,
+      early: early.length,
+      breakout: results.filter(s => s.breakout).length,
+      preBreakout: results.filter(s => s.preBreakout).length,
+      avgRiskScore: results.length > 0 ? Math.round(results.reduce((a, s) => a + (s.riskScore || 5), 0) / results.length) : 0,
+      saved: saveResult.saved || 0, saveResult,
       timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
       market_scanned: allTickers.length, after_filter: candidates.length,
       debug,
