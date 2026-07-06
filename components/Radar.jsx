@@ -725,6 +725,22 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
           {r.is_sniper && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(251,191,36,0.2)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>🎯</span>}
           {r.is_rebound && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(56,189,248,0.2)", color: "#38bdf8", border: "1px solid rgba(56,189,248,0.3)" }}>🔄</span>}
           {r.early_watch && !r.is_rebound && !r.is_sniper && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(52,211,153,0.2)", color: "#34d399", border: "1px solid rgba(52,211,153,0.3)" }}>🔍</span>}
+          {/* 🆕 العلامات الذكية */}
+          {r.breakout && (
+            <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: "rgba(52,211,153,0.2)", color: "#34d399", border: "1px solid rgba(52,211,153,0.3)" }}>🚀 اختراق</span>
+          )}
+          {r.preBreakout && (
+            <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: "rgba(251,191,36,0.2)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>⏳ قرب الاختراق</span>
+          )}
+          {r.riskScore > 7 && (
+            <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: "rgba(239,68,68,0.2)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" }}>🔴 خطر عالي</span>
+          )}
+          {r.riskScore <= 7 && r.riskScore >= 4 && (
+            <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: "rgba(251,191,36,0.2)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>🟡 خطر متوسط</span>
+          )}
+          {r.riskScore < 4 && r.riskScore > 0 && (
+            <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: "rgba(52,211,153,0.2)", color: "#34d399", border: "1px solid rgba(52,211,153,0.3)" }}>🟢 خطر منخفض</span>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "monospace" }}>${r.price}</span>
@@ -903,7 +919,7 @@ export default function Radar() {
   const [refreshing, setRefreshing] = useState(false);
   const [opportunities, setOpportunities] = useState({ ready: [], watch: [], late: [], hidden: [] });
   const [counts, setCounts] = useState({ ready: 0, watch: 0, late: 0, hidden: 0, total: 0 });
-  const [marketRegime, setMarketRegime] = useState(null); // ✅ تعديل 1: إضافة marketRegime state
+  const [marketRegime, setMarketRegime] = useState(null);
   
   // ─── 🕐 حالة السوق الديناميكية ──────────────────────────────────
   const [marketStatus, setMarketStatus] = useState(null);
@@ -1049,6 +1065,9 @@ export default function Radar() {
         vcp: s.vcp || false,
         vcp_contraction: s.vcp_contraction || null,
         news_age_h: s.news_age_h ?? null,
+        breakout: s.breakout || false,
+        riskScore: s.riskScore || 5,
+        preBreakout: s.preBreakout || false,
       });
 
       const allCards = raw.map(toCard);
@@ -1059,9 +1078,9 @@ export default function Radar() {
       setSpeculation(spec.map(toCard));
       setEarlyWatch(early.map(toCard));
       if (data.movers) setMovers(data.movers);
-      if (data.market_regime) setMarketRegime(data.market_regime); // ✅ تعديل 2: نبض السوق
+      if (data.market_regime) setMarketRegime(data.market_regime);
 
-      // 🧩 بناء الطبقات محلياً — لا يعتمد على حقل opportunities من الخادم (✅ تعديل 2)
+      // 🧩 بناء الطبقات محلياً — لا يعتمد على حقل opportunities من الخادم
       const tiers = { ready: [], watch: [], late: [], hidden: [] };
       for (const c of allCards) {
         const flag = (c.structure && c.structure.flag) || "";
@@ -1073,7 +1092,7 @@ export default function Radar() {
       setOpportunities(tiers);
       setCounts({ ready: tiers.ready.length, watch: tiers.watch.length, late: tiers.late.length, hidden: tiers.hidden.length, total: allCards.length });
       
-      // ✅ ختم العرض — التقارير تطابق ما شاهده المشترك فعلاً (✅ تعديل 2)
+      // ✅ ختم العرض — التقارير تطابق ما شاهده المشترك فعلاً
       if (allCards.length) {
         fetch("/api/mark-displayed", {
           method: "POST",
@@ -1101,15 +1120,14 @@ export default function Radar() {
     }
   }, []);
 
-  // ✅ تعديل 3: إلغاء المسح المزدوج
+  // إلغاء المسح المزدوج
   const loadCached = useCallback(async () => {
-    // أُلغي: كان light=1 يشغّل مسحاً كاملاً ثانياً على الخادم بلا نتائج قابلة للعرض
     return;
   }, []);
 
   useEffect(() => {
     if (!auth) return;
-    scan({ background: false }); // ✅ تعديل 3: background: false
+    scan({ background: false });
   }, [auth]);
 
   useEffect(() => {
@@ -1248,7 +1266,7 @@ export default function Radar() {
           </div>
         )}
 
-        {/* 🌡️ نبض السوق من الرادار (✅ تعديل 4) */}
+        {/* 🌡️ نبض السوق من الرادار */}
         {marketRegime && (
           <div style={{
             padding: "8px 14px", borderRadius: 10, marginBottom: 14, fontSize: 12, fontWeight: 600,
@@ -1327,7 +1345,7 @@ export default function Radar() {
         )}
 
         {/* 🔥 فرص جاهزة */}
-        {!loading && done && filter === "all" && opportunities.ready.length > 0 && ( // ✅ تعديل 5
+        {!loading && done && filter === "all" && opportunities.ready.length > 0 && (
           <CollapsibleSection 
             title={t.ready} 
             subtitle={t.readySub} 
@@ -1352,7 +1370,7 @@ export default function Radar() {
         )}
 
         {/* 🔵 مناطق مراقبة */}
-        {!loading && done && filter === "all" && opportunities.watch.length > 0 && ( // ✅ تعديل 5
+        {!loading && done && filter === "all" && opportunities.watch.length > 0 && (
           <CollapsibleSection 
             title={t.watch} 
             subtitle={t.watchSub} 
@@ -1377,7 +1395,7 @@ export default function Radar() {
         )}
 
         {/* 🚀 زخم متأخر */}
-        {!loading && done && filter === "all" && opportunities.late.length > 0 && ( // ✅ تعديل 5
+        {!loading && done && filter === "all" && opportunities.late.length > 0 && (
           <CollapsibleSection 
             title={t.late} 
             subtitle={t.lateSub} 
@@ -1402,7 +1420,7 @@ export default function Radar() {
         )}
 
         {/* 💎 فرص خفية */}
-        {!loading && done && filter === "all" && opportunities.hidden.length > 0 && ( // ✅ تعديل 5
+        {!loading && done && filter === "all" && opportunities.hidden.length > 0 && (
           <CollapsibleSection 
             title={t.hidden} 
             subtitle={t.hiddenSub} 
