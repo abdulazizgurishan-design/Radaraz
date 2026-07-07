@@ -1,4 +1,7 @@
 // pages/api/company-details.js
+// جلب تفاصيل الشركة (Market Cap, Shares, Shortable, Short Interest, Description, Sector, etc.)
+// ═══════════════════════════════════════════════════════════════════
+
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
 const FINNHUB_KEY = process.env.FINNHUB_API_KEY;
 const ALPACA_BASE = "https://paper-api.alpaca.markets";
@@ -10,6 +13,24 @@ const H = {
   "APCA-API-SECRET-KEY": ALPACA_SECRET,
   "Content-Type": "application/json",
 };
+
+// ─── دوال تنسيق الأرقام (للاستخدام في الواجهة) ──────────────────
+function formatMarketCap(value) {
+  if (!value) return null;
+  // Finnhub يعيد القيمة بالدولار العادي
+  if (value >= 1e12) return { value: (value / 1e12).toFixed(2), suffix: 'T' };
+  if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
+  if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
+  return { value: value.toFixed(2), suffix: '' };
+}
+
+function formatShares(value) {
+  if (!value) return null;
+  // Finnhub يعيد عدد الأسهم العادي
+  if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
+  if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
+  return { value: value.toFixed(2), suffix: '' };
+}
 
 export default async function handler(req, res) {
   const { symbol } = req.query;
@@ -39,7 +60,9 @@ export default async function handler(req, res) {
     let ceo = null;
     let website = null;
     let marketCap = null;
+    let marketCapFormatted = null;
     let sharesOutstanding = null;
+    let sharesFormatted = null;
 
     if (FINNHUB_KEY) {
       try {
@@ -55,14 +78,25 @@ export default async function handler(req, res) {
           employees = profile.employeeCount || null;
           ceo = profile.ceo || null;
           website = profile.weburl || null;
-          marketCap = profile.marketCapitalization || null;
-          sharesOutstanding = profile.shareOutstanding || null;
+          
+          // تنسيق الأرقام
+          if (profile.marketCapitalization) {
+            marketCap = profile.marketCapitalization;
+            const formatted = formatMarketCap(marketCap);
+            marketCapFormatted = formatted;
+          }
+          if (profile.shareOutstanding) {
+            sharesOutstanding = profile.shareOutstanding;
+            const formatted = formatShares(sharesOutstanding);
+            sharesFormatted = formatted;
+          }
         }
       } catch {}
     }
 
     // ─── 3. من Polygon (short interest) ──────────────────────────
     let shortInterest = null;
+    let shortInterestFormatted = null;
     try {
       const siRes = await fetch(
         `https://api.polygon.io/v3/reference/short-interest/${symbol}?apiKey=${POLYGON_KEY}`
@@ -70,6 +104,10 @@ export default async function handler(req, res) {
       if (siRes.ok) {
         const siData = await siRes.json();
         shortInterest = siData?.results?.[0]?.short_interest || null;
+        if (shortInterest) {
+          const formatted = formatShares(shortInterest);
+          shortInterestFormatted = formatted;
+        }
       }
     } catch {}
 
@@ -77,6 +115,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       symbol,
+      // تفاصيل الشركة
       companyName,
       description,
       sector,
@@ -84,11 +123,16 @@ export default async function handler(req, res) {
       employees,
       ceo,
       website,
+      // البيانات المالية (الرقم الخام + المنسق)
       marketCap,
+      marketCapFormatted,
       sharesOutstanding,
+      sharesFormatted,
+      // البيع على المكشوف
       shortable,
       easyToBorrow,
       shortInterest,
+      shortInterestFormatted,
     });
 
   } catch (error) {
