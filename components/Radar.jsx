@@ -732,6 +732,9 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
           {r.preBreakout && (
             <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: "rgba(251,191,36,0.2)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>⏳ قرب الاختراق</span>
           )}
+          {r.is_smart_bounce && (
+            <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: "rgba(56,189,248,0.2)", color: "#38bdf8", border: "1px solid rgba(56,189,248,0.3)" }}>🔄 ارتداد سريع</span>
+          )}
           {r.riskScore > 7 && (
             <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: "rgba(239,68,68,0.2)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" }}>🔴 خطر عالي</span>
           )}
@@ -1068,6 +1071,8 @@ export default function Radar() {
         breakout: s.breakout || false,
         riskScore: s.riskScore || 5,
         preBreakout: s.preBreakout || false,
+        is_smart_bounce: s.is_smart_bounce || false,
+        smart_bounce_confidence: s.smart_bounce_confidence || 0,
       });
 
       const allCards = raw.map(toCard);
