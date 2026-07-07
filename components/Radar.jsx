@@ -119,7 +119,6 @@ const T = {
     lateSub: "ارتفعت كثيراً · لمخاطرة عالية",
     hidden: "💎 فرص خفية",
     hiddenSub: "سيولة منخفضة · مؤشرات ممتازة",
-    // 🆕 تفاصيل الشركة (عربي)
     companyDetails: "📊 تفاصيل الشركة",
     hideDetails: "🔽 إخفاء",
     marketCap: "القيمة السوقية",
@@ -228,7 +227,6 @@ const T = {
     lateSub: "High rise · High risk",
     hidden: "💎 Hidden Gems",
     hiddenSub: "Low liquidity · Excellent indicators",
-    // 🆕 Company Details (English)
     companyDetails: "📊 Company Details",
     hideDetails: "🔽 Hide",
     marketCap: "Market Cap",
@@ -693,7 +691,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
   const [showNote, setShowNote] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [savedNote, setSavedNote] = useState('');
-  // 🆕 تفاصيل الشركة
   const [showCompanyDetails, setShowCompanyDetails] = useState(false);
   const [companyData, setCompanyData] = useState(null);
   const [loadingCompany, setLoadingCompany] = useState(false);
@@ -706,7 +703,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
     } catch {}
   }, [r.symbol]);
 
-  // 🆕 جلب تفاصيل الشركة (معدل لاستخدام التنسيقات من API)
   const fetchCompanyDetails = async (symbol) => {
     if (companyData) return;
     setLoadingCompany(true);
@@ -714,10 +710,8 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
       const res = await fetch(`/api/company-details?symbol=${symbol}`);
       const data = await res.json();
       
-      // ✅ استخدم البيانات كما هي من API مع التنسيقات الجاهزة
       setCompanyData({
         ...data,
-        // تأكد من وجود القيم المنسقة، وإلا قم بتنسيقها محلياً
         marketCapFormatted: data.marketCapFormatted || formatMarketCapDisplay(Number(data.marketCap)),
         sharesFormatted: data.sharesFormatted || formatSharesDisplay(Number(data.sharesOutstanding)),
         shortInterestFormatted: data.shortInterestFormatted || formatSharesDisplay(Number(data.shortInterest)),
@@ -817,7 +811,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
           {r.is_sniper && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(251,191,36,0.2)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>🎯</span>}
           {r.is_rebound && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(56,189,248,0.2)", color: "#38bdf8", border: "1px solid rgba(56,189,248,0.3)" }}>🔄</span>}
           {r.early_watch && !r.is_rebound && !r.is_sniper && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(52,211,153,0.2)", color: "#34d399", border: "1px solid rgba(52,211,153,0.3)" }}>🔍</span>}
-          {/* 🆕 العلامات الذكية */}
           {r.breakout && (
             <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: "rgba(52,211,153,0.2)", color: "#34d399", border: "1px solid rgba(52,211,153,0.3)" }}>🚀 اختراق</span>
           )}
@@ -890,7 +883,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         <button onClick={() => setShowNote(!showNote)} style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "rgba(251,191,36,0.1)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}>
           {savedNote ? "📝" : "📝+"}
         </button>
-        {/* 🆕 زر تفاصيل الشركة */}
         <button
           onClick={() => toggleCompanyDetails(r.symbol)}
           style={{
@@ -1004,7 +996,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         </div>
       )}
 
-      {/* 🆕 تفاصيل الشركة — معروضة بالأرقام الكاملة مع الفواصل */}
+      {/* تفاصيل الشركة - مع تحويل الملايين إلى أرقام كاملة */}
       {showCompanyDetails && (
         <div style={{
           marginTop: 12,
@@ -1027,7 +1019,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
               </div>
             ) : companyData ? (
               <div>
-                {/* اسم الشركة والنبذة */}
                 {companyData.companyName && (
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>
@@ -1043,7 +1034,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   </div>
                 )}
 
-                {/* المعلومات الأساسية */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   {companyData.sector && (
                     <div>
@@ -1084,7 +1074,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   )}
                 </div>
 
-                {/* ✅ البيانات المالية مع الأرقام الكاملة والفواصل */}
+                {/* ✅ البيانات المالية - تحويل الملايين إلى أرقام كاملة */}
                 <div style={{
                   marginTop: 10,
                   paddingTop: 10,
@@ -1093,22 +1083,22 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   gridTemplateColumns: "1fr 1fr",
                   gap: 8,
                 }}>
-                  {/* القيمة السوقية */}
+                  {/* القيمة السوقية - Finnhub يعيدها بالملايين */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.marketCap}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                       {companyData.marketCap ? (
-                        <>${Number(companyData.marketCap).toLocaleString()}</>
+                        <>${Math.round(Number(companyData.marketCap) * 1000000).toLocaleString()}</>
                       ) : t.notAvailable}
                     </div>
                   </div>
                   
-                  {/* الأسهم المتاحة */}
+                  {/* الأسهم المتاحة - Finnhub يعيدها بالملايين */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.sharesOutstanding}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                       {companyData.sharesOutstanding ? (
-                        <>{Number(companyData.sharesOutstanding).toLocaleString()}</>
+                        <>{Math.round(Number(companyData.sharesOutstanding) * 1000000).toLocaleString()}</>
                       ) : t.notAvailable}
                     </div>
                   </div>
@@ -1121,12 +1111,12 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                     </div>
                   </div>
                   
-                  {/* حجم الأقراض */}
+                  {/* حجم الأقراض - Polygon يعيده بالملايين أيضاً */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortInterest}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#fbbf24" }}>
                       {companyData.shortInterest ? (
-                        <>{Number(companyData.shortInterest).toLocaleString()}</>
+                        <>{Math.round(Number(companyData.shortInterest) * 1000000).toLocaleString()}</>
                       ) : t.notAvailable}
                     </div>
                   </div>
@@ -1166,7 +1156,6 @@ export default function Radar() {
   const [counts, setCounts] = useState({ ready: 0, watch: 0, late: 0, hidden: 0, total: 0 });
   const [marketRegime, setMarketRegime] = useState(null);
 
-  // ─── 🕐 حالة السوق الديناميكية ──────────────────────────────────
   const [marketStatus, setMarketStatus] = useState(null);
 
   useEffect(() => {
@@ -1274,20 +1263,16 @@ export default function Radar() {
 
       const MIN = DISPLAY_MIN_SCORE;
 
-      // 🆕 جمع كل الإشارات من جميع المصادر
       const allSignals = [];
 
-      // 1. من results (المضاربة/الاستثمار)
       if (data.results) {
         allSignals.push(...data.results);
       }
 
-      // 2. من earlyWatch (رصد مبكر)
       if (data.earlyWatch) {
         allSignals.push(...data.earlyWatch);
       }
 
-      // 3. من movers (حركة السوق) — اختياري
       if (data.movers) {
         for (const key of ['gainers', 'losers', 'volume', 'value']) {
           if (data.movers[key]) {
@@ -1296,7 +1281,6 @@ export default function Radar() {
         }
       }
 
-      // إزالة المكررات
       const unique = [];
       const seen = new Set();
       for (const s of allSignals) {
@@ -1360,7 +1344,6 @@ export default function Radar() {
       if (data.movers) setMovers(data.movers);
       if (data.market_regime) setMarketRegime(data.market_regime);
 
-      // 🧩 بناء الطبقات محلياً — لا يعتمد على حقل opportunities من الخادم
       const tiers = { ready: [], watch: [], late: [], hidden: [] };
       for (const c of allCards) {
         const flag = (c.structure && c.structure.flag) || "";
@@ -1372,7 +1355,6 @@ export default function Radar() {
       setOpportunities(tiers);
       setCounts({ ready: tiers.ready.length, watch: tiers.watch.length, late: tiers.late.length, hidden: tiers.hidden.length, total: allCards.length });
 
-      // ✅ ختم العرض — التقارير تطابق ما شاهده المشترك فعلاً
       if (allCards.length) {
         fetch("/api/mark-displayed", {
           method: "POST",
@@ -1400,7 +1382,6 @@ export default function Radar() {
     }
   }, []);
 
-  // إلغاء المسح المزدوج
   const loadCached = useCallback(async () => {
     return;
   }, []);
@@ -1499,7 +1480,6 @@ export default function Radar() {
           </div>
         </div>
 
-        {/* 🕐 حالة السوق */}
         {marketStatus && (
           <div style={{
             display: "flex",
@@ -1546,7 +1526,6 @@ export default function Radar() {
           </div>
         )}
 
-        {/* 🌡️ نبض السوق من الرادار */}
         {marketRegime && (
           <div style={{
             padding: "8px 14px", borderRadius: 10, marginBottom: 14, fontSize: 12, fontWeight: 600,
@@ -1608,7 +1587,6 @@ export default function Radar() {
         {loading && <SkeletonCards />}
         {(done || loading) && <StatusBanner status={status} lastUpdate={lastUpdate} scanError={scanError} t={t} />}
 
-        {/* 📊 حركة السوق مع خريطة البنية */}
         {!loading && done && filter === "all" && movers && (
           <CollapsibleSection
             title={t.marketMovers}
@@ -1624,7 +1602,6 @@ export default function Radar() {
           </CollapsibleSection>
         )}
 
-        {/* 🔥 فرص جاهزة */}
         {!loading && done && filter === "all" && opportunities.ready.length > 0 && (
           <CollapsibleSection 
             title={t.ready} 
@@ -1649,7 +1626,6 @@ export default function Radar() {
           </CollapsibleSection>
         )}
 
-        {/* 🔵 مناطق مراقبة */}
         {!loading && done && filter === "all" && opportunities.watch.length > 0 && (
           <CollapsibleSection 
             title={t.watch} 
@@ -1674,7 +1650,6 @@ export default function Radar() {
           </CollapsibleSection>
         )}
 
-        {/* 🚀 زخم متأخر */}
         {!loading && done && filter === "all" && opportunities.late.length > 0 && (
           <CollapsibleSection 
             title={t.late} 
@@ -1699,7 +1674,6 @@ export default function Radar() {
           </CollapsibleSection>
         )}
 
-        {/* 💎 فرص خفية */}
         {!loading && done && filter === "all" && opportunities.hidden.length > 0 && (
           <CollapsibleSection 
             title={t.hidden} 
@@ -1724,28 +1698,24 @@ export default function Radar() {
           </CollapsibleSection>
         )}
 
-        {/* 🎯 القناص */}
         {!loading && done && filter === "all" && sniper.length > 0 && (
           <CollapsibleSection title={t.sectionSniper} subtitle={t.sectionSniperSub} count={sniper.length} color="#fbbf24" bg="rgba(251,191,36,0.08)" border="rgba(251,191,36,0.3)" t={t}>
             {sniper.map((r, i) => <SmartCard key={"sniper-" + r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
           </CollapsibleSection>
         )}
 
-        {/* 🔄 الارتداد */}
         {!loading && done && filter === "all" && rebound.length > 0 && (
           <CollapsibleSection title={t.sectionRebound} subtitle={t.sectionReboundSub} count={rebound.length} color="#38bdf8" bg="rgba(56,189,248,0.08)" border="rgba(56,189,248,0.3)" t={t}>
             {rebound.map((r, i) => <SmartCard key={"reb-" + r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
           </CollapsibleSection>
         )}
 
-        {/* 🔍 رصد مبكر */}
         {!loading && done && filter === "all" && earlyWatch.length > 0 && (
           <CollapsibleSection title={t.sectionEarly} subtitle={t.sectionEarlySub} count={earlyWatch.length} color="#34d399" bg="rgba(52,211,153,0.08)" border="rgba(52,211,153,0.3)" t={t}>
             {earlyWatch.map((r, i) => <SmartCard key={"early-" + r.symbol} r={r} idx={i} t={t} lang={lang} isEarly={true} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />)}
           </CollapsibleSection>
         )}
 
-        {/* الاستثمار والمضاربة */}
         {!loading && done && showSections && (
           <>
             {leaders.length > 0 && (
@@ -1761,7 +1731,6 @@ export default function Radar() {
           </>
         )}
 
-        {/* باقي النتائج */}
         {!loading && filtered.length > 0 && !showSections && (
           <>
             <div style={S.dividerRow}>
@@ -1773,7 +1742,6 @@ export default function Radar() {
           </>
         )}
 
-        {/* المفضلة فارغة */}
         {!loading && done && filter === "favorites" && filtered.length === 0 && (
           <div style={S.emptyBox}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>⭐</div>
@@ -1782,7 +1750,6 @@ export default function Radar() {
           </div>
         )}
 
-        {/* لا توجد نتائج */}
         {done && !loading && results.length === 0 && (
           <div style={S.emptyBox}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔴</div>
