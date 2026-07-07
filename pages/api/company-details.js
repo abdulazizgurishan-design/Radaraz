@@ -17,18 +17,20 @@ const H = {
 // ─── دوال تنسيق الأرقام (عرض كامل مع فواصل) ──────────────────
 function formatMarketCap(value) {
   if (!value) return null;
-  // ✅ عرض الرقم كامل مع فواصل (بدون B/M/T)
+  // ✅ Finnhub يعيد القيمة السوقية بالملايين، نحولها إلى رقم كامل
+  const num = Number(value) * 1000000;
   return { 
-    value: Number(value).toLocaleString(), 
+    value: num.toLocaleString(), 
     suffix: '' 
   };
 }
 
 function formatShares(value) {
   if (!value) return null;
-  // ✅ عرض الرقم كامل مع فواصل (بدون B/M/T)
+  // ✅ Finnhub يعيد الأسهم المتاحة بالملايين، نحولها إلى رقم كامل
+  const num = Number(value) * 1000000;
   return { 
-    value: Number(value).toLocaleString(), 
+    value: num.toLocaleString(), 
     suffix: '' 
   };
 }
