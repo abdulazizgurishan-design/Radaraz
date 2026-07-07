@@ -1031,7 +1031,40 @@ export default function Radar() {
       if (data.error) { setScanError(data.error); setStatus("error"); return; }
 
       const MIN = DISPLAY_MIN_SCORE;
-      const raw = (data.results ?? []).filter(s => (s.score || 0) >= MIN);
+
+      // 🆕 جمع كل الإشارات من جميع المصادر
+      const allSignals = [];
+
+      // 1. من results (المضاربة/الاستثمار)
+      if (data.results) {
+        allSignals.push(...data.results);
+      }
+
+      // 2. من earlyWatch (رصد مبكر)
+      if (data.earlyWatch) {
+        allSignals.push(...data.earlyWatch);
+      }
+
+      // 3. من movers (حركة السوق) — اختياري
+      if (data.movers) {
+        for (const key of ['gainers', 'losers', 'volume', 'value']) {
+          if (data.movers[key]) {
+            allSignals.push(...data.movers[key]);
+          }
+        }
+      }
+
+      // إزالة المكررات
+      const unique = [];
+      const seen = new Set();
+      for (const s of allSignals) {
+        if (!seen.has(s.symbol)) {
+          seen.add(s.symbol);
+          unique.push(s);
+        }
+      }
+
+      const raw = unique.filter(s => (s.score || 0) >= MIN);
       const isReb = s => s.type === "ارتداد" || s.is_rebound;
       const isSniper = s => s.is_sniper || false;
 
