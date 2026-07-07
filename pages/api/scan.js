@@ -1,10 +1,14 @@
-// pages/api/scan.js — STANDALONE EDITION v5 (الإضافات الذكية)
+📦 الملف الكامل المعدل: pages/api/scan.js — مع استراتيجية الارتداد الذكي
+
+```javascript
+// pages/api/scan.js — STANDALONE EDITION v6 (مع استراتيجية الارتداد الذكي)
 // ═══════════════════════════════════════════════════════════════════
-//  🆕 الإضافات الذكية:
-//   ✅ إشارات الاختراق (Breakout Detection)
-//   ✅ تصنيف الخطر (Risk Score)
-//   ✅ تنبيهات ما قبل الانفجار (Pre-Breakout Alerts)
-//   ✅ متوسط الحجم المتداول (Avg Volume)
+//  🆕 استراتيجية الارتداد الذكي "الصياد السريع":
+//   ✅ فريم 3 دقائق
+//   ✅ تقاطع MA5 فوق MA10 (طازج)
+//   ✅ حجم ≥ 1.5× المتوسط (سيولة)
+//   ✅ RSI 30-50
+//   ✅ شمعة خضراء + قرب الدعم
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 10 };
@@ -72,6 +76,21 @@ const STRUCT = {
   STRICT_GEMS:   true,
 };
 
+// ─── 🆕 إعدادات استراتيجية الارتداد الذكي ──────────────────────────
+const SMART_BOUNCE = {
+  ENABLED: true,
+  TIMEFRAME: 3,          // 3 دقائق
+  MA_FAST: 5,
+  MA_SLOW: 10,
+  MIN_VOLUME_RATIO: 1.5,
+  RSI_MIN: 30,
+  RSI_MAX: 50,
+  SUPPORT_RANGE: 0.015,
+  MIN_PRICE: 3,
+  MIN_VOLUME: 200_000,
+  CONFIDENCE_MIN: 0.6,
+};
+
 // ════════════════ أدوات المؤشرات ════════════════
 
 function calcEMA(prices, period) {
@@ -101,6 +120,13 @@ function calcSMA(prices, period) {
   return slice.reduce((a, b) => a + b, 0) / period;
 }
 
+// 🆕 حساب المتوسط المتحرك البسيط (لفريم 3 دقائق)
+function calcMA(prices, period) {
+  if (!prices || prices.length < period) return null;
+  const slice = prices.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / period;
+}
+
 function emaCrossedUp(closes, fast = 9, slow = 21, lookback = 2) {
   if (!closes || closes.length < slow + lookback + 1) return false;
   const fastSeries = emaSeries(closes, fast);
@@ -116,6 +142,17 @@ function emaCrossedUp(closes, fast = 9, slow = 21, lookback = 2) {
     if (f[n - i] <= s[n - i]) { wasBelow = true; break; }
   }
   return nowAbove && wasBelow;
+}
+
+// 🆕 كشف تقاطع MA5 فوق MA10 (طازج) لفريم 3 دقائق
+function detectCross(closes) {
+  if (!closes || closes.length < 12) return false;
+  const ma5 = calcMA(closes, 5);
+  const ma10 = calcMA(closes, 10);
+  const ma5_prev = calcMA(closes.slice(0, -2), 5);
+  const ma10_prev = calcMA(closes.slice(0, -2), 10);
+  if (!ma5 || !ma10 || !ma5_prev || !ma10_prev) return false;
+  return ma5_prev <= ma10_prev && ma5 > ma10;
 }
 
 function calcATR14(bars) {
@@ -517,6 +554,57 @@ function getAvgVolume(bars) {
   return volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
 }
 
+// 🆕 5️⃣ استراتيجية الارتداد الذكي (فريم 3 دقائق)
+function detectSmartBounce(bars) {
+  if (!bars || bars.length < 20) return null;
+  
+  const closes = bars.map(b => b.c);
+  const volumes = bars.map(b => b.v);
+  const price = closes[closes.length - 1];
+  
+  // الحسابات
+  const avgVol = getAvgVolume(bars);
+  const support = Math.min(...closes.slice(-20));
+  const cross = detectCross(closes);
+  const rsi = calcRSI14(bars);
+  
+  // المتوسطات لفريم 3 دقائق
+  const ma5 = calcMA(closes, SMART_BOUNCE.MA_FAST);
+  const ma10 = calcMA(closes, SMART_BOUNCE.MA_SLOW);
+  
+  // الشروط
+  const nearSupport = price <= support * (1 + SMART_BOUNCE.SUPPORT_RANGE);
+  const crossCondition = cross;
+  const volumeCondition = bars[bars.length - 1]?.v > avgVol * SMART_BOUNCE.MIN_VOLUME_RATIO;
+  const rsiCondition = rsi !== null && rsi >= SMART_BOUNCE.RSI_MIN && rsi <= SMART_BOUNCE.RSI_MAX;
+  const greenCandle = bars[bars.length - 1]?.c > bars[bars.length - 1]?.o;
+  const priceAboveMA = ma5 !== null && ma10 !== null && price > ma5 && ma5 > ma10;
+  const volumeAboveMin = bars[bars.length - 1]?.v >= SMART_BOUNCE.MIN_VOLUME;
+  
+  const allMet = nearSupport && crossCondition && volumeCondition && rsiCondition && greenCandle && priceAboveMA && volumeAboveMin;
+  
+  return {
+    isBounce: allMet,
+    conditions: {
+      nearSupport,
+      cross: crossCondition,
+      volume: volumeCondition,
+      rsi: rsiCondition,
+      greenCandle,
+      priceAboveMA,
+      volumeAboveMin,
+    },
+    support,
+    price,
+    avgVol,
+    rsi,
+    ma5,
+    ma10,
+    confidence: [nearSupport, crossCondition, volumeCondition, rsiCondition, greenCandle, priceAboveMA, volumeAboveMin]
+      .filter(v => v).length / 7,
+  };
+}
+
 // ════════════════ حركة السوق ════════════════
 function buildMovers(tickers, n = 15) {
   const MIN_PRICE = 1;
@@ -753,6 +841,8 @@ async function saveSignals(signals) {
     fresh_zone: s.fresh_zone || false,
     premarket_watch: s.premarket_watch || false,
     structure: s.structure || null,
+    is_smart_bounce: s.is_smart_bounce || false,
+    smart_bounce_confidence: s.smart_bounce_confidence || 0,
     created_at: nowISO,
   }));
   try {
@@ -929,6 +1019,27 @@ export default async function handler(req, res) {
             s.ep = Math.min(99, s.ep + 6);
           }
         }
+
+        // 🆕 استراتيجية الارتداد الذكي (فريم 3 دقائق)
+        let smartBounce = null;
+        if (tech && tech.bars && tech.bars.length >= 20) {
+          // نجلب شموع 3 دقائق للتحليل السريع
+          const threeMinBars = await fetchAggs(s.symbol, 3, "minute", 1, 30);
+          if (threeMinBars && threeMinBars.length >= 20) {
+            smartBounce = detectSmartBounce(threeMinBars);
+            if (smartBounce && smartBounce.isBounce) {
+              s.is_smart_bounce = true;
+              s.smart_bounce_confidence = Math.round(smartBounce.confidence * 100);
+              s.smart_bounce_support = smartBounce.support;
+              s.ep = Math.min(99, s.ep + 10);
+              s.signal = "🔄 ارتداد سريع";
+              s.type = "ارتداد سريع";
+              s.early_watch = true;
+              s.is_rebound = true;
+            }
+          }
+        }
+
       } else {
         s.ma_signal = null; s.rsi = s.rsi ?? null; s.levels_source = "atr_basic"; s.week_max_jump = null;
       }
@@ -1028,6 +1139,7 @@ export default async function handler(req, res) {
 
       s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
       s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
+      if (s.is_smart_bounce) s.signal = "🔄 ارتداد سريع";
 
       const strongMA = ["تقاطع ذهبي 🌟", "صاعد قوي ⚡", "EMA صاعد"].includes(s.ma_signal);
       const inEarlyZone = s.changePct >= 2 && s.changePct <= 15;
@@ -1108,6 +1220,7 @@ export default async function handler(req, res) {
       survivors: survivors.length,
       below_save_ep: survivors.filter(s => s.ep < FILTER.SAVE_MIN_EP).length,
       saved: saveResult.saved || 0,
+      smart_bounce: survivors.filter(s => s.is_smart_bounce).length,
       rebound_funnel: {
         rsi_pass: top.filter(s => s._rebRsi).length,
         dvol_pass: top.filter(s => s._rebDvol).length,
@@ -1115,6 +1228,7 @@ export default async function handler(req, res) {
         ret3_pass: top.filter(s => s._rebRet3).length,
         cross_pass: top.filter(s => s._rebCross).length,
         final: top.filter(s => s.is_rebound).length,
+        smart_bounce: survivors.filter(s => s.is_smart_bounce).length,
       },
     };
     const pctOf = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
@@ -1138,6 +1252,7 @@ export default async function handler(req, res) {
         rebound: survivors.filter(s => s.is_rebound).length,
         breakout: survivors.filter(s => s._breakout).length,
         preBreakout: survivors.filter(s => s._preBreakout).length,
+        smartBounce: survivors.filter(s => s.is_smart_bounce).length,
         avgRiskScore: survivors.length > 0 ? Math.round(survivors.reduce((a, s) => a + (s._riskScore || 5), 0) / survivors.length) : 0,
         vix: vixData.available ? { rank: vixRank, value: vixData.value } : { available: false },
         saved: saveResult.saved || 0, saveResult,
@@ -1159,6 +1274,8 @@ export default async function handler(req, res) {
       breakout: s._breakout || false,
       riskScore: s._riskScore || 5,
       preBreakout: s._preBreakout || false,
+      is_smart_bounce: s.is_smart_bounce || false,
+      smart_bounce_confidence: s.smart_bounce_confidence || 0,
     });
 
     const results = survivors.map(toCard);
@@ -1175,6 +1292,7 @@ export default async function handler(req, res) {
       early: early.length,
       breakout: results.filter(s => s.breakout).length,
       preBreakout: results.filter(s => s.preBreakout).length,
+      smartBounce: results.filter(s => s.is_smart_bounce).length,
       avgRiskScore: results.length > 0 ? Math.round(results.reduce((a, s) => a + (s.riskScore || 5), 0) / results.length) : 0,
       saved: saveResult.saved || 0, saveResult,
       timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
@@ -1188,3 +1306,21 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: false, error: error.message, results: [], leaders: [], speculation: [] });
   }
 }
+```
+
+---
+
+✅ التغييرات المضافة
+
+# الإضافة الوصف
+1 SMART_BOUNCE إعدادات استراتيجية الارتداد الذكي
+2 calcMA() حساب المتوسطات المتحركة
+3 detectCross() كشف تقاطع MA5 فوق MA10
+4 detectSmartBounce() استراتيجية الارتداد الكاملة (فريم 3 دقائق)
+5 دمج في inBatches حساب الارتداد الذكي داخل الحلقة
+6 حقول toCard is_smart_bounce, smart_bounce_confidence
+7 إحصائيات smartBounce في الرد الخفيف والرئيسي
+
+---
+
+الملف جاهز للاستخدام. ارفعه وأعد النشر. 🚀📡
