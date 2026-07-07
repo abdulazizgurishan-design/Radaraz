@@ -1,5 +1,5 @@
 // pages/api/company-details.js
-// جلب تفاصيل الشركة (Market Cap, Shares, Shortable, Short Interest)
+// جلب تفاصيل الشركة (Market Cap, Shares, Shortable, Short Interest, Description, Sector, etc.)
 // ═══════════════════════════════════════════════════════════════════
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
@@ -20,7 +20,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. من Alpaca (shortable)
+    // ─── 1. من Alpaca (shortable) ──────────────────────────────
     let shortable = false;
     let easyToBorrow = false;
     try {
@@ -32,21 +32,37 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // 2. من Polygon (market cap, shares)
+    // ─── 2. من Polygon (تفاصيل الشركة الكاملة) ──────────────────
+    let companyName = null;
+    let description = null;
+    let sector = null;
+    let industry = null;
+    let employees = null;
+    let ceo = null;
+    let website = null;
     let marketCap = null;
     let sharesOutstanding = null;
+
     try {
       const detailsRes = await fetch(
         `https://api.polygon.io/v3/reference/tickers/${symbol}?apiKey=${POLYGON_KEY}`
       );
       if (detailsRes.ok) {
         const details = await detailsRes.json();
-        marketCap = details?.results?.market_cap || null;
-        sharesOutstanding = details?.results?.share_class_shares_outstanding || null;
+        const r = details?.results || {};
+        companyName = r.name || null;
+        description = r.description || null;
+        sector = r.sector || null;
+        industry = r.industry || null;
+        employees = r.employees || null;
+        ceo = r.ceo || null;
+        website = r.website || null;
+        marketCap = r.market_cap || null;
+        sharesOutstanding = r.share_class_shares_outstanding || r.weighted_shares_outstanding || null;
       }
     } catch {}
 
-    // 3. من Polygon (short interest)
+    // ─── 3. من Polygon (short interest) ──────────────────────────
     let shortInterest = null;
     try {
       const siRes = await fetch(
@@ -58,11 +74,22 @@ export default async function handler(req, res) {
       }
     } catch {}
 
+    // ─── 4. الرد ──────────────────────────────────────────────────
     return res.status(200).json({
       success: true,
       symbol,
+      // تفاصيل الشركة
+      companyName,
+      description,
+      sector,
+      industry,
+      employees,
+      ceo,
+      website,
+      // البيانات المالية
       marketCap,
       sharesOutstanding,
+      // البيع على المكشوف
       shortable,
       easyToBorrow,
       shortInterest,
