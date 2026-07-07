@@ -14,10 +14,9 @@ const H = {
   "Content-Type": "application/json",
 };
 
-// ─── دوال تنسيق الأرقام (للاستخدام في الواجهة) ──────────────────
+// ─── دوال تنسيق الأرقام ──────────────────────────────────────────
 function formatMarketCap(value) {
   if (!value) return null;
-  // Finnhub يعيد القيمة بالدولار العادي
   if (value >= 1e12) return { value: (value / 1e12).toFixed(2), suffix: 'T' };
   if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
   if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
@@ -26,7 +25,6 @@ function formatMarketCap(value) {
 
 function formatShares(value) {
   if (!value) return null;
-  // Finnhub يعيد عدد الأسهم العادي
   if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
   if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
   return { value: value.toFixed(2), suffix: '' };
@@ -79,16 +77,13 @@ export default async function handler(req, res) {
           ceo = profile.ceo || null;
           website = profile.weburl || null;
           
-          // تنسيق الأرقام
           if (profile.marketCapitalization) {
             marketCap = profile.marketCapitalization;
-            const formatted = formatMarketCap(marketCap);
-            marketCapFormatted = formatted;
+            marketCapFormatted = formatMarketCap(marketCap);
           }
           if (profile.shareOutstanding) {
             sharesOutstanding = profile.shareOutstanding;
-            const formatted = formatShares(sharesOutstanding);
-            sharesFormatted = formatted;
+            sharesFormatted = formatShares(sharesOutstanding);
           }
         }
       } catch {}
@@ -105,8 +100,7 @@ export default async function handler(req, res) {
         const siData = await siRes.json();
         shortInterest = siData?.results?.[0]?.short_interest || null;
         if (shortInterest) {
-          const formatted = formatShares(shortInterest);
-          shortInterestFormatted = formatted;
+          shortInterestFormatted = formatShares(shortInterest);
         }
       }
     } catch {}
@@ -115,7 +109,6 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       symbol,
-      // تفاصيل الشركة
       companyName,
       description,
       sector,
@@ -123,12 +116,10 @@ export default async function handler(req, res) {
       employees,
       ceo,
       website,
-      // البيانات المالية (الرقم الخام + المنسق)
       marketCap,
       marketCapFormatted,
       sharesOutstanding,
       sharesFormatted,
-      // البيع على المكشوف
       shortable,
       easyToBorrow,
       shortInterest,
