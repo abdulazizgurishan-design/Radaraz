@@ -14,20 +14,23 @@ const H = {
   "Content-Type": "application/json",
 };
 
-// ─── دوال تنسيق الأرقام ──────────────────────────────────────────
+// ─── دوال تنسيق الأرقام (عرض كامل مع فواصل) ──────────────────
 function formatMarketCap(value) {
   if (!value) return null;
-  if (value >= 1e12) return { value: (value / 1e12).toFixed(2), suffix: 'T' };
-  if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
-  if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
-  return { value: value.toFixed(2), suffix: '' };
+  // ✅ عرض الرقم كامل مع فواصل (بدون B/M/T)
+  return { 
+    value: Number(value).toLocaleString(), 
+    suffix: '' 
+  };
 }
 
 function formatShares(value) {
   if (!value) return null;
-  if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
-  if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
-  return { value: value.toFixed(2), suffix: '' };
+  // ✅ عرض الرقم كامل مع فواصل (بدون B/M/T)
+  return { 
+    value: Number(value).toLocaleString(), 
+    suffix: '' 
+  };
 }
 
 export default async function handler(req, res) {
