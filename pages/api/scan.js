@@ -1,6 +1,3 @@
-📦 الملف الكامل المعدل: pages/api/scan.js — مع استراتيجية الارتداد الذكي
-
-```javascript
 // pages/api/scan.js — STANDALONE EDITION v6 (مع استراتيجية الارتداد الذكي)
 // ═══════════════════════════════════════════════════════════════════
 //  🆕 استراتيجية الارتداد الذكي "الصياد السريع":
@@ -1306,21 +1303,3 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: false, error: error.message, results: [], leaders: [], speculation: [] });
   }
 }
-```
-
----
-
-✅ التغييرات المضافة
-
-# الإضافة الوصف
-1 SMART_BOUNCE إعدادات استراتيجية الارتداد الذكي
-2 calcMA() حساب المتوسطات المتحركة
-3 detectCross() كشف تقاطع MA5 فوق MA10
-4 detectSmartBounce() استراتيجية الارتداد الكاملة (فريم 3 دقائق)
-5 دمج في inBatches حساب الارتداد الذكي داخل الحلقة
-6 حقول toCard is_smart_bounce, smart_bounce_confidence
-7 إحصائيات smartBounce في الرد الخفيف والرئيسي
-
----
-
-الملف جاهز للاستخدام. ارفعه وأعد النشر. 🚀📡
