@@ -318,12 +318,13 @@ const SMART_STOP = {
   SMART_T1_CAP: 0.60,
 };
 
+// ─── إعدادات الارتداد (معدلة لزيادة الإشارات) ────────────────────
 const REBOUND = {
   ENABLED: true,
-  RSI_MAX: 30,
-  MIN_PRICE: 10,
-  MIN_DOLLAR_VOL: 50_000_000,
-  MIN_RET_3M: 20,
+  RSI_MAX: 40,        // ← 30 → 40 (أقل صرامة)
+  MIN_PRICE: 5,       // ← 10 → 5 (يسمح بأسهم أرخص)
+  MIN_DOLLAR_VOL: 20_000_000, // ← 50M → 20M
+  MIN_RET_3M: 10,     // ← 20 → 10
   STRONG_JUMP: 8,
   TARGET_PCT: 3.0,
   MAX_HOLD_DAYS: 10,
@@ -658,8 +659,8 @@ function calcEP(s) {
 
 // ════════════════ جلب السوق (محسّن للسرعة) ════════════════
 async function fetchTopStocks() {
-  // ✅ جلب 400 سهم فقط بدلاً من 500 (توفير وقت)
-  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?limit=400&apiKey=${POLYGON_KEY}`;
+  // ✅ جلب 500 سهم (زيادة التنوع)
+  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?limit=500&apiKey=${POLYGON_KEY}`;
   
   for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
@@ -701,12 +702,12 @@ async function fetchTopStocks() {
       }).filter(tk => tk !== false);
       
       const byVolume = [...valid].sort((a, b) => b._volume - a._volume);
-      const topByVolume = byVolume.slice(0, 250);
+      const topByVolume = byVolume.slice(0, 300);
       
       const byChange = [...valid]
         .filter(tk => tk._changePct >= 2 && tk._changePct <= 40)
         .sort((a, b) => b._changePct - a._changePct);
-      const topByChange = byChange.slice(0, 80);
+      const topByChange = byChange.slice(0, 100);
       
       const merged = [...topByVolume, ...topByChange];
       const seen = new Set();
@@ -985,7 +986,8 @@ export default async function handler(req, res) {
     const scored = candidates.map(s => {
       const ep = calcEP(s);
       const levels = calcLevels(s);
-      const is_hot = ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
+      // ✅ تعديل شروط HOT (أقل صرامة)
+      const is_hot = ep >= 70 && s.rvol >= 8 && s.changePct >= 8;
       const dollarVolume = s.price * s.volume;
       const isScalp = s.changePct >= 5 && s.rvol >= 5;
       const isInvest = s.price >= 20 && dollarVolume >= 100_000_000 && s.changePct <= 15;
@@ -1213,7 +1215,8 @@ export default async function handler(req, res) {
         }
       }
 
-      s.is_hot = s.ep >= 75 && s.rvol >= 10 && s.changePct >= 10;
+      // ✅ تعديل شروط HOT
+      s.is_hot = s.ep >= 70 && s.rvol >= 8 && s.changePct >= 8;
       s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
       if (s.is_smart_bounce) s.signal = "🔄 ارتداد سريع";
 
@@ -1232,7 +1235,8 @@ export default async function handler(req, res) {
       const liqIn = s.rvol >= 4;
       const rsiPos = s.rsi != null && s.rsi >= 50 && s.rsi <= 68;
       const macdBull = !!(tech && tech.macd && tech.macd.bullish);
-      const primaryConfluence = !s._drop && earlyStage && volHigh && liqIn && rsiPos && macdBull && tech && tech.aligned;
+      // ✅ إزالة الشرط الصارم tech.aligned
+      const primaryConfluence = !s._drop && earlyStage && volHigh && liqIn && rsiPos && macdBull;
       s._primaryConfluence = primaryConfluence;
     });
 
