@@ -703,14 +703,22 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
     } catch {}
   }, [r.symbol]);
 
-  // 🆕 جلب تفاصيل الشركة
+  // 🆕 جلب تفاصيل الشركة (معدل لاستخدام التنسيقات من API)
   const fetchCompanyDetails = async (symbol) => {
     if (companyData) return;
     setLoadingCompany(true);
     try {
       const res = await fetch(`/api/company-details?symbol=${symbol}`);
       const data = await res.json();
-      setCompanyData(data);
+      
+      // ✅ استخدم البيانات كما هي من API مع التنسيقات الجاهزة
+      setCompanyData({
+        ...data,
+        // تأكد من وجود القيم المنسقة، وإلا قم بتنسيقها محلياً
+        marketCapFormatted: data.marketCapFormatted || formatMarketCapDisplay(Number(data.marketCap)),
+        sharesFormatted: data.sharesFormatted || formatSharesDisplay(Number(data.sharesOutstanding)),
+        shortInterestFormatted: data.shortInterestFormatted || formatSharesDisplay(Number(data.shortInterest)),
+      });
     } catch {
       setCompanyData({ error: true });
     }
@@ -993,7 +1001,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         </div>
       )}
 
-      {/* 🆕 تفاصيل الشركة */}
+      {/* 🆕 تفاصيل الشركة — معروضة بالرموز الصحيحة B/M/T */}
       {showCompanyDetails && (
         <div style={{
           marginTop: 12,
@@ -1073,7 +1081,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   )}
                 </div>
 
-                {/* البيانات المالية مع الرموز */}
+                {/* ✅ البيانات المالية مع الرموز (B/M/T) — المعدلة */}
                 <div style={{
                   marginTop: 10,
                   paddingTop: 10,
