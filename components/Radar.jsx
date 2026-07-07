@@ -13,17 +13,20 @@ const DISPLAY_MIN_SCORE = 60;
 // ─── دوال تنسيق الأرقام (للعرض) ──────────────────────────────────
 function formatMarketCapDisplay(value) {
   if (!value) return null;
-  if (value >= 1e12) return { value: (value / 1e12).toFixed(2), suffix: 'T' };
-  if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
-  if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
-  return { value: value.toFixed(2), suffix: '' };
+  // عرض الرقم كامل مع فواصل
+  return { 
+    value: Number(value).toLocaleString(), 
+    suffix: '' 
+  };
 }
 
 function formatSharesDisplay(value) {
   if (!value) return null;
-  if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
-  if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
-  return { value: value.toFixed(2), suffix: '' };
+  // عرض الرقم كامل مع فواصل
+  return { 
+    value: Number(value).toLocaleString(), 
+    suffix: '' 
+  };
 }
 
 const T = {
@@ -1001,7 +1004,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         </div>
       )}
 
-      {/* 🆕 تفاصيل الشركة — معروضة بالرموز الصحيحة B/M/T */}
+      {/* 🆕 تفاصيل الشركة — معروضة بالأرقام الكاملة مع الفواصل */}
       {showCompanyDetails && (
         <div style={{
           marginTop: 12,
@@ -1081,7 +1084,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   )}
                 </div>
 
-                {/* ✅ البيانات المالية مع الرموز (B/M/T) — المعدلة */}
+                {/* ✅ البيانات المالية مع الأرقام الكاملة والفواصل */}
                 <div style={{
                   marginTop: 10,
                   paddingTop: 10,
@@ -1090,33 +1093,40 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   gridTemplateColumns: "1fr 1fr",
                   gap: 8,
                 }}>
+                  {/* القيمة السوقية */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.marketCap}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
-                      {companyData.marketCapFormatted ? (
-                        <>${companyData.marketCapFormatted.value}<span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{companyData.marketCapFormatted.suffix}</span></>
+                      {companyData.marketCap ? (
+                        <>${Number(companyData.marketCap).toLocaleString()}</>
                       ) : t.notAvailable}
                     </div>
                   </div>
+                  
+                  {/* الأسهم المتاحة */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.sharesOutstanding}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
-                      {companyData.sharesFormatted ? (
-                        <>{companyData.sharesFormatted.value}<span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{companyData.sharesFormatted.suffix}</span></>
+                      {companyData.sharesOutstanding ? (
+                        <>{Number(companyData.sharesOutstanding).toLocaleString()}</>
                       ) : t.notAvailable}
                     </div>
                   </div>
+                  
+                  {/* البيع على المكشوف */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortable}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: companyData.shortable ? "#34d399" : "#f87171" }}>
                       {companyData.shortable ? t.shortableYes : t.shortableNo}
                     </div>
                   </div>
+                  
+                  {/* حجم الأقراض */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortInterest}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#fbbf24" }}>
-                      {companyData.shortInterestFormatted ? (
-                        <>{companyData.shortInterestFormatted.value}<span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{companyData.shortInterestFormatted.suffix}</span></>
+                      {companyData.shortInterest ? (
+                        <>{Number(companyData.shortInterest).toLocaleString()}</>
                       ) : t.notAvailable}
                     </div>
                   </div>
