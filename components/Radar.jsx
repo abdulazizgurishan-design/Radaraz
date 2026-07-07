@@ -100,6 +100,18 @@ const T = {
     lateSub: "ارتفعت كثيراً · لمخاطرة عالية",
     hidden: "💎 فرص خفية",
     hiddenSub: "سيولة منخفضة · مؤشرات ممتازة",
+    // 🆕 تفاصيل الشركة (عربي)
+    companyDetails: "📊 تفاصيل الشركة",
+    hideDetails: "🔽 إخفاء",
+    marketCap: "القيمة السوقية",
+    sharesOutstanding: "الأسهم المتاحة",
+    shortable: "البيع على المكشوف",
+    shortInterest: "حجم الأقراض",
+    shortableYes: "✅ مسموح",
+    shortableNo: "❌ ممنوع",
+    loadingCompany: "⟳ جاري تحميل بيانات الشركة...",
+    companyError: "❌ تعذر تحميل البيانات",
+    notAvailable: "—",
   },
   en: {
     title: "Radar",
@@ -190,6 +202,18 @@ const T = {
     lateSub: "High rise · High risk",
     hidden: "💎 Hidden Gems",
     hiddenSub: "Low liquidity · Excellent indicators",
+    // 🆕 Company Details (English)
+    companyDetails: "📊 Company Details",
+    hideDetails: "🔽 Hide",
+    marketCap: "Market Cap",
+    sharesOutstanding: "Shares Outstanding",
+    shortable: "Shortable",
+    shortInterest: "Short Interest",
+    shortableYes: "✅ Allowed",
+    shortableNo: "❌ Not Allowed",
+    loadingCompany: "⟳ Loading company data...",
+    companyError: "❌ Failed to load data",
+    notAvailable: "—",
   }
 };
 
@@ -636,6 +660,10 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
   const [showNote, setShowNote] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [savedNote, setSavedNote] = useState('');
+  // 🆕 تفاصيل الشركة
+  const [showCompanyDetails, setShowCompanyDetails] = useState(false);
+  const [companyData, setCompanyData] = useState(null);
+  const [loadingCompany, setLoadingCompany] = useState(false);
 
   useEffect(() => {
     try {
@@ -644,6 +672,29 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
       setNoteText(notes[r.symbol] || '');
     } catch {}
   }, [r.symbol]);
+
+  // 🆕 جلب تفاصيل الشركة
+  const fetchCompanyDetails = async (symbol) => {
+    if (companyData) return;
+    setLoadingCompany(true);
+    try {
+      const res = await fetch(`/api/company-details?symbol=${symbol}`);
+      const data = await res.json();
+      setCompanyData(data);
+    } catch {
+      setCompanyData({ error: true });
+    }
+    setLoadingCompany(false);
+  };
+
+  const toggleCompanyDetails = (symbol) => {
+    if (showCompanyDetails) {
+      setShowCompanyDetails(false);
+    } else {
+      setShowCompanyDetails(true);
+      fetchCompanyDetails(symbol);
+    }
+  };
 
   const formatPrice = (n) => "$" + (+n).toFixed(2);
   const formatPct = (n) => (n >= 0 ? "+" : "") + Math.round(n) + "%";
@@ -798,6 +849,23 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         <button onClick={() => setShowNote(!showNote)} style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "rgba(251,191,36,0.1)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}>
           {savedNote ? "📝" : "📝+"}
         </button>
+        {/* 🆕 زر تفاصيل الشركة */}
+        <button
+          onClick={() => toggleCompanyDetails(r.symbol)}
+          style={{
+            padding: "6px 14px",
+            border: "1px solid rgba(99,102,241,0.3)",
+            borderRadius: 8,
+            background: showCompanyDetails ? "rgba(99,102,241,0.25)" : "rgba(99,102,241,0.08)",
+            color: "#a5b4fc",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          {showCompanyDetails ? `🔽 ${t.hideDetails}` : `📊 ${t.companyDetails}`}
+        </button>
       </div>
 
       {showSimple && (
@@ -894,6 +962,59 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
           )}
         </div>
       )}
+
+      {/* 🆕 تفاصيل الشركة */}
+      {showCompanyDetails && (
+        <div style={{
+          marginTop: 12,
+          paddingTop: 12,
+          borderTop: "1px solid rgba(255,255,255,0.06)",
+        }}>
+          <div style={{
+            background: "rgba(99,102,241,0.06)",
+            borderRadius: 10,
+            padding: "12px 14px",
+            border: "1px solid rgba(99,102,241,0.15)",
+          }}>
+            {loadingCompany ? (
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", textAlign: "center", padding: 8 }}>
+                {t.loadingCompany}
+              </div>
+            ) : companyData?.error ? (
+              <div style={{ fontSize: 12, color: "#f87171", textAlign: "center", padding: 8 }}>
+                {t.companyError}
+              </div>
+            ) : companyData ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.marketCap}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
+                    {companyData.marketCap ? `$${(companyData.marketCap / 1e9).toFixed(2)}B` : t.notAvailable}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.sharesOutstanding}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
+                    {companyData.sharesOutstanding ? `${(companyData.sharesOutstanding / 1e6).toFixed(1)}M` : t.notAvailable}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortable}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: companyData.shortable ? "#34d399" : "#f87171" }}>
+                    {companyData.shortable ? t.shortableYes : t.shortableNo}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortInterest}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#fbbf24" }}>
+                    {companyData.shortInterest ? `${(companyData.shortInterest / 1e6).toFixed(2)}M` : t.notAvailable}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -923,7 +1044,7 @@ export default function Radar() {
   const [opportunities, setOpportunities] = useState({ ready: [], watch: [], late: [], hidden: [] });
   const [counts, setCounts] = useState({ ready: 0, watch: 0, late: 0, hidden: 0, total: 0 });
   const [marketRegime, setMarketRegime] = useState(null);
-  
+
   // ─── 🕐 حالة السوق الديناميكية ──────────────────────────────────
   const [marketStatus, setMarketStatus] = useState(null);
 
@@ -937,7 +1058,7 @@ export default function Radar() {
         console.error('خطأ في جلب حالة السوق:', error);
       }
     };
-    
+
     fetchMarketStatus();
     const interval = setInterval(fetchMarketStatus, 60000);
     return () => clearInterval(interval);
@@ -1129,7 +1250,7 @@ export default function Radar() {
       }
       setOpportunities(tiers);
       setCounts({ ready: tiers.ready.length, watch: tiers.watch.length, late: tiers.late.length, hidden: tiers.hidden.length, total: allCards.length });
-      
+
       // ✅ ختم العرض — التقارير تطابق ما شاهده المشترك فعلاً
       if (allCards.length) {
         fetch("/api/mark-displayed", {
@@ -1222,7 +1343,7 @@ export default function Radar() {
   const dotColor = (loading || refreshing) ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
   const showSections = filter === "all" && (leaders.length > 0 || speculation.length > 0 || rebound.length > 0 || sniper.length > 0);
   const earlySymbols = useMemo(() => new Set(earlyWatch.map(s => s.symbol)), [earlyWatch]);
-  
+
   const totalOpportunities = counts.total || 0;
 
   if (!authChecked) return null;
