@@ -10,6 +10,22 @@ if (typeof document !== "undefined" && !document.getElementById("az-kf")) {
 
 const DISPLAY_MIN_SCORE = 60;
 
+// ─── دوال تنسيق الأرقام ──────────────────────────────────────────
+function formatMarketCap(value) {
+  if (!value) return '—';
+  if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
+  if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
+  if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
+  return `$${value.toFixed(2)}`;
+}
+
+function formatShares(value) {
+  if (!value) return '—';
+  if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
+  if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
+  return `${value.toFixed(2)}`;
+}
+
 const T = {
   ar: {
     title: "رادار",
@@ -108,10 +124,17 @@ const T = {
     shortable: "البيع على المكشوف",
     shortInterest: "حجم الأقراض",
     shortableYes: "✅ مسموح",
-    shortableNo: "❌ ممنوع",
+    shortableNo: "❌ غير مسموح",
     loadingCompany: "⟳ جاري تحميل بيانات الشركة...",
     companyError: "❌ تعذر تحميل البيانات",
     notAvailable: "—",
+    sector: "القطاع",
+    industry: "الصناعة",
+    employees: "الموظفين",
+    ceo: "الرئيس التنفيذي",
+    website: "الموقع الإلكتروني",
+    companyInfo: "📋 نبذة عن الشركة",
+    noDescription: "لا توجد نبذة متاحة",
   },
   en: {
     title: "Radar",
@@ -214,6 +237,13 @@ const T = {
     loadingCompany: "⟳ Loading company data...",
     companyError: "❌ Failed to load data",
     notAvailable: "—",
+    sector: "Sector",
+    industry: "Industry",
+    employees: "Employees",
+    ceo: "CEO",
+    website: "Website",
+    companyInfo: "📋 About the company",
+    noDescription: "No description available",
   }
 };
 
@@ -985,29 +1015,101 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                 {t.companyError}
               </div>
             ) : companyData ? (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.marketCap}</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
-                    {companyData.marketCap ? `$${(companyData.marketCap / 1e9).toFixed(2)}B` : t.notAvailable}
+              <div>
+                {/* اسم الشركة والنبذة */}
+                {companyData.companyName && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>
+                      {companyData.companyName}
+                    </div>
+                    {companyData.description && (
+                      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", lineHeight: 1.5, marginTop: 2 }}>
+                        {companyData.description.length > 150
+                          ? companyData.description.slice(0, 150) + "..."
+                          : companyData.description}
+                      </div>
+                    )}
                   </div>
+                )}
+
+                {/* المعلومات الأساسية */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {/* القطاع */}
+                  {companyData.sector && (
+                    <div>
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.sector}</div>
+                      <div style={{ fontSize: 13, color: "#e2e8f0" }}>{companyData.sector}</div>
+                    </div>
+                  )}
+                  {/* الصناعة */}
+                  {companyData.industry && (
+                    <div>
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.industry}</div>
+                      <div style={{ fontSize: 13, color: "#e2e8f0" }}>{companyData.industry}</div>
+                    </div>
+                  )}
+                  {/* الموظفين */}
+                  {companyData.employees && (
+                    <div>
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.employees}</div>
+                      <div style={{ fontSize: 13, color: "#e2e8f0" }}>{companyData.employees.toLocaleString()}</div>
+                    </div>
+                  )}
+                  {/* الرئيس التنفيذي */}
+                  {companyData.ceo && (
+                    <div>
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.ceo}</div>
+                      <div style={{ fontSize: 13, color: "#e2e8f0" }}>{companyData.ceo}</div>
+                    </div>
+                  )}
+                  {/* الموقع الإلكتروني */}
+                  {companyData.website && (
+                    <div style={{ gridColumn: "span 2" }}>
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.website}</div>
+                      <a
+                        href={companyData.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: 13, color: "#60a5fa", textDecoration: "none" }}
+                      >
+                        {companyData.website.replace(/^https?:\/\//, '')}
+                      </a>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.sharesOutstanding}</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
-                    {companyData.sharesOutstanding ? `${(companyData.sharesOutstanding / 1e6).toFixed(1)}M` : t.notAvailable}
+
+                {/* البيانات المالية */}
+                <div style={{
+                  marginTop: 10,
+                  paddingTop: 10,
+                  borderTop: "1px solid rgba(255,255,255,0.06)",
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 8,
+                }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.marketCap}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
+                      {companyData.marketCap ? formatMarketCap(companyData.marketCap) : t.notAvailable}
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortable}</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: companyData.shortable ? "#34d399" : "#f87171" }}>
-                    {companyData.shortable ? t.shortableYes : t.shortableNo}
+                  <div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.sharesOutstanding}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
+                      {companyData.sharesOutstanding ? formatShares(companyData.sharesOutstanding) : t.notAvailable}
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortInterest}</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#fbbf24" }}>
-                    {companyData.shortInterest ? `${(companyData.shortInterest / 1e6).toFixed(2)}M` : t.notAvailable}
+                  <div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortable}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: companyData.shortable ? "#34d399" : "#f87171" }}>
+                      {companyData.shortable ? t.shortableYes : t.shortableNo}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortInterest}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#fbbf24" }}>
+                      {companyData.shortInterest ? formatShares(companyData.shortInterest) : t.notAvailable}
+                    </div>
                   </div>
                 </div>
               </div>
