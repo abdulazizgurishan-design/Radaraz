@@ -10,6 +10,9 @@
 
 export const config = { maxDuration: 10 };
 
+// ✅ مهلة عامة 9 ثوانٍ (آمن)
+const HARD_DEADLINE_MS = 9000;
+
 const POLYGON_KEY  = process.env.POLYGON_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
@@ -37,10 +40,11 @@ function setCache(key, data) {
   CACHE.aggs.set(key, { data, time: Date.now() });
 }
 
-// ─── تنفيذ على دفعات ──────────────────────────────────────────────
+// ─── تنفيذ على دفعات (محسّن للسرعة) ──────────────────────────────
 async function inBatches(items, size, fn) {
-  for (let i = 0; i < items.length; i += size) {
-    await Promise.all(items.slice(i, i + size).map(fn));
+  const batchSize = Math.min(size, 8);
+  for (let i = 0; i < items.length; i += batchSize) {
+    await Promise.all(items.slice(i, i + batchSize).map(fn));
   }
 }
 
@@ -76,7 +80,7 @@ const STRUCT = {
 // ─── 🆕 إعدادات استراتيجية الارتداد الذكي ──────────────────────────
 const SMART_BOUNCE = {
   ENABLED: true,
-  TIMEFRAME: 3,          // 3 دقائق
+  TIMEFRAME: 3,
   MA_FAST: 5,
   MA_SLOW: 10,
   MIN_VOLUME_RATIO: 1.5,
@@ -117,7 +121,6 @@ function calcSMA(prices, period) {
   return slice.reduce((a, b) => a + b, 0) / period;
 }
 
-// 🆕 حساب المتوسط المتحرك البسيط (لفريم 3 دقائق)
 function calcMA(prices, period) {
   if (!prices || prices.length < period) return null;
   const slice = prices.slice(-period);
@@ -141,7 +144,6 @@ function emaCrossedUp(closes, fast = 9, slow = 21, lookback = 2) {
   return nowAbove && wasBelow;
 }
 
-// 🆕 كشف تقاطع MA5 فوق MA10 (طازج) لفريم 3 دقائق
 function detectCross(closes) {
   if (!closes || closes.length < 12) return false;
   const ma5 = calcMA(closes, 5);
@@ -513,13 +515,11 @@ function computeStructureLevels(price, bars) {
 
 // ════════════════ الإضافات الذكية ════════════════
 
-// 1️⃣ إشارات الاختراق
 function detectBreakout(price, resistance, volume, avgVolume) {
   if (!resistance || !volume || !avgVolume) return false;
   return price > resistance && volume > avgVolume * 2;
 }
 
-// 2️⃣ تصنيف الخطر
 function calculateRiskScore(s) {
   let risk = 0;
   if (s.atr14 && s.atr14 > s.price * 0.05) risk += 3;
@@ -531,7 +531,6 @@ function calculateRiskScore(s) {
   return Math.min(risk, 10);
 }
 
-// 3️⃣ تنبيهات ما قبل الانفجار
 function detectPreBreakout(bars, resistance, volume, avgVolume) {
   if (!bars || bars.length < 10 || !resistance) return false;
   const recent = bars.slice(-5);
@@ -544,14 +543,12 @@ function detectPreBreakout(bars, resistance, volume, avgVolume) {
   return nearResistance && volTrend && uptrend;
 }
 
-// 4️⃣ متوسط الحجم (مساعد)
 function getAvgVolume(bars) {
   if (!bars || bars.length < 20) return 0;
   const volumes = bars.map(b => b.v);
   return volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
 }
 
-// 🆕 5️⃣ استراتيجية الارتداد الذكي (فريم 3 دقائق)
 function detectSmartBounce(bars) {
   if (!bars || bars.length < 20) return null;
   
@@ -559,17 +556,14 @@ function detectSmartBounce(bars) {
   const volumes = bars.map(b => b.v);
   const price = closes[closes.length - 1];
   
-  // الحسابات
   const avgVol = getAvgVolume(bars);
   const support = Math.min(...closes.slice(-20));
   const cross = detectCross(closes);
   const rsi = calcRSI14(bars);
   
-  // المتوسطات لفريم 3 دقائق
   const ma5 = calcMA(closes, SMART_BOUNCE.MA_FAST);
   const ma10 = calcMA(closes, SMART_BOUNCE.MA_SLOW);
   
-  // الشروط
   const nearSupport = price <= support * (1 + SMART_BOUNCE.SUPPORT_RANGE);
   const crossCondition = cross;
   const volumeCondition = bars[bars.length - 1]?.v > avgVol * SMART_BOUNCE.MIN_VOLUME_RATIO;
@@ -662,40 +656,89 @@ function calcEP(s) {
   return Math.max(0, Math.min(ep, 99));
 }
 
-// ════════════════ جلب السوق ════════════════
-async function fetchFullMarket() {
-  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`;
+// ════════════════ جلب السوق (محسّن للسرعة) ════════════════
+async function fetchTopStocks() {
+  // ✅ جلب 400 سهم فقط بدلاً من 500 (توفير وقت)
+  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?limit=400&apiKey=${POLYGON_KEY}`;
+  
   for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 4000);
+    const id = setTimeout(() => controller.abort(), 3000);
     try {
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(id);
-      if (!res.ok) {
-        if (attempt === 1) throw new Error(`Polygon ${res.status}`);
-        await new Promise(r => setTimeout(r, 250));
-        continue;
-      }
+      if (!res.ok) throw new Error(`Polygon ${res.status}`);
       const data = await res.json();
-      return data.tickers || [];
+      
+      const valid = data.tickers.filter(tk => {
+        if (!tk.ticker || tk.ticker.includes(".")) return false;
+        if (!/^[A-Z]{1,6}$/.test(tk.ticker)) return false;
+        
+        const day = tk.day || {};
+        const min = tk.min || {};
+        const price = min.vw || min.c || tk.lastTrade?.p || day.c || 0;
+        const volume = day.v || min.av || 0;
+        const prevClose = tk.prevDay?.c || 0;
+        
+        if (price < 0.5 || price > 800) return false;
+        if (volume < 100_000) return false;
+        
+        let changePct = tk.todaysChangePerc;
+        if (changePct == null && prevClose > 0) {
+          changePct = ((price - prevClose) / prevClose) * 100;
+        }
+        
+        if (Math.abs(changePct || 0) < 2) return false;
+        if (Math.abs(changePct || 0) > 40) return false;
+        
+        return {
+          ...tk,
+          _price: price,
+          _volume: volume,
+          _changePct: changePct || 0,
+          _dollarVol: price * volume,
+        };
+      }).filter(tk => tk !== false);
+      
+      const byVolume = [...valid].sort((a, b) => b._volume - a._volume);
+      const topByVolume = byVolume.slice(0, 250);
+      
+      const byChange = [...valid]
+        .filter(tk => tk._changePct >= 2 && tk._changePct <= 40)
+        .sort((a, b) => b._changePct - a._changePct);
+      const topByChange = byChange.slice(0, 80);
+      
+      const merged = [...topByVolume, ...topByChange];
+      const seen = new Set();
+      const unique = merged.filter(tk => {
+        if (seen.has(tk.ticker)) return false;
+        seen.add(tk.ticker);
+        return true;
+      });
+      
+      console.log(`✅ جلب ${unique.length} سهماً (${topByVolume.length} حجم + ${topByChange.length} تغير)`);
+      return unique;
+      
     } catch (err) {
       clearTimeout(id);
       if (attempt === 1) throw err;
-      await new Promise(r => setTimeout(r, 250));
+      await new Promise(r => setTimeout(r, 200));
     }
   }
-  throw new Error("Failed to fetch market after 2 attempts");
+  throw new Error("Failed to fetch top stocks");
 }
 
 async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
   const cacheKey = `${symbol}-${multiplier}-${timespan}-${lookbackDays}-${limit}`;
   const cached = getCached(cacheKey);
   if (cached) return cached;
+  
   const to = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - lookbackDays * 86400000).toISOString().slice(0, 10);
   const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&limit=${limit}&apiKey=${POLYGON_KEY}`;
+  
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 3500);
+  const id = setTimeout(() => controller.abort(), 2500);
   try {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
@@ -720,9 +763,10 @@ async function fetchNews(symbol) {
   const cacheKey = `news-${symbol}`;
   const cached = getCached(cacheKey, 120000);
   if (cached) return cached;
+  
   const url = `https://api.polygon.io/v2/reference/news?ticker=${symbol}&limit=3&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`;
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 3500);
+  const id = setTimeout(() => controller.abort(), 2000);
   try {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
@@ -804,7 +848,7 @@ async function fetchVixRank() {
     const from = new Date(Date.now() - 370 * 86400000).toISOString().split("T")[0];
     const url = `https://api.polygon.io/v2/aggs/ticker/VIXY/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=400&apiKey=${POLYGON_KEY}`;
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 4000);
+    const id = setTimeout(() => controller.abort(), 3000);
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
     if (!res.ok) return { rank: null, value: null, available: false };
@@ -858,7 +902,7 @@ async function saveSignals(signals) {
 // ════════════════ MAIN HANDLER ════════════════
 export default async function handler(req, res) {
   const t0 = Date.now();
-  const DEADLINE = t0 + 8500;
+  const HARD_DEADLINE = t0 + HARD_DEADLINE_MS;
   const isSubscriber = req.query.sub === "1";
 
   try {
@@ -867,14 +911,30 @@ export default async function handler(req, res) {
     const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
     const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
 
+    // ✅ جلب البيانات بشكل متوازي مع مهلة
     const [allTickers, vixData] = await Promise.all([
-      fetchFullMarket(),
+      fetchTopStocks(),
       fetchVixRank(),
     ]);
     const vixRank = vixData.available ? vixData.rank : null;
 
+    // ✅ إيقاف مبكر إذا تجاوز الوقت
+    if (Date.now() > HARD_DEADLINE) {
+      console.log('⏰ Hard deadline reached after market fetch');
+      return res.status(200).json({
+        success: true,
+        timeout: true,
+        total: 0,
+        results: [],
+        leaders: [],
+        speculation: [],
+        earlyWatch: [],
+        movers: { gainers: [], losers: [], volume: [], value: [] },
+      });
+    }
+
     const spyT = allTickers.find(t => t.ticker === "SPY");
-    const spyPx = spyT?.min?.vw || spyT?.min?.c || spyT?.lastTrade?.p || spyT?.day?.c || 0;
+    const spyPx = spyT?._price || 0;
     const spyVW = spyT?.day?.vw || 0;
     const marketWeak = spyPx > 0 && spyVW > 0 && spyPx < spyVW;
     const marketKnown = spyPx > 0 && spyVW > 0;
@@ -882,6 +942,9 @@ export default async function handler(req, res) {
 
     const candidates = [];
     for (const tk of allTickers) {
+      // ✅ إيقاف مبكر
+      if (Date.now() > HARD_DEADLINE) break;
+      
       const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
       const price = min.vw || min.c || tk.lastTrade?.p || day.c || prev.c || 0;
       const volume = day.v || min.av || 0;
@@ -904,6 +967,21 @@ export default async function handler(req, res) {
       });
     }
 
+    // ✅ إيقاف مبكر إذا تجاوز الوقت
+    if (Date.now() > HARD_DEADLINE) {
+      console.log('⏰ Hard deadline reached after candidate filtering');
+      return res.status(200).json({
+        success: true,
+        timeout: true,
+        total: 0,
+        results: [],
+        leaders: [],
+        speculation: [],
+        earlyWatch: [],
+        movers: { gainers: [], losers: [], volume: [], value: [] },
+      });
+    }
+
     const scored = candidates.map(s => {
       const ep = calcEP(s);
       const levels = calcLevels(s);
@@ -921,13 +999,15 @@ export default async function handler(req, res) {
     const heavyLimit = isPreMarket ? FILTER.PREMARKET_LIMIT : FILTER.HEAVY_LIMIT;
     const top = scored.slice(0, heavyLimit);
 
-    await inBatches(top, 30, async (s) => {
-      if (Date.now() > DEADLINE) {
-        s._timedOut = true;
+    // ✅ تحليل الأسهم مع مهلة
+    await inBatches(top, 8, async (s) => {
+      // ✅ إيقاف مبكر لكل سهم
+      if (Date.now() > HARD_DEADLINE) {
         s._drop = true;
         s._dropReason = "timeout";
         return;
       }
+      
       const fr = frameFor(s.trade_style);
       const wantNews = s.changePct > 10 || s.rvol > 6 || s.ep >= 65;
       s._newsFetched = wantNews;
@@ -1020,7 +1100,6 @@ export default async function handler(req, res) {
         // 🆕 استراتيجية الارتداد الذكي (فريم 3 دقائق)
         let smartBounce = null;
         if (tech && tech.bars && tech.bars.length >= 20) {
-          // نجلب شموع 3 دقائق للتحليل السريع
           const threeMinBars = await fetchAggs(s.symbol, 3, "minute", 1, 30);
           if (threeMinBars && threeMinBars.length >= 20) {
             smartBounce = detectSmartBounce(threeMinBars);
@@ -1157,9 +1236,24 @@ export default async function handler(req, res) {
       s._primaryConfluence = primaryConfluence;
     });
 
+    // ✅ إيقاف مبكر قبل المعالجة النهائية
+    if (Date.now() > HARD_DEADLINE) {
+      console.log('⏰ Hard deadline reached during final processing');
+      return res.status(200).json({
+        success: true,
+        timeout: true,
+        total: 0,
+        results: [],
+        leaders: [],
+        speculation: [],
+        earlyWatch: [],
+        movers: { gainers: [], losers: [], volume: [], value: [] },
+      });
+    }
+
     const finalists = top.filter(s => s._primaryConfluence);
-    await inBatches(finalists, 12, async (s) => {
-      if (Date.now() > DEADLINE) return;
+    await inBatches(finalists, 6, async (s) => {
+      if (Date.now() > HARD_DEADLINE) return;
       const other = s.trade_style === "مضاربة"
         ? { mult: 1, span: "day", days: 140, limit: 200 }
         : { mult: 60, span: "minute", days: 30, limit: 600 };
@@ -1212,7 +1306,7 @@ export default async function handler(req, res) {
       dropped_stretch: dropBy("stretch"),
       dropped_penny_gate: dropBy("penny_gate"),
       dropped_trend_gate: dropBy("trend_gate"),
-      dropped_no_tech: dropBy("no_tech") + dropBy("no_tech_ext") + dropBy("no_tech_lowep"),
+      dropped_no_tech: dropBy("no_tech"),
       dropped_timeout: dropBy("timeout"),
       survivors: survivors.length,
       below_save_ep: survivors.filter(s => s.ep < FILTER.SAVE_MIN_EP).length,
@@ -1267,7 +1361,6 @@ export default async function handler(req, res) {
       levels_source: s.levels_source || "atr_basic", is_target: s.is_target || false,
       news_age_h: s.news_age_h ?? null,
       structure: s.structure || null,
-      // 🆕 الإضافات الذكية
       breakout: s._breakout || false,
       riskScore: s._riskScore || 5,
       preBreakout: s._preBreakout || false,
@@ -1300,6 +1393,15 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    return res.status(200).json({ success: false, error: error.message, results: [], leaders: [], speculation: [] });
+    console.error('Scan error:', error);
+    return res.status(200).json({ 
+      success: false, 
+      error: error.message, 
+      results: [], 
+      leaders: [], 
+      speculation: [],
+      earlyWatch: [],
+      movers: { gainers: [], losers: [], volume: [], value: [] },
+    });
   }
 }
