@@ -10,20 +10,20 @@ if (typeof document !== "undefined" && !document.getElementById("az-kf")) {
 
 const DISPLAY_MIN_SCORE = 60;
 
-// ─── دوال تنسيق الأرقام ──────────────────────────────────────────
-function formatMarketCap(value) {
-  if (!value) return '—';
-  if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
-  if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
-  if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
-  return `$${value.toFixed(2)}`;
+// ─── دوال تنسيق الأرقام (للعرض) ──────────────────────────────────
+function formatMarketCapDisplay(value) {
+  if (!value) return null;
+  if (value >= 1e12) return { value: (value / 1e12).toFixed(2), suffix: 'T' };
+  if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
+  if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
+  return { value: value.toFixed(2), suffix: '' };
 }
 
-function formatShares(value) {
-  if (!value) return '—';
-  if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
-  if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
-  return `${value.toFixed(2)}`;
+function formatSharesDisplay(value) {
+  if (!value) return null;
+  if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
+  if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
+  return { value: value.toFixed(2), suffix: '' };
 }
 
 const T = {
@@ -1034,35 +1034,30 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
 
                 {/* المعلومات الأساسية */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  {/* القطاع */}
                   {companyData.sector && (
                     <div>
                       <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.sector}</div>
                       <div style={{ fontSize: 13, color: "#e2e8f0" }}>{companyData.sector}</div>
                     </div>
                   )}
-                  {/* الصناعة */}
                   {companyData.industry && (
                     <div>
                       <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.industry}</div>
                       <div style={{ fontSize: 13, color: "#e2e8f0" }}>{companyData.industry}</div>
                     </div>
                   )}
-                  {/* الموظفين */}
                   {companyData.employees && (
                     <div>
                       <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.employees}</div>
                       <div style={{ fontSize: 13, color: "#e2e8f0" }}>{companyData.employees.toLocaleString()}</div>
                     </div>
                   )}
-                  {/* الرئيس التنفيذي */}
                   {companyData.ceo && (
                     <div>
                       <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.ceo}</div>
                       <div style={{ fontSize: 13, color: "#e2e8f0" }}>{companyData.ceo}</div>
                     </div>
                   )}
-                  {/* الموقع الإلكتروني */}
                   {companyData.website && (
                     <div style={{ gridColumn: "span 2" }}>
                       <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.website}</div>
@@ -1078,7 +1073,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   )}
                 </div>
 
-                {/* البيانات المالية */}
+                {/* البيانات المالية مع الرموز */}
                 <div style={{
                   marginTop: 10,
                   paddingTop: 10,
@@ -1090,13 +1085,17 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.marketCap}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
-                      {companyData.marketCap ? formatMarketCap(companyData.marketCap) : t.notAvailable}
+                      {companyData.marketCapFormatted ? (
+                        <>${companyData.marketCapFormatted.value}<span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{companyData.marketCapFormatted.suffix}</span></>
+                      ) : t.notAvailable}
                     </div>
                   </div>
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.sharesOutstanding}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
-                      {companyData.sharesOutstanding ? formatShares(companyData.sharesOutstanding) : t.notAvailable}
+                      {companyData.sharesFormatted ? (
+                        <>{companyData.sharesFormatted.value}<span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{companyData.sharesFormatted.suffix}</span></>
+                      ) : t.notAvailable}
                     </div>
                   </div>
                   <div>
@@ -1108,7 +1107,9 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortInterest}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#fbbf24" }}>
-                      {companyData.shortInterest ? formatShares(companyData.shortInterest) : t.notAvailable}
+                      {companyData.shortInterestFormatted ? (
+                        <>{companyData.shortInterestFormatted.value}<span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{companyData.shortInterestFormatted.suffix}</span></>
+                      ) : t.notAvailable}
                     </div>
                   </div>
                 </div>
