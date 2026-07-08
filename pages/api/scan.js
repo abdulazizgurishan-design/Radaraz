@@ -118,6 +118,48 @@ function return3M(dailyCloses) {
   return ret;
 }
 
+// ─── ✅ دالة calcReboundLevels (مستويات الارتداد) ────────────────────
+function calcReboundLevels(price) {
+  const f = v => +v.toFixed(price < 1 ? 4 : 2);
+  const t1 = f(price * (1 + REBOUND.TARGET_PCT / 100));
+  const sl = f(price * (1 - REBOUND.STOP_PCT / 100));
+  return {
+    entry: price,
+    t1: t1,
+    t2: t1,
+    t3: t1,
+    sl: sl,
+    t1Pct: REBOUND.TARGET_PCT,
+    t2Pct: REBOUND.TARGET_PCT,
+    t3Pct: REBOUND.TARGET_PCT,
+    rr: (REBOUND.TARGET_PCT / REBOUND.STOP_PCT).toFixed(2),
+    atr14: price * 0.03,
+    source: "rebound_3pct",
+    hold_days: REBOUND.MAX_HOLD_DAYS,
+  };
+}
+
+// ─── ✅ دالة isReboundCandidate (التحقق من صلاحية الارتداد) ────────
+function isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses) {
+  if (!REBOUND.ENABLED) return false;
+  if (s.rsi == null || s.rsi > REBOUND.RSI_MAX) return false;
+  if (s.price < REBOUND.MIN_PRICE) return false;
+  
+  const dvol = s.price * (s.volume || 0);
+  if (dvol < REBOUND.MIN_DOLLAR_VOL) return false;
+  if (vixRank != null && vixRank >= REBOUND.MAX_VIX_RANK) return false;
+  
+  const ret3 = return3M(dailyCloses);
+  if (ret3 == null) return false;
+  if (ret3 < REBOUND.MIN_RET_3M) return false;
+  
+  s._ret3m = +ret3.toFixed(1);
+  
+  if (!emaCrossedUp(hourlyCloses, 9, 21, 1)) return false;
+  
+  return true;
+}
+
 function calcEMA(prices, period) {
   if (!prices || prices.length < period) return null;
   const k = 2 / (period + 1);
