@@ -1,3 +1,6 @@
+// components/Radar.js — الإصدار المحسن مع التوصيات والدرجات
+// ═══════════════════════════════════════════════════════════════════
+
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 
 // حقن حركة نبض اللمبة مرة واحدة (آمن مع SSR)
@@ -13,20 +16,17 @@ const DISPLAY_MIN_SCORE = 60;
 // ─── دوال تنسيق الأرقام (للعرض) ──────────────────────────────────
 function formatMarketCapDisplay(value) {
   if (!value) return null;
-  // عرض الرقم كامل مع فواصل
-  return { 
-    value: Number(value).toLocaleString(), 
-    suffix: '' 
-  };
+  if (value >= 1e12) return { value: (value / 1e12).toFixed(2), suffix: 'T' };
+  if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
+  if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
+  return { value: value.toFixed(2), suffix: '' };
 }
 
 function formatSharesDisplay(value) {
   if (!value) return null;
-  // عرض الرقم كامل مع فواصل
-  return { 
-    value: Number(value).toLocaleString(), 
-    suffix: '' 
-  };
+  if (value >= 1e9) return { value: (value / 1e9).toFixed(2), suffix: 'B' };
+  if (value >= 1e6) return { value: (value / 1e6).toFixed(2), suffix: 'M' };
+  return { value: value.toFixed(2), suffix: '' };
 }
 
 const T = {
@@ -137,6 +137,14 @@ const T = {
     website: "الموقع الإلكتروني",
     companyInfo: "📋 نبذة عن الشركة",
     noDescription: "لا توجد نبذة متاحة",
+    // 🆕 التوصيات والدرجات
+    recommendation: "التوصية",
+    recommendationScore: "درجة التوصية",
+    multiSourceAnalysis: "🧠 تحليل متعدد المصادر",
+    technicalAnalysis: "التحليل الفني",
+    fundamentalAnalysis: "التحليل الأساسي",
+    sentimentAnalysis: "تحليل المشاعر",
+    macroAnalysis: "التحليل الماكروي",
   },
   en: {
     title: "Radar",
@@ -245,6 +253,14 @@ const T = {
     website: "Website",
     companyInfo: "📋 About the company",
     noDescription: "No description available",
+    // 🆕 التوصيات والدرجات
+    recommendation: "Recommendation",
+    recommendationScore: "Recommendation Score",
+    multiSourceAnalysis: "🧠 Multi-Source Analysis",
+    technicalAnalysis: "Technical",
+    fundamentalAnalysis: "Fundamental",
+    sentimentAnalysis: "Sentiment",
+    macroAnalysis: "Macro",
   }
 };
 
@@ -715,6 +731,10 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         marketCapFormatted: data.marketCapFormatted || formatMarketCapDisplay(Number(data.marketCap)),
         sharesFormatted: data.sharesFormatted || formatSharesDisplay(Number(data.sharesOutstanding)),
         shortInterestFormatted: data.shortInterestFormatted || formatSharesDisplay(Number(data.shortInterest)),
+        // ✅ دمج بيانات التوصيات والدرجات من الإشارة
+        recommendation: r.recommendation || null,
+        recommendationScore: r.recommendationScore || r.scores?.total || null,
+        scores: r.scores || null,
       });
     } catch {
       setCompanyData({ error: true });
@@ -828,6 +848,25 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
           )}
           {r.riskScore < 4 && r.riskScore > 0 && (
             <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: "rgba(52,211,153,0.2)", color: "#34d399", border: "1px solid rgba(52,211,153,0.3)" }}>🟢 خطر منخفض</span>
+          )}
+          {r.recommendation && (
+            <span style={{
+              fontSize: 9,
+              fontWeight: 700,
+              padding: "2px 8px",
+              borderRadius: 10,
+              background: r.recommendation.includes('STRONG') ? 'rgba(52,211,153,0.2)' :
+                          r.recommendation.includes('BUY') ? 'rgba(59,130,246,0.2)' :
+                          'rgba(251,191,36,0.2)',
+              color: r.recommendation.includes('STRONG') ? '#34d399' :
+                     r.recommendation.includes('BUY') ? '#60a5fa' : '#fbbf24',
+              border: `1px solid ${r.recommendation.includes('STRONG') ? 'rgba(52,211,153,0.3)' :
+                                   r.recommendation.includes('BUY') ? 'rgba(59,130,246,0.3)' :
+                                   'rgba(251,191,36,0.3)'}`,
+            }}>
+              {r.recommendation.includes('STRONG') ? '🔥 قوي جداً' :
+               r.recommendation.includes('BUY') ? '✅ شراء' : '👀 مراقبة'}
+            </span>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -996,7 +1035,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         </div>
       )}
 
-      {/* تفاصيل الشركة - مع تحويل الملايين إلى أرقام كاملة */}
+      {/* 🆕 تفاصيل الشركة - محسّن مع التوصيات والدرجات */}
       {showCompanyDetails && (
         <div style={{
           marginTop: 12,
@@ -1019,6 +1058,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
               </div>
             ) : companyData ? (
               <div>
+                {/* اسم الشركة والنبذة */}
                 {companyData.companyName && (
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>
@@ -1034,6 +1074,77 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   </div>
                 )}
 
+                {/* ✅ التوصية والدرجات (جديد) */}
+                {companyData.recommendation && (
+                  <div style={{
+                    background: companyData.recommendation.includes('STRONG') 
+                      ? 'rgba(52,211,153,0.12)' 
+                      : companyData.recommendation.includes('BUY')
+                      ? 'rgba(59,130,246,0.12)'
+                      : 'rgba(251,191,36,0.12)',
+                    borderRadius: 10,
+                    padding: '10px 14px',
+                    marginBottom: 12,
+                    border: `1px solid ${
+                      companyData.recommendation.includes('STRONG') ? 'rgba(52,211,153,0.3)' :
+                      companyData.recommendation.includes('BUY') ? 'rgba(59,130,246,0.3)' :
+                      'rgba(251,191,36,0.3)'
+                    }`,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>📈 {t.recommendation}</span>
+                      <span style={{ 
+                        fontSize: 14, 
+                        fontWeight: 700, 
+                        color: companyData.recommendation.includes('STRONG') ? '#34d399' :
+                               companyData.recommendation.includes('BUY') ? '#60a5fa' : '#fbbf24'
+                      }}>
+                        {companyData.recommendation}
+                      </span>
+                    </div>
+                    {companyData.recommendationScore && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>{t.recommendationScore}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
+                          {companyData.recommendationScore}/100
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ✅ درجات التحليل (جديد) */}
+                {companyData.scores && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 6 }}>
+                      {t.multiSourceAnalysis}
+                    </div>
+                    {[
+                      { label: t.technicalAnalysis, value: companyData.scores.technical, color: '#34d399' },
+                      { label: t.fundamentalAnalysis, value: companyData.scores.fundamental, color: '#60a5fa' },
+                      { label: t.sentimentAnalysis, value: companyData.scores.sentiment, color: '#fbbf24' },
+                      { label: t.macroAnalysis, value: companyData.scores.macro, color: '#a78bfa' },
+                    ].map((item) => (
+                      <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
+                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', minWidth: en ? 85 : 75 }}>{item.label}</span>
+                        <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{
+                            width: `${Math.min(item.value || 0, 100)}%`,
+                            height: '100%',
+                            background: item.color,
+                            borderRadius: 2,
+                            transition: 'width 0.6s ease',
+                          }} />
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: item.color, minWidth: 28, textAlign: 'right' }}>
+                          {Math.round(item.value || 0)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* المعلومات الأساسية */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   {companyData.sector && (
                     <div>
@@ -1074,7 +1185,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   )}
                 </div>
 
-                {/* ✅ البيانات المالية - تحويل الملايين إلى أرقام كاملة */}
+                {/* البيانات المالية */}
                 <div style={{
                   marginTop: 10,
                   paddingTop: 10,
@@ -1083,40 +1194,33 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   gridTemplateColumns: "1fr 1fr",
                   gap: 8,
                 }}>
-                  {/* القيمة السوقية - Finnhub يعيدها بالملايين */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.marketCap}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                       {companyData.marketCap ? (
-                        <>${Math.round(Number(companyData.marketCap) * 1000000).toLocaleString()}</>
+                        <>${Number(companyData.marketCap).toLocaleString()}</>
                       ) : t.notAvailable}
                     </div>
                   </div>
-                  
-                  {/* الأسهم المتاحة - Finnhub يعيدها بالملايين */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.sharesOutstanding}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                       {companyData.sharesOutstanding ? (
-                        <>{Math.round(Number(companyData.sharesOutstanding) * 1000000).toLocaleString()}</>
+                        <>{Number(companyData.sharesOutstanding).toLocaleString()}</>
                       ) : t.notAvailable}
                     </div>
                   </div>
-                  
-                  {/* البيع على المكشوف */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortable}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: companyData.shortable ? "#34d399" : "#f87171" }}>
                       {companyData.shortable ? t.shortableYes : t.shortableNo}
                     </div>
                   </div>
-                  
-                  {/* حجم الأقراض - Polygon يعيده بالملايين أيضاً */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortInterest}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#fbbf24" }}>
                       {companyData.shortInterest ? (
-                        <>{Math.round(Number(companyData.shortInterest) * 1000000).toLocaleString()}</>
+                        <>{Number(companyData.shortInterest).toLocaleString()}</>
                       ) : t.notAvailable}
                     </div>
                   </div>
@@ -1332,6 +1436,10 @@ export default function Radar() {
         preBreakout: s.preBreakout || false,
         is_smart_bounce: s.is_smart_bounce || false,
         smart_bounce_confidence: s.smart_bounce_confidence || 0,
+        // 🆕 التوصيات والدرجات
+        recommendation: s.recommendation || null,
+        recommendationScore: s.recommendationScore || null,
+        scores: s.scores || null,
       });
 
       const allCards = raw.map(toCard);
@@ -1423,6 +1531,9 @@ export default function Radar() {
           vcp: live?.vcp || false,
           vcp_contraction: live?.vcp_contraction || null,
           news_age_h: live?.news_age_h ?? null,
+          recommendation: live?.recommendation || null,
+          recommendationScore: live?.recommendationScore || null,
+          scores: live?.scores || null,
         };
       });
     }
