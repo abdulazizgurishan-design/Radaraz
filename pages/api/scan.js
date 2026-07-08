@@ -59,8 +59,8 @@ const FILTER = {
   MAX_RESULTS:    60,
   HEAVY_LIMIT:    60,
   PREMARKET_LIMIT: 30,
-  SAVE_MIN_EP:    60,
-  STRICT_PRICE:   1.00,
+  SAVE_MIN_EP:    55,
+  STRICT_PRICE:   0.50,
 };
 
 // ─── مزج البنية ──────────────────────────────────────────────────────
@@ -90,6 +90,20 @@ const SMART_BOUNCE = {
   MIN_PRICE: 3,
   MIN_VOLUME: 200_000,
   CONFIDENCE_MIN: 0.6,
+};
+
+// ─── إعدادات الارتداد (معدلة لزيادة الإشارات) ────────────────────
+const REBOUND = {
+  ENABLED: true,
+  RSI_MAX: 45,
+  MIN_PRICE: 3,
+  MIN_DOLLAR_VOL: 10_000_000,
+  MIN_RET_3M: 5,
+  STRONG_JUMP: 8,
+  TARGET_PCT: 3.0,
+  MAX_HOLD_DAYS: 10,
+  STOP_PCT: 7,
+  MAX_VIX_RANK: 75,
 };
 
 // ════════════════ أدوات المؤشرات ════════════════
@@ -127,7 +141,7 @@ function calcMA(prices, period) {
   return slice.reduce((a, b) => a + b, 0) / period;
 }
 
-function emaCrossedUp(closes, fast = 9, slow = 21, lookback = 2) {
+function emaCrossedUp(closes, fast = 9, slow = 21, lookback = 1) {
   if (!closes || closes.length < slow + lookback + 1) return false;
   const fastSeries = emaSeries(closes, fast);
   const slowSeries = emaSeries(closes, slow);
@@ -318,22 +332,8 @@ const SMART_STOP = {
   SMART_T1_CAP: 0.60,
 };
 
-// ─── إعدادات الارتداد (معدلة لزيادة الإشارات) ────────────────────
-const REBOUND = {
-  ENABLED: true,
-  RSI_MAX: 40,        // ← 30 → 40 (أقل صرامة)
-  MIN_PRICE: 5,       // ← 10 → 5 (يسمح بأسهم أرخص)
-  MIN_DOLLAR_VOL: 20_000_000, // ← 50M → 20M
-  MIN_RET_3M: 10,     // ← 20 → 10
-  STRONG_JUMP: 8,
-  TARGET_PCT: 3.0,
-  MAX_HOLD_DAYS: 10,
-  STOP_PCT: 7,
-  MAX_VIX_RANK: 70,
-};
-
 function return3M(dailyCloses) {
-  if (!dailyCloses || dailyCloses.length < 40) return null;
+  if (!dailyCloses || dailyCloses.length < 30) return null;
   const now = dailyCloses[dailyCloses.length - 1];
   const idx = Math.max(0, dailyCloses.length - 63);
   const then = dailyCloses[idx];
@@ -365,9 +365,10 @@ function isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses) {
   if (dvol < REBOUND.MIN_DOLLAR_VOL) return false;
   if (vixRank != null && vixRank >= REBOUND.MAX_VIX_RANK) return false;
   const ret3 = return3M(dailyCloses);
-  if (ret3 == null || ret3 < REBOUND.MIN_RET_3M) return false;
+  if (ret3 == null) return true;
+  if (ret3 < REBOUND.MIN_RET_3M) return false;
   s._ret3m = +ret3.toFixed(1);
-  if (!emaCrossedUp(hourlyCloses, 9, 21, 2)) return false;
+  if (!emaCrossedUp(hourlyCloses, 9, 21, 1)) return false;
   return true;
 }
 
@@ -420,11 +421,28 @@ function applyStructureLevels(price, levels, structure, tradeStyle) {
   }
   const dec = price < 1 ? 3 : 2;
   const f = n => +n.toFixed(dec), pc = n => +(((n - price) / price) * 100).toFixed(2);
+  
+  // ✅ تأكد من صحة المستويات
+  let entry = levels.entry || structure.entry || price * 0.98;
+  let stop = Math.min(sl, entry * 0.95);
+  
+  // ✅ إذا كان وقف الخسارة أعلى من الدخول، صححه
+  if (stop >= entry) {
+    stop = entry * 0.95;
+  }
+  
+  // ✅ إذا كان الدخول أعلى من السعر، اجعله أقرب
+  if (entry >= price) {
+    entry = price * 0.98;
+    stop = price * 0.92;
+  }
+  
   return {
     ...levels,
-    t1: f(t1), t2: f(t2), t3: f(t3), sl: f(sl),
-    t1Pct: pc(t1), t2Pct: pc(t2), t3Pct: pc(t3), slPct: pc(sl),
-    risk: f(risk), atr14: levels?.atr14 ?? f(atr),
+    t1: f(t1), t2: f(t2), t3: f(t3), sl: f(stop),
+    t1Pct: pc(t1), t2Pct: pc(t2), t3Pct: pc(t3), slPct: pc(stop),
+    risk: f(price - stop), atr14: levels?.atr14 ?? f(atr),
+    entry: f(entry),
     smart_structure: true,
   };
 }
@@ -476,9 +494,31 @@ function computeStructureLevels(price, bars) {
   const confirm = highsBelow.length ? Math.max(...highsBelow) : support + range * 0.5;
   const trendUp = price >= confirm;
   const buffer = Math.max(range * 0.10, price * 0.0005);
-  const entry = support + (price - support) * 0.382;
+  
+  // ✅ حساب منطقة الدخول بشكل صحيح (فوق الدعم)
+  let entry = support + range * 0.382;
+  let stop = support - range * 0.236;
+  
+  // ✅ تأكد من أن منطقة الدخول أعلى من وقف الخسارة
+  if (entry <= stop) {
+    entry = price - (price - support) * 0.5;
+    stop = support - (price - support) * 0.3;
+  }
+  
+  // ✅ إذا كان السعر أقل من منطقة الدخول، اجعل منطقة الدخول أقرب للسعر
+  if (price < entry) {
+    entry = price * 0.98;
+    stop = price * 0.92;
+  }
+  
+  // ✅ تأكد من أن الدخول > وقف الخسارة
+  if (entry <= stop) {
+    const temp = entry;
+    entry = stop * 1.05;
+    stop = temp * 0.95;
+  }
+  
   const STOP_CAP = price * 0.92;
-  let stop = support - buffer;
   if (stop < STOP_CAP) stop = STOP_CAP;
   const riskEntry = entry - stop;
   let t1 = (resistance > price * 1.005) ? resistance : swingHigh + range * 0.272;
@@ -987,7 +1027,7 @@ export default async function handler(req, res) {
       const ep = calcEP(s);
       const levels = calcLevels(s);
       // ✅ تعديل شروط HOT (أقل صرامة)
-      const is_hot = ep >= 70 && s.rvol >= 8 && s.changePct >= 8;
+      const is_hot = ep >= 65 && s.rvol >= 6 && s.changePct >= 6;
       const dollarVolume = s.price * s.volume;
       const isScalp = s.changePct >= 5 && s.rvol >= 5;
       const isInvest = s.price >= 20 && dollarVolume >= 100_000_000 && s.changePct <= 15;
@@ -1085,7 +1125,7 @@ export default async function handler(req, res) {
           }
           const ret3 = return3M(dailyCloses);
           if (ret3 != null && ret3 >= REBOUND.MIN_RET_3M) s._rebRet3 = true;
-          if (s._rebRet3 && emaCrossedUp(hourlyCloses, 9, 21, 2)) s._rebCross = true;
+          if (s._rebRet3 && emaCrossedUp(hourlyCloses, 9, 21, 1)) s._rebCross = true;
           if (isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses)) {
             s.type = "ارتداد";
             s.trade_style = "ارتداد";
@@ -1216,24 +1256,24 @@ export default async function handler(req, res) {
       }
 
       // ✅ تعديل شروط HOT
-      s.is_hot = s.ep >= 70 && s.rvol >= 8 && s.changePct >= 8;
+      s.is_hot = s.ep >= 65 && s.rvol >= 6 && s.changePct >= 6;
       s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
       if (s.is_smart_bounce) s.signal = "🔄 ارتداد سريع";
 
       const strongMA = ["تقاطع ذهبي 🌟", "صاعد قوي ⚡", "EMA صاعد"].includes(s.ma_signal);
-      const inEarlyZone = s.changePct >= 2 && s.changePct <= 15;
+      const inEarlyZone = s.changePct >= 2 && s.changePct <= 20;
       let early = 0;
       if (strongMA) early++;
-      if (s.rsi != null && s.rsi >= 50 && s.rsi <= 68) early++;
+      if (s.rsi != null && s.rsi >= 45 && s.rsi <= 70) early++;
       if (s.rvol != null && s.rvol >= 3 && s.rvol <= 30) early++;
       if (s.ep >= 65) early++;
       if (s.week_max_jump != null && s.week_max_jump <= 25) early++;
       s.early_watch = inEarlyZone && early >= 2 && s.price >= 3;
 
-      const earlyStage = s.changePct >= 2 && s.changePct <= 15;
-      const volHigh = s.volume >= 1_000_000;
-      const liqIn = s.rvol >= 4;
-      const rsiPos = s.rsi != null && s.rsi >= 50 && s.rsi <= 68;
+      const earlyStage = s.changePct >= 2 && s.changePct <= 20;
+      const volHigh = s.volume >= 500_000;
+      const liqIn = s.rvol >= 3;
+      const rsiPos = s.rsi != null && s.rsi >= 45 && s.rsi <= 70;
       const macdBull = !!(tech && tech.macd && tech.macd.bullish);
       // ✅ إزالة الشرط الصارم tech.aligned
       const primaryConfluence = !s._drop && earlyStage && volHigh && liqIn && rsiPos && macdBull;
