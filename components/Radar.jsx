@@ -137,17 +137,10 @@ const T = {
     website: "الموقع الإلكتروني",
     companyInfo: "📋 نبذة عن الشركة",
     noDescription: "لا توجد نبذة متاحة",
-    // 🆕 درجات التحليل
     multiSourceAnalysis: "🧠 تحليل متعدد المصادر",
     technicalAnalysis: "التحليل الفني",
     fundamentalAnalysis: "التحليل الأساسي",
-    sentimentAnalysis: "تحليل المشاعر",
     macroAnalysis: "التحليل الماكروي",
-    // 🆕 تصنيف القوة
-    veryStrong: "🔥 قوي جداً",
-    strong: "💪 قوي",
-    neutral: "📊 محايد",
-    weak: "📉 ضعيف",
   },
   en: {
     title: "Radar",
@@ -259,12 +252,7 @@ const T = {
     multiSourceAnalysis: "🧠 Multi-Source Analysis",
     technicalAnalysis: "Technical",
     fundamentalAnalysis: "Fundamental",
-    sentimentAnalysis: "Sentiment",
     macroAnalysis: "Macro",
-    veryStrong: "🔥 Very Strong",
-    strong: "💪 Strong",
-    neutral: "📊 Neutral",
-    weak: "📉 Weak",
   }
 };
 
@@ -702,7 +690,7 @@ function MarketMovers({ movers, t, lang }) {
   );
 }
 
-// ─── 🃏 بطاقة ذكية محسّنة ───
+// ─── 🃏 بطاقة ذكية ───
 function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
   const en = lang === "en";
   const [showSimple, setShowSimple] = useState(false);
@@ -735,7 +723,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         marketCapFormatted: data.marketCapFormatted || formatMarketCapDisplay(Number(data.marketCap)),
         sharesFormatted: data.sharesFormatted || formatSharesDisplay(Number(data.sharesOutstanding)),
         shortInterestFormatted: data.shortInterestFormatted || formatSharesDisplay(Number(data.shortInterest)),
-        // درجات التحليل من الإشارة
+        // ✅ درجات التحليل من الإشارة
         scores: r.scores || null,
       });
     } catch {
@@ -1018,7 +1006,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         </div>
       )}
 
-      {/* ✅ تفاصيل الشركة المحسّنة مع درجات التحليل */}
+      {/* ✅ تفاصيل الشركة المحسّنة مع درجات التحليل والأرقام مع فواصل */}
       {showCompanyDetails && (
         <div style={{
           marginTop: 12,
@@ -1057,7 +1045,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   </div>
                 )}
 
-                {/* ✅ درجات التحليل الرباعية (محسّنة) */}
+                {/* ✅ درجات التحليل الرباعية */}
                 {companyData.scores && (
                   <div style={{
                     background: "rgba(255,255,255,0.03)",
@@ -1072,12 +1060,11 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                     {[
                       { label: t.technicalAnalysis, value: companyData.scores.technical, color: '#34d399', icon: '📊' },
                       { label: t.fundamentalAnalysis, value: companyData.scores.fundamental, color: '#60a5fa', icon: '📈' },
-                      { label: t.sentimentAnalysis, value: companyData.scores.sentiment, color: '#fbbf24', icon: '💬' },
                       { label: t.macroAnalysis, value: companyData.scores.macro, color: '#a78bfa', icon: '🌍' },
                     ].map((item) => (
                       <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
                         <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', minWidth: 24 }}>{item.icon}</span>
-                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', minWidth: en ? 85 : 75 }}>{item.label}</span>
+                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', minWidth: 85 }}>{item.label}</span>
                         <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
                           <div style={{
                             width: `${Math.min(item.value || 0, 100)}%`,
@@ -1107,13 +1094,13 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                         fontSize: 14,
                         fontWeight: 800,
                         color: (() => {
-                          const avg = (companyData.scores.technical + companyData.scores.fundamental + companyData.scores.sentiment + companyData.scores.macro) / 4;
+                          const avg = (companyData.scores.technical + companyData.scores.fundamental + companyData.scores.macro) / 3;
                           if (avg >= 70) return '#34d399';
                           if (avg >= 50) return '#fbbf24';
                           return '#f87171';
                         })(),
                       }}>
-                        {Math.round((companyData.scores.technical + companyData.scores.fundamental + companyData.scores.sentiment + companyData.scores.macro) / 4)}%
+                        {Math.round((companyData.scores.technical + companyData.scores.fundamental + companyData.scores.macro) / 3)}%
                       </span>
                     </div>
                   </div>
@@ -1160,7 +1147,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   )}
                 </div>
 
-                {/* البيانات المالية */}
+                {/* ✅ البيانات المالية - عرض مع فواصل */}
                 <div style={{
                   marginTop: 10,
                   paddingTop: 10,
@@ -1169,6 +1156,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   gridTemplateColumns: "1fr 1fr",
                   gap: 8,
                 }}>
+                  {/* القيمة السوقية */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.marketCap}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
@@ -1177,6 +1165,8 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                       ) : t.notAvailable}
                     </div>
                   </div>
+                  
+                  {/* الأسهم المتاحة */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.sharesOutstanding}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
@@ -1185,12 +1175,16 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                       ) : t.notAvailable}
                     </div>
                   </div>
+                  
+                  {/* البيع على المكشوف */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortable}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: companyData.shortable ? "#34d399" : "#f87171" }}>
                       {companyData.shortable ? t.shortableYes : t.shortableNo}
                     </div>
                   </div>
+                  
+                  {/* حجم الأقراض */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortInterest}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#fbbf24" }}>
