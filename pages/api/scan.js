@@ -1,11 +1,10 @@
-// pages/api/scan.js — STANDALONE EDITION v6 (مع استراتيجية الارتداد الذكي)
+// pages/api/scan.js — PROFESSIONAL EDITION v7 (نسب ديناميكية حسب التقلب)
 // ═══════════════════════════════════════════════════════════════════
-//  🆕 استراتيجية الارتداد الذكي "الصياد السريع":
-//   ✅ فريم 3 دقائق
-//   ✅ تقاطع MA5 فوق MA10 (طازج)
-//   ✅ حجم ≥ 1.5× المتوسط (سيولة)
-//   ✅ RSI 30-50
-//   ✅ شمعة خضراء + قرب الدعم
+//  🎯 الإصدار الاحترافي:
+//   ✅ نسب متغيرة حسب ATR (التقلب الحقيقي)
+//   ✅ دعم ومقاومة ديناميكية
+//   ✅ مناطق دخول ووقف خسارة ذكية
+//   ✅ أهداف متعددة حسب طبيعة السهم
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 10 };
@@ -40,7 +39,7 @@ function setCache(key, data) {
   CACHE.aggs.set(key, { data, time: Date.now() });
 }
 
-// ─── تنفيذ على دفعات (محسّن للسرعة) ──────────────────────────────
+// ─── تنفيذ على دفعات ──────────────────────────────────────────────
 async function inBatches(items, size, fn) {
   const batchSize = Math.min(size, 8);
   for (let i = 0; i < items.length; i += batchSize) {
@@ -63,36 +62,7 @@ const FILTER = {
   STRICT_PRICE:   0.50,
 };
 
-// ─── مزج البنية ──────────────────────────────────────────────────────
-const STRUCT = {
-  MIN_RR:        1.3,
-  MAX_POS:       0.72,
-  BONUS_VALID:   7,
-  BONUS_OK:      2,
-  PENALTY_LATE:  6,
-  PENALTY_BADRR: 4,
-  DROP_LATE:     true,
-  DROP_CHANGE:   12,
-  DROP_POS:      0.80,
-  STRICT_GEMS:   true,
-};
-
-// ─── 🆕 إعدادات استراتيجية الارتداد الذكي ──────────────────────────
-const SMART_BOUNCE = {
-  ENABLED: true,
-  TIMEFRAME: 3,
-  MA_FAST: 5,
-  MA_SLOW: 10,
-  MIN_VOLUME_RATIO: 1.5,
-  RSI_MIN: 30,
-  RSI_MAX: 50,
-  SUPPORT_RANGE: 0.015,
-  MIN_PRICE: 3,
-  MIN_VOLUME: 200_000,
-  CONFIDENCE_MIN: 0.6,
-};
-
-// ─── إعدادات الارتداد (معدلة لزيادة الإشارات) ────────────────────
+// ─── إعدادات الارتداد ──────────────────────────────────────────────
 const REBOUND = {
   ENABLED: true,
   RSI_MAX: 45,
@@ -272,181 +242,94 @@ function calcFibTargets(bars, price) {
   return [swingHigh + range * 0.272, swingHigh + range * 0.618, swingHigh + range * 1.0].filter(f => f > price);
 }
 
-function calcSmartLevels(price, bars) {
-  const atr = calcATR14(bars) || price * 0.05;
-  const { resistances, supports } = calcSupportResistance(bars, price);
-  const fibs = calcFibTargets(bars, price);
-  const atrSL = price - atr * 1.5;
-  const supportSL = supports[0] ? supports[0] * 0.985 : atrSL;
-  const sl = Math.max(Math.min(atrSL, supportSL), price * 0.88);
-  const risk = price - sl;
-  const atrT1 = price + atr * 1.0, atrT2 = price + atr * 2.0, atrT3 = price + atr * 3.0;
-  let t1 = resistances[0] && resistances[0] < atrT1 * 1.3 ? Math.min(resistances[0], atrT1 * 1.3) : atrT1;
-  t1 = Math.max(t1, price * 1.03, price + risk * 1.0);
-  let t2 = resistances[1] && resistances[1] > t1 ? Math.max(atrT2, Math.min(resistances[1], atrT2 * 1.2)) : atrT2;
-  t2 = Math.max(t2, t1 * 1.04);
-  let t3 = fibs[1] && fibs[1] > t2 ? Math.max(atrT3, Math.min(fibs[1], atrT3 * 1.3)) : atrT3;
-  t3 = Math.max(t3, t2 * 1.05);
-  const f2 = n => +n.toFixed(2), pct = n => +(((n - price) / price) * 100).toFixed(2);
-  return {
-    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
-    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
-    risk: f2(price - sl), atr14: f2(atr),
-  };
-}
-
-function calcScalpLevels(price, bars) {
+// ─── ✅ المستويات الاحترافية (نسب ديناميكية حسب ATR) ──────────────
+function calcProfessionalLevels(price, bars, tradeStyle = "مضاربة") {
+  // 1. حساب ATR ونسبة التقلب
   const atr = calcATR14(bars) || price * 0.03;
-  const { supports } = calcSupportResistance(bars, price);
   const atrPct = atr / price;
-  const atrSL = price - atr * 0.8;
-  const supportSL = supports[0] ? supports[0] * 0.992 : atrSL;
-  let sl = Math.min(atrSL, supportSL);
-  const maxLossPct = Math.min(Math.max(0.04, atrPct), 0.10);
-  sl = Math.max(sl, price * (1 - maxLossPct));
-  const risk = price - sl;
-  let t1 = Math.max(price + atr * 0.6, price + risk * 1.3, price * 1.015);
-  let t2 = Math.max(price + atr * 1.1, t1 + risk * 0.8, t1 * 1.02);
-  let t3 = Math.max(price + atr * 1.7, t2 + risk * 0.8, t2 * 1.02);
-  const dec = price < 1 ? 3 : 2;
-  const f2 = n => +n.toFixed(dec), pct = n => +(((n - price) / price) * 100).toFixed(2);
-  return {
-    t1: f2(t1), t2: f2(t2), t3: f2(t3), sl: f2(sl),
-    t1Pct: pct(t1), t2Pct: pct(t2), t3Pct: pct(t3), slPct: pct(sl),
-    risk: f2(price - sl), atr14: f2(atr),
-  };
-}
-
-const SMART_STOP = {
-  ENABLED: true,
-  NOISE_ATR_MULT: 1.2,
-  NOISE_MIN_PCT: 0.04,
-  SCALP_FLOOR: 0.05,
-  SCALP_CAP: 0.07,
-  SCALP_ATR_K: 1.2,
-  SMART_FLOOR: 0.06,
-  SMART_CAP: 0.07,
-  SMART_ATR_K: 1.3,
-  MIN_RR: 1.3,
-  SCALP_T1_CAP: 0.30,
-  SMART_T1_CAP: 0.60,
-};
-
-function return3M(dailyCloses) {
-  if (!dailyCloses || dailyCloses.length < 30) return null;
-  const now = dailyCloses[dailyCloses.length - 1];
-  const idx = Math.max(0, dailyCloses.length - 63);
-  const then = dailyCloses[idx];
-  if (!then || then <= 0) return null;
-  let hasSplitAnomaly = false;
-  for (let i = idx + 1; i < dailyCloses.length; i++) {
-    const prev = dailyCloses[i - 1], cur = dailyCloses[i];
-    if (prev > 0 && cur > 0) {
-      const jump = Math.abs(cur - prev) / prev;
-      if (jump > 0.40) { hasSplitAnomaly = true; break; }
-    }
-  }
-  let base = then;
-  if (hasSplitAnomaly) {
-    const shortIdx = Math.max(0, dailyCloses.length - 20);
-    base = dailyCloses[shortIdx];
-    if (!base || base <= 0) return null;
-  }
-  const ret = ((now - base) / base) * 100;
-  if (ret > 300 || ret < -95) return null;
-  return ret;
-}
-
-function isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses) {
-  if (!REBOUND.ENABLED) return false;
-  if (s.rsi == null || s.rsi > REBOUND.RSI_MAX) return false;
-  if (s.price < REBOUND.MIN_PRICE) return false;
-  const dvol = s.price * (s.volume || 0);
-  if (dvol < REBOUND.MIN_DOLLAR_VOL) return false;
-  if (vixRank != null && vixRank >= REBOUND.MAX_VIX_RANK) return false;
-  const ret3 = return3M(dailyCloses);
-  if (ret3 == null) return true;
-  if (ret3 < REBOUND.MIN_RET_3M) return false;
-  s._ret3m = +ret3.toFixed(1);
-  if (!emaCrossedUp(hourlyCloses, 9, 21, 1)) return false;
-  return true;
-}
-
-function calcReboundLevels(price) {
-  const f = v => +v.toFixed(price < 1 ? 4 : 2);
-  const t1 = f(price * (1 + REBOUND.TARGET_PCT / 100));
-  const sl = f(price * (1 - REBOUND.STOP_PCT / 100));
-  return {
-    entry: price, t1, t2: t1, t3: t1, sl,
-    t1Pct: REBOUND.TARGET_PCT, t2Pct: REBOUND.TARGET_PCT, t3Pct: REBOUND.TARGET_PCT,
-    rr: (REBOUND.TARGET_PCT / REBOUND.STOP_PCT).toFixed(2),
-    atr14: price * 0.03, source: "rebound_3pct", hold_days: REBOUND.MAX_HOLD_DAYS,
-  };
-}
-
-function applyStructureLevels(price, levels, structure, tradeStyle) {
-  if (!SMART_STOP.ENABLED || !structure) return levels;
-  if (!structure.support || !structure.stop || structure.stop >= price) return levels;
-  const atr = levels?.atr14 || price * 0.03;
-  const atrPct = atr / price;
-  const isScalp = tradeStyle === "مضاربة";
-  let sl = structure.stop;
-  const noiseSL = price - Math.max(atr * SMART_STOP.NOISE_ATR_MULT, price * SMART_STOP.NOISE_MIN_PCT);
-  sl = Math.min(sl, noiseSL);
-  const floor = isScalp ? SMART_STOP.SCALP_FLOOR : SMART_STOP.SMART_FLOOR;
-  const cap = isScalp ? SMART_STOP.SCALP_CAP : SMART_STOP.SMART_CAP;
-  const atrK = isScalp ? SMART_STOP.SCALP_ATR_K : SMART_STOP.SMART_ATR_K;
-  const maxLossPct = Math.min(Math.max(floor, atrPct * atrK), cap);
-  sl = Math.max(sl, price * (1 - maxLossPct));
-  const risk = price - sl;
-  if (risk <= 0) return levels;
-  const t1Cap = isScalp ? SMART_STOP.SCALP_T1_CAP : SMART_STOP.SMART_T1_CAP;
-  const cand = [structure.resistance, structure.t1, structure.t2, structure.t3]
-    .filter(x => typeof x === "number" && x > price * 1.012)
-    .sort((a, b) => a - b);
-  const ups = [];
-  for (const v of cand) if (!ups.length || v > ups[ups.length - 1] * 1.015) ups.push(v);
-  let t1, t2, t3;
-  if (ups.length >= 1 && (ups[0] - price) / price <= t1Cap) {
-    t1 = ups[0];
-    t2 = ups[1] || (t1 + risk);
-    t3 = ups[2] || (t2 + Math.max(t2 - t1, risk));
+  
+  // 2. الدعم والمقاومة الحقيقيان
+  const recent = bars.slice(-20);
+  const support = Math.min(...recent.map(b => b.l));
+  const resistance = Math.max(...recent.map(b => b.h));
+  const range = Math.max(resistance - support, price * 0.01);
+  const rangePct = range / price;
+  
+  // 3. 🎯 تحديد النسب ديناميكياً حسب التقلب
+  let stopPct, entryPct, target1Pct, target2Pct, target3Pct;
+  
+  if (atrPct > 0.12) {
+    // 📊 سهم عالي التقلب (GME, SMCI, CVNA)
+    stopPct = Math.min(atrPct * 1.8, 0.25);
+    entryPct = Math.min(atrPct * 0.8, 0.10);
+    target1Pct = Math.min(atrPct * 2.2, 0.35);
+    target2Pct = Math.min(atrPct * 3.5, 0.60);
+    target3Pct = Math.min(atrPct * 5.0, 0.90);
+  } else if (atrPct > 0.06) {
+    // 📈 سهم متوسط التقلب (AAPL, NVDA, MSFT)
+    stopPct = Math.min(atrPct * 1.5, 0.12);
+    entryPct = Math.min(atrPct * 0.5, 0.05);
+    target1Pct = Math.min(atrPct * 2.0, 0.18);
+    target2Pct = Math.min(atrPct * 3.0, 0.35);
+    target3Pct = Math.min(atrPct * 4.5, 0.55);
   } else {
-    const k1 = isScalp ? 0.6 : 1.0;
-    const k2 = isScalp ? 1.1 : 2.0;
-    const k3 = isScalp ? 1.7 : 3.0;
-    t1 = Math.max(price + atr * k1, price + risk * SMART_STOP.MIN_RR, price * 1.015);
-    t2 = Math.max(price + atr * k2, t1 + risk * 0.8, t1 * 1.02);
-    t3 = Math.max(price + atr * k3, t2 + risk * 0.8, t2 * 1.02);
-  }
-  const dec = price < 1 ? 3 : 2;
-  const f = n => +n.toFixed(dec), pc = n => +(((n - price) / price) * 100).toFixed(2);
-  
-  // ✅ تأكد من صحة المستويات
-  let entry = levels.entry || structure.entry || price * 0.98;
-  let stop = Math.min(sl, entry * 0.95);
-  
-  // ✅ إذا كان وقف الخسارة أعلى من الدخول، صححه
-  if (stop >= entry) {
-    stop = entry * 0.95;
+    // 📉 سهم منخفض التقلب (SPY, BRK, JPM)
+    stopPct = Math.min(atrPct * 1.2, 0.04);
+    entryPct = Math.min(atrPct * 0.3, 0.015);
+    target1Pct = Math.min(atrPct * 1.8, 0.06);
+    target2Pct = Math.min(atrPct * 2.8, 0.12);
+    target3Pct = Math.min(atrPct * 4.0, 0.20);
   }
   
-  // ✅ إذا كان الدخول أعلى من السعر، اجعله أقرب
-  if (entry >= price) {
-    entry = price * 0.98;
-    stop = price * 0.92;
+  // 4. تعديل حسب نمط التداول
+  if (tradeStyle === "مضاربة") {
+    stopPct = Math.min(stopPct * 0.7, 0.07);
+    target1Pct = Math.min(target1Pct * 0.7, 0.10);
+    target2Pct = Math.min(target2Pct * 0.7, 0.20);
+    target3Pct = Math.min(target3Pct * 0.7, 0.35);
   }
+  
+  // 5. حساب المستويات
+  const stop = Math.max(support * 0.98, price * (1 - stopPct));
+  const entry = Math.max(support + range * 0.382, price * (1 - entryPct));
+  const t1 = Math.max(price * (1 + target1Pct), resistance * 0.98);
+  const t2 = Math.max(price * (1 + target2Pct), t1 * 1.02);
+  const t3 = Math.max(price * (1 + target3Pct), t2 * 1.03);
+  
+  // 6. التأكد من صحة الترتيب (دعم < دخول < سعر < أهداف)
+  const finalEntry = Math.min(entry, price * 0.98);
+  const finalStop = Math.min(stop, finalEntry * 0.96);
+  
+  const rr = (t1 - finalEntry) / (finalEntry - finalStop);
+  
+  // 7. التنسيق
+  const f2 = n => +n.toFixed(price < 1 ? 4 : 2);
+  const pct = n => +(((n - price) / price) * 100).toFixed(2);
   
   return {
-    ...levels,
-    t1: f(t1), t2: f(t2), t3: f(t3), sl: f(stop),
-    t1Pct: pc(t1), t2Pct: pc(t2), t3Pct: pc(t3), slPct: pc(stop),
-    risk: f(price - stop), atr14: levels?.atr14 ?? f(atr),
-    entry: f(entry),
-    smart_structure: true,
+    support: f2(support),
+    resistance: f2(resistance),
+    entry: f2(finalEntry),
+    stop: f2(finalStop),
+    t1: f2(t1),
+    t2: f2(t2),
+    t3: f2(t3),
+    t1Pct: pct(t1),
+    t2Pct: pct(t2),
+    t3Pct: pct(t3),
+    slPct: pct(finalStop),
+    entryPct: pct(finalEntry),
+    risk: f2(finalEntry - finalStop),
+    reward: f2(t1 - finalEntry),
+    rr: +rr.toFixed(2),
+    atr: f2(atr),
+    atrPct: +(atrPct * 100).toFixed(2),
+    stopPct: +(stopPct * 100).toFixed(2),
+    target1Pct: +(target1Pct * 100).toFixed(2),
   };
 }
 
+// ─── المستويات البسيطة (للأسهم العادية) ──────────────────────────
 function calcLevels(s) {
   const price = s.price;
   const tr = Math.max(s.high - s.low, Math.abs(s.high - s.prevClose), Math.abs(s.low - s.prevClose));
@@ -461,7 +344,71 @@ function calcLevels(s) {
   };
 }
 
-// ════════════════ محرّك مستويات البنية ════════════════
+// ─── بنية السوق الاحترافية ─────────────────────────────────────────
+function computeStructureLevels(price, bars, tradeStyle = "مضاربة") {
+  if (!bars || bars.length < 12 || !price) return null;
+  
+  // 1. استخدام المستويات الاحترافية
+  const prof = calcProfessionalLevels(price, bars, tradeStyle);
+  
+  // 2. حساب التأكيد والاتجاه
+  const recent = bars.slice(-60);
+  const { highs, lows } = findPivots(recent, 2);
+  const recLows = recent.slice(-12).map(b => b.l);
+  const recHighs = recent.slice(-12).map(b => b.h);
+  const lowsBelow = lows.filter(l => l < price);
+  const highsAbove = highs.filter(h => h > price);
+  
+  const support = prof.support;
+  const resistance = prof.resistance;
+  const swingHigh = Math.max(resistance, ...recent.map(b => b.h));
+  const swingLow = support;
+  const range = Math.max(swingHigh - swingLow, price * 0.005);
+  const highsBelow = highs.filter(h => h <= price * 1.001);
+  const confirm = highsBelow.length ? Math.max(...highsBelow) : support + range * 0.5;
+  const trendUp = price >= confirm;
+  
+  // 3. حساب نسبة المخاطرة/العائد
+  const riskEntry = prof.entry - prof.stop;
+  const rr = riskEntry > 0 ? +(((prof.t1 - prof.entry) / riskEntry).toFixed(2)) : null;
+  
+  // 4. تحديد حالة السهم
+  let flag = "ينتظر تأكيد ⏳";
+  if (trendUp && rr >= 1.3 && price >= prof.entry && price < prof.t1) {
+    flag = "دخول صحيح ✅";
+  } else if (trendUp && rr >= 1.0) {
+    flag = "مقبول";
+  } else if (price > prof.t1) {
+    flag = "ملاحقة ⚠️";
+  } else if (price < prof.support) {
+    flag = "هابط ⛔";
+  }
+  
+  // 5. النتيجة النهائية
+  const f2 = n => +Number(n).toFixed(price < 1 ? 4 : 2);
+  const pct = n => +(((n - price) / price) * 100).toFixed(2);
+  
+  return {
+    trend: trendUp ? "صاعد مؤكد ✅" : "ينتظر تأكيد ⏳",
+    support: f2(support), supportPct: pct(support),
+    entry: f2(prof.entry), entryPct: pct(prof.entry),
+    confirm: f2(confirm), confirmPct: pct(confirm),
+    stop: f2(prof.stop), stopPct: pct(prof.stop),
+    resistance: f2(resistance), resistancePct: pct(resistance),
+    t1: f2(prof.t1), t1Pct: pct(prof.t1),
+    t2: f2(prof.t2), t2Pct: pct(prof.t2),
+    t3: f2(prof.t3), t3Pct: pct(prof.t3),
+    liquidity: f2(Math.max(prof.t3 * 1.05, resistance + range * 0.5)),
+    peak: f2(Math.max(prof.t3 * 1.10, resistance + range * 0.8)),
+    rr: rr || prof.rr,
+    atrPct: prof.atrPct,
+    stopPct: prof.stopPct,
+    target1Pct: prof.target1Pct,
+    flag: flag,
+    posInBand: +(((price - support) / Math.max(resistance - support, 0.01))).toFixed(2),
+  };
+}
+
 function findPivots(bars, w = 2) {
   const highs = [], lows = [];
   for (let i = w; i < bars.length - w; i++) {
@@ -475,83 +422,6 @@ function findPivots(bars, w = 2) {
     if (isLow) lows.push(bars[i].l);
   }
   return { highs, lows };
-}
-
-function computeStructureLevels(price, bars) {
-  if (!bars || bars.length < 12 || !price) return null;
-  const recent = bars.slice(-60);
-  const { highs, lows } = findPivots(recent, 2);
-  const recLows = recent.slice(-12).map(b => b.l);
-  const recHighs = recent.slice(-12).map(b => b.h);
-  const lowsBelow = lows.filter(l => l < price);
-  const highsAbove = highs.filter(h => h > price);
-  const support = lowsBelow.length ? Math.max(...lowsBelow) : Math.min(...recLows);
-  const resistance = highsAbove.length ? Math.min(...highsAbove) : Math.max(...recHighs);
-  const swingHigh = Math.max(resistance, ...recent.map(b => b.h));
-  const swingLow = support;
-  const range = Math.max(swingHigh - swingLow, price * 0.005);
-  const highsBelow = highs.filter(h => h <= price * 1.001);
-  const confirm = highsBelow.length ? Math.max(...highsBelow) : support + range * 0.5;
-  const trendUp = price >= confirm;
-  const buffer = Math.max(range * 0.10, price * 0.0005);
-  
-  // ✅ حساب منطقة الدخول بشكل صحيح (فوق الدعم)
-  let entry = support + range * 0.382;
-  let stop = support - range * 0.236;
-  
-  // ✅ تأكد من أن منطقة الدخول أعلى من وقف الخسارة
-  if (entry <= stop) {
-    entry = price - (price - support) * 0.5;
-    stop = support - (price - support) * 0.3;
-  }
-  
-  // ✅ إذا كان السعر أقل من منطقة الدخول، اجعل منطقة الدخول أقرب للسعر
-  if (price < entry) {
-    entry = price * 0.98;
-    stop = price * 0.92;
-  }
-  
-  // ✅ تأكد من أن الدخول > وقف الخسارة
-  if (entry <= stop) {
-    const temp = entry;
-    entry = stop * 1.05;
-    stop = temp * 0.95;
-  }
-  
-  const STOP_CAP = price * 0.92;
-  if (stop < STOP_CAP) stop = STOP_CAP;
-  const riskEntry = entry - stop;
-  let t1 = (resistance > price * 1.005) ? resistance : swingHigh + range * 0.272;
-  t1 = Math.max(t1, price * 1.005);
-  let t2 = Math.max(swingHigh + range * 0.272, t1 * 1.003);
-  let t3 = Math.max(swingHigh + range * 0.618, t2 * 1.003);
-  let liq = Math.max(swingHigh + range * 1.0, t3 * 1.003);
-  let peak = Math.max(swingHigh + range * 1.618, liq * 1.003);
-  const T1_CAP = price * 1.08;
-  const T2_CAP = price * 1.20;
-  const T3_CAP = price * 1.35;
-  t1 = Math.min(t1, T1_CAP);
-  t2 = Math.min(Math.max(t2, t1 * 1.01), T2_CAP);
-  t3 = Math.min(Math.max(t3, t2 * 1.01), T3_CAP);
-  liq = Math.max(liq, t3 * 1.02);
-  peak = Math.max(peak, liq * 1.02);
-  const f2 = n => +Number(n).toFixed(2);
-  const pct = n => +(((n - price) / price) * 100).toFixed(2);
-  const rr = riskEntry > 0 ? +(((t1 - entry) / riskEntry).toFixed(2)) : null;
-  return {
-    trend: trendUp ? "صاعد مؤكد ✅" : "ينتظر تأكيد ⏳",
-    support: f2(support), supportPct: pct(support),
-    entry: f2(entry), entryPct: pct(entry),
-    confirm: f2(confirm), confirmPct: pct(confirm),
-    stop: f2(stop), stopPct: pct(stop),
-    resistance: f2(resistance), resistancePct: pct(resistance),
-    t1: f2(t1), t1Pct: pct(t1),
-    t2: f2(t2), t2Pct: pct(t2),
-    t3: f2(t3), t3Pct: pct(t3),
-    liquidity: f2(liq), liquidityPct: pct(liq),
-    peak: f2(peak), peakPct: pct(peak),
-    rr,
-  };
 }
 
 // ════════════════ الإضافات الذكية ════════════════
@@ -602,16 +472,16 @@ function detectSmartBounce(bars) {
   const cross = detectCross(closes);
   const rsi = calcRSI14(bars);
   
-  const ma5 = calcMA(closes, SMART_BOUNCE.MA_FAST);
-  const ma10 = calcMA(closes, SMART_BOUNCE.MA_SLOW);
+  const ma5 = calcMA(closes, 5);
+  const ma10 = calcMA(closes, 10);
   
-  const nearSupport = price <= support * (1 + SMART_BOUNCE.SUPPORT_RANGE);
+  const nearSupport = price <= support * (1 + 0.015);
   const crossCondition = cross;
-  const volumeCondition = bars[bars.length - 1]?.v > avgVol * SMART_BOUNCE.MIN_VOLUME_RATIO;
-  const rsiCondition = rsi !== null && rsi >= SMART_BOUNCE.RSI_MIN && rsi <= SMART_BOUNCE.RSI_MAX;
+  const volumeCondition = bars[bars.length - 1]?.v > avgVol * 1.5;
+  const rsiCondition = rsi !== null && rsi >= 30 && rsi <= 50;
   const greenCandle = bars[bars.length - 1]?.c > bars[bars.length - 1]?.o;
   const priceAboveMA = ma5 !== null && ma10 !== null && price > ma5 && ma5 > ma10;
-  const volumeAboveMin = bars[bars.length - 1]?.v >= SMART_BOUNCE.MIN_VOLUME;
+  const volumeAboveMin = bars[bars.length - 1]?.v >= 200_000;
   
   const allMet = nearSupport && crossCondition && volumeCondition && rsiCondition && greenCandle && priceAboveMA && volumeAboveMin;
   
@@ -697,9 +567,8 @@ function calcEP(s) {
   return Math.max(0, Math.min(ep, 99));
 }
 
-// ════════════════ جلب السوق (محسّن للسرعة) ════════════════
+// ════════════════ جلب السوق ════════════════
 async function fetchTopStocks() {
-  // ✅ جلب 500 سهم (زيادة التنوع)
   const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?limit=500&apiKey=${POLYGON_KEY}`;
   
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -757,7 +626,7 @@ async function fetchTopStocks() {
         return true;
       });
       
-      console.log(`✅ جلب ${unique.length} سهماً (${topByVolume.length} حجم + ${topByChange.length} تغير)`);
+      console.log(`✅ جلب ${unique.length} سهماً`);
       return unique;
       
     } catch (err) {
@@ -952,14 +821,12 @@ export default async function handler(req, res) {
     const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
     const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
 
-    // ✅ جلب البيانات بشكل متوازي مع مهلة
     const [allTickers, vixData] = await Promise.all([
       fetchTopStocks(),
       fetchVixRank(),
     ]);
     const vixRank = vixData.available ? vixData.rank : null;
 
-    // ✅ إيقاف مبكر إذا تجاوز الوقت
     if (Date.now() > HARD_DEADLINE) {
       console.log('⏰ Hard deadline reached after market fetch');
       return res.status(200).json({
@@ -983,7 +850,6 @@ export default async function handler(req, res) {
 
     const candidates = [];
     for (const tk of allTickers) {
-      // ✅ إيقاف مبكر
       if (Date.now() > HARD_DEADLINE) break;
       
       const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
@@ -1008,7 +874,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // ✅ إيقاف مبكر إذا تجاوز الوقت
     if (Date.now() > HARD_DEADLINE) {
       console.log('⏰ Hard deadline reached after candidate filtering');
       return res.status(200).json({
@@ -1026,7 +891,6 @@ export default async function handler(req, res) {
     const scored = candidates.map(s => {
       const ep = calcEP(s);
       const levels = calcLevels(s);
-      // ✅ تعديل شروط HOT (أقل صرامة)
       const is_hot = ep >= 65 && s.rvol >= 6 && s.changePct >= 6;
       const dollarVolume = s.price * s.volume;
       const isScalp = s.changePct >= 5 && s.rvol >= 5;
@@ -1041,9 +905,7 @@ export default async function handler(req, res) {
     const heavyLimit = isPreMarket ? FILTER.PREMARKET_LIMIT : FILTER.HEAVY_LIMIT;
     const top = scored.slice(0, heavyLimit);
 
-    // ✅ تحليل الأسهم مع مهلة
     await inBatches(top, 8, async (s) => {
-      // ✅ إيقاف مبكر لكل سهم
       if (Date.now() > HARD_DEADLINE) {
         s._drop = true;
         s._dropReason = "timeout";
@@ -1087,20 +949,43 @@ export default async function handler(req, res) {
           else s.ep = Math.min(99, s.ep + 2);
         }
         if (tech.bars && tech.bars.length >= 15) {
-          s.levels = s.trade_style === "مضاربة" ? calcScalpLevels(s.price, tech.bars) : calcSmartLevels(s.price, tech.bars);
-          s.levels_source = s.trade_style === "مضاربة" ? "scalp_60m" : "smart_daily";
-          s.structure = computeStructureLevels(s.price, tech.bars);
+          // ✅ استخدام المستويات الاحترافية
+          const profLevels = calcProfessionalLevels(s.price, tech.bars, s.trade_style);
+          s.levels = {
+            t1: profLevels.t1,
+            t2: profLevels.t2,
+            t3: profLevels.t3,
+            sl: profLevels.stop,
+            t1Pct: profLevels.t1Pct,
+            t2Pct: profLevels.t2Pct,
+            t3Pct: profLevels.t3Pct,
+            slPct: profLevels.slPct,
+            risk: profLevels.risk,
+            atr14: profLevels.atr,
+            rr: profLevels.rr,
+            entry: profLevels.entry,
+            entryPct: profLevels.entryPct,
+            support: profLevels.support,
+            resistance: profLevels.resistance,
+          };
+          s.levels_source = "professional_dynamic";
+          
+          // ✅ بنية السوق الاحترافية
+          s.structure = computeStructureLevels(s.price, tech.bars, s.trade_style);
+          
           if (s.structure && s.structure.support) {
             const fz = freshZoneBonus(tech.bars, s.structure.support);
             if (fz.bonus !== 0) s.ep = Math.min(99, Math.max(0, s.ep + fz.bonus));
             s.fresh_zone = fz.fresh;
             s.zone_touches = fz.touches;
           }
-          const smart = applyStructureLevels(s.price, s.levels, s.structure, s.trade_style);
-          if (smart.smart_structure) { s.levels = smart; s.levels_source += "+structure"; }
-        } else s.levels_source = "atr_basic";
+        } else {
+          s.levels_source = "atr_basic";
+          s.structure = null;
+        }
         s.week_max_jump = tech.recentMaxJump;
 
+        // استراتيجية الارتداد
         const rsiOK = s.rsi != null && s.rsi <= REBOUND.RSI_MAX;
         const dvolOK = s.price * (s.volume || 0) >= REBOUND.MIN_DOLLAR_VOL && s.price >= REBOUND.MIN_PRICE;
         const vixOK = vixRank == null || vixRank < REBOUND.MAX_VIX_RANK;
@@ -1133,13 +1018,13 @@ export default async function handler(req, res) {
             s.levels_source = "rebound_3pct";
             s.is_rebound = true;
             if (s._dailyBars && s._dailyBars.length >= 15) {
-              s.structure = computeStructureLevels(s.price, s._dailyBars);
+              s.structure = computeStructureLevels(s.price, s._dailyBars, s.trade_style);
             }
             s.ep = Math.min(99, s.ep + 6);
           }
         }
 
-        // 🆕 استراتيجية الارتداد الذكي (فريم 3 دقائق)
+        // استراتيجية الارتداد الذكي
         let smartBounce = null;
         if (tech && tech.bars && tech.bars.length >= 20) {
           const threeMinBars = await fetchAggs(s.symbol, 3, "minute", 1, 30);
@@ -1173,7 +1058,6 @@ export default async function handler(req, res) {
         s.ep = Math.max(0, s.ep - Math.round((s.changePct - 12) * 0.7));
       }
 
-      // 🆕 حساب الإضافات الذكية
       if (tech && tech.bars && tech.bars.length >= 20) {
         const avgVol = getAvgVolume(tech.bars);
         const resistance = s.structure?.resistance || null;
@@ -1203,23 +1087,23 @@ export default async function handler(req, res) {
         const band = st.resistance - st.support;
         const pos = band > 0 ? (s.price - st.support) / band : 1;
         const confirmed = s.price >= st.confirm;
-        const rrOk = st.rr != null && st.rr >= STRUCT.MIN_RR;
+        const rrOk = st.rr != null && st.rr >= 1.3;
         const room = st.resistance > s.price * 1.01;
-        const fresh = pos <= STRUCT.MAX_POS;
+        const fresh = pos <= 0.72;
 
         let adj = 0, flag;
-        if (confirmed && rrOk && room && fresh) { adj = STRUCT.BONUS_VALID; flag = "دخول صحيح ✅"; }
-        else if (confirmed && (rrOk || fresh)) { adj = STRUCT.BONUS_OK; flag = "مقبول"; }
-        else { adj = -STRUCT.PENALTY_LATE; flag = "ملاحقة/غير مؤكد ⚠️"; }
-        if (st.rr != null && st.rr < 1) adj -= STRUCT.PENALTY_BADRR;
+        if (confirmed && rrOk && room && fresh) { adj = 7; flag = "دخول صحيح ✅"; }
+        else if (confirmed && (rrOk || fresh)) { adj = 2; flag = "مقبول"; }
+        else { adj = -6; flag = "ملاحقة/غير مؤكد ⚠️"; }
+        if (st.rr != null && st.rr < 1) adj -= 4;
 
         s.ep = Math.max(0, Math.min(99, s.ep + adj));
         st.flag = flag;
         st.posInBand = +pos.toFixed(2);
 
-        if (STRUCT.DROP_LATE && s.changePct > STRUCT.DROP_CHANGE && pos > STRUCT.DROP_POS) { s._drop = true; if (!s._dropReason) s._dropReason = "late"; }
+        if (s.changePct > 12 && pos > 0.80) { s._drop = true; if (!s._dropReason) s._dropReason = "late"; }
 
-        if (STRUCT.STRICT_GEMS && tech.bars && tech.bars.length >= 3) {
+        if (tech && tech.bars && tech.bars.length >= 3) {
           const lc = tech.bars.slice(-3).map(b => b.c);
           const dropPct = lc[0] > 0 ? (lc[0] - lc[2]) / lc[0] : 0;
           const fallingNow = lc[2] < lc[1] && lc[1] < lc[0] && dropPct > 0.03;
@@ -1255,7 +1139,6 @@ export default async function handler(req, res) {
         }
       }
 
-      // ✅ تعديل شروط HOT
       s.is_hot = s.ep >= 65 && s.rvol >= 6 && s.changePct >= 6;
       s.signal = s.ep >= 80 ? "💥 انفجاري" : s.ep >= 60 ? "🔥 عالي" : "👀 مراقبة";
       if (s.is_smart_bounce) s.signal = "🔄 ارتداد سريع";
@@ -1275,12 +1158,10 @@ export default async function handler(req, res) {
       const liqIn = s.rvol >= 3;
       const rsiPos = s.rsi != null && s.rsi >= 45 && s.rsi <= 70;
       const macdBull = !!(tech && tech.macd && tech.macd.bullish);
-      // ✅ إزالة الشرط الصارم tech.aligned
       const primaryConfluence = !s._drop && earlyStage && volHigh && liqIn && rsiPos && macdBull;
       s._primaryConfluence = primaryConfluence;
     });
 
-    // ✅ إيقاف مبكر قبل المعالجة النهائية
     if (Date.now() > HARD_DEADLINE) {
       console.log('⏰ Hard deadline reached during final processing');
       return res.status(200).json({
