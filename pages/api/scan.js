@@ -5,12 +5,13 @@
 //   ✅ دعم ومقاومة ديناميكية
 //   ✅ مناطق دخول ووقف خسارة ذكية
 //   ✅ أهداف متعددة حسب طبيعة السهم
+//   ✅ محسّن للسرعة (يشتغل خلال 9.5 ثوانٍ)
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 10 };
 
-// ✅ مهلة عامة 9 ثوانٍ (آمن)
-const HARD_DEADLINE_MS = 9000;
+// ✅ مهلة عامة 9.5 ثوانٍ (آمن)
+const HARD_DEADLINE_MS = 9500;
 
 const POLYGON_KEY  = process.env.POLYGON_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -41,7 +42,7 @@ function setCache(key, data) {
 
 // ─── تنفيذ على دفعات ──────────────────────────────────────────────
 async function inBatches(items, size, fn) {
-  const batchSize = Math.min(size, 8);
+  const batchSize = Math.min(size, 6);
   for (let i = 0; i < items.length; i += batchSize) {
     await Promise.all(items.slice(i, i + batchSize).map(fn));
   }
@@ -56,8 +57,8 @@ const FILTER = {
   MAX_CHANGE:     40,
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
-  HEAVY_LIMIT:    60,
-  PREMARKET_LIMIT: 30,
+  HEAVY_LIMIT:    40,
+  PREMARKET_LIMIT: 20,
   SAVE_MIN_EP:    55,
   STRICT_PRICE:   0.50,
 };
@@ -83,19 +84,18 @@ function return3M(dailyCloses) {
   if (!dailyCloses || dailyCloses.length < 30) return null;
   
   const now = dailyCloses[dailyCloses.length - 1];
-  const idx = Math.max(0, dailyCloses.length - 63); // ~3 أشهر تداول
+  const idx = Math.max(0, dailyCloses.length - 63);
   const then = dailyCloses[idx];
   
   if (!then || then <= 0) return null;
   
-  // ✅ التحقق من وجود انقسامات سهمية (Stock Splits)
   let hasSplitAnomaly = false;
   for (let i = idx + 1; i < dailyCloses.length; i++) {
     const prev = dailyCloses[i - 1];
     const cur = dailyCloses[i];
     if (prev > 0 && cur > 0) {
       const jump = Math.abs(cur - prev) / prev;
-      if (jump > 0.40) { // قفزة 40%+ تعني احتمال وجود انقسام
+      if (jump > 0.40) {
         hasSplitAnomaly = true;
         break;
       }
@@ -104,21 +104,17 @@ function return3M(dailyCloses) {
   
   let base = then;
   if (hasSplitAnomaly) {
-    // استخدام فترة أقصر لتجنب تأثير الانقسام
     const shortIdx = Math.max(0, dailyCloses.length - 20);
     base = dailyCloses[shortIdx];
     if (!base || base <= 0) return null;
   }
   
   const ret = ((now - base) / base) * 100;
-  
-  // ✅ استبعاد القيم غير المنطقية
   if (ret > 300 || ret < -95) return null;
-  
   return ret;
 }
 
-// ─── ✅ دالة calcReboundLevels (مستويات الارتداد) ────────────────────
+// ─── ✅ دالة calcReboundLevels ──────────────────────────────────────
 function calcReboundLevels(price) {
   const f = v => +v.toFixed(price < 1 ? 4 : 2);
   const t1 = f(price * (1 + REBOUND.TARGET_PCT / 100));
@@ -139,7 +135,7 @@ function calcReboundLevels(price) {
   };
 }
 
-// ─── ✅ دالة isReboundCandidate (التحقق من صلاحية الارتداد) ────────
+// ─── ✅ دالة isReboundCandidate ─────────────────────────────────────
 function isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses) {
   if (!REBOUND.ENABLED) return false;
   if (s.rsi == null || s.rsi > REBOUND.RSI_MAX) return false;
@@ -154,9 +150,7 @@ function isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses) {
   if (ret3 < REBOUND.MIN_RET_3M) return false;
   
   s._ret3m = +ret3.toFixed(1);
-  
   if (!emaCrossedUp(hourlyCloses, 9, 21, 1)) return false;
-  
   return true;
 }
 
@@ -324,37 +318,31 @@ function calcFibTargets(bars, price) {
   return [swingHigh + range * 0.272, swingHigh + range * 0.618, swingHigh + range * 1.0].filter(f => f > price);
 }
 
-// ─── ✅ المستويات الاحترافية (نسب ديناميكية حسب ATR) ──────────────
+// ─── ✅ المستويات الاحترافية ──────────────────────────────────────
 function calcProfessionalLevels(price, bars, tradeStyle = "مضاربة") {
-  // 1. حساب ATR ونسبة التقلب
   const atr = calcATR14(bars) || price * 0.03;
   const atrPct = atr / price;
   
-  // 2. الدعم والمقاومة الحقيقيان
   const recent = bars.slice(-20);
   const support = Math.min(...recent.map(b => b.l));
   const resistance = Math.max(...recent.map(b => b.h));
   const range = Math.max(resistance - support, price * 0.01);
   
-  // 3. 🎯 تحديد النسب ديناميكياً حسب التقلب
   let stopPct, entryPct, target1Pct, target2Pct, target3Pct;
   
   if (atrPct > 0.12) {
-    // 📊 سهم عالي التقلب (GME, SMCI, CVNA)
     stopPct = Math.min(atrPct * 1.8, 0.25);
     entryPct = Math.min(atrPct * 0.8, 0.10);
     target1Pct = Math.min(atrPct * 2.2, 0.35);
     target2Pct = Math.min(atrPct * 3.5, 0.60);
     target3Pct = Math.min(atrPct * 5.0, 0.90);
   } else if (atrPct > 0.06) {
-    // 📈 سهم متوسط التقلب (AAPL, NVDA, MSFT)
     stopPct = Math.min(atrPct * 1.5, 0.12);
     entryPct = Math.min(atrPct * 0.5, 0.05);
     target1Pct = Math.min(atrPct * 2.0, 0.18);
     target2Pct = Math.min(atrPct * 3.0, 0.35);
     target3Pct = Math.min(atrPct * 4.5, 0.55);
   } else {
-    // 📉 سهم منخفض التقلب (SPY, BRK, JPM)
     stopPct = Math.min(atrPct * 1.2, 0.04);
     entryPct = Math.min(atrPct * 0.3, 0.015);
     target1Pct = Math.min(atrPct * 1.8, 0.06);
@@ -362,7 +350,6 @@ function calcProfessionalLevels(price, bars, tradeStyle = "مضاربة") {
     target3Pct = Math.min(atrPct * 4.0, 0.20);
   }
   
-  // 4. تعديل حسب نمط التداول
   if (tradeStyle === "مضاربة") {
     stopPct = Math.min(stopPct * 0.7, 0.07);
     target1Pct = Math.min(target1Pct * 0.7, 0.10);
@@ -370,20 +357,16 @@ function calcProfessionalLevels(price, bars, tradeStyle = "مضاربة") {
     target3Pct = Math.min(target3Pct * 0.7, 0.35);
   }
   
-  // 5. حساب المستويات
   const stop = Math.max(support * 0.98, price * (1 - stopPct));
   const entry = Math.max(support + range * 0.382, price * (1 - entryPct));
   const t1 = Math.max(price * (1 + target1Pct), resistance * 0.98);
   const t2 = Math.max(price * (1 + target2Pct), t1 * 1.02);
   const t3 = Math.max(price * (1 + target3Pct), t2 * 1.03);
   
-  // 6. التأكد من صحة الترتيب (دعم < دخول < سعر < أهداف)
   const finalEntry = Math.min(entry, price * 0.98);
   const finalStop = Math.min(stop, finalEntry * 0.96);
-  
   const rr = (t1 - finalEntry) / (finalEntry - finalStop);
   
-  // 7. التنسيق
   const f2 = n => +n.toFixed(price < 1 ? 4 : 2);
   const pct = n => +(((n - price) / price) * 100).toFixed(2);
   
@@ -410,7 +393,7 @@ function calcProfessionalLevels(price, bars, tradeStyle = "مضاربة") {
   };
 }
 
-// ─── المستويات البسيطة (للأسهم العادية) ──────────────────────────
+// ─── المستويات البسيطة ─────────────────────────────────────────────
 function calcLevels(s) {
   const price = s.price;
   const tr = Math.max(s.high - s.low, Math.abs(s.high - s.prevClose), Math.abs(s.low - s.prevClose));
@@ -429,10 +412,7 @@ function calcLevels(s) {
 function computeStructureLevels(price, bars, tradeStyle = "مضاربة") {
   if (!bars || bars.length < 12 || !price) return null;
   
-  // 1. استخدام المستويات الاحترافية
   const prof = calcProfessionalLevels(price, bars, tradeStyle);
-  
-  // 2. حساب التأكيد والاتجاه
   const recent = bars.slice(-60);
   const { highs, lows } = findPivots(recent, 2);
   const recLows = recent.slice(-12).map(b => b.l);
@@ -449,11 +429,9 @@ function computeStructureLevels(price, bars, tradeStyle = "مضاربة") {
   const confirm = highsBelow.length ? Math.max(...highsBelow) : support + range * 0.5;
   const trendUp = price >= confirm;
   
-  // 3. حساب نسبة المخاطرة/العائد
   const riskEntry = prof.entry - prof.stop;
   const rr = riskEntry > 0 ? +(((prof.t1 - prof.entry) / riskEntry).toFixed(2)) : null;
   
-  // 4. تحديد حالة السهم
   let flag = "ينتظر تأكيد ⏳";
   if (trendUp && rr >= 1.3 && price >= prof.entry && price < prof.t1) {
     flag = "دخول صحيح ✅";
@@ -465,7 +443,6 @@ function computeStructureLevels(price, bars, tradeStyle = "مضاربة") {
     flag = "هابط ⛔";
   }
   
-  // 5. النتيجة النهائية
   const f2 = n => +Number(n).toFixed(price < 1 ? 4 : 2);
   const pct = n => +(((n - price) / price) * 100).toFixed(2);
   
@@ -648,13 +625,14 @@ function calcEP(s) {
   return Math.max(0, Math.min(ep, 99));
 }
 
-// ════════════════ جلب السوق ════════════════
+// ════════════════ جلب السوق (محسّن للسرعة) ════════════════
 async function fetchTopStocks() {
-  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?limit=500&apiKey=${POLYGON_KEY}`;
+  // ✅ جلب 300 سهم فقط (بدلاً من 500) لتوفير الوقت
+  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?limit=300&apiKey=${POLYGON_KEY}`;
   
   for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 3000);
+    const id = setTimeout(() => controller.abort(), 2500);
     try {
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(id);
@@ -692,12 +670,12 @@ async function fetchTopStocks() {
       }).filter(tk => tk !== false);
       
       const byVolume = [...valid].sort((a, b) => b._volume - a._volume);
-      const topByVolume = byVolume.slice(0, 300);
+      const topByVolume = byVolume.slice(0, 200);
       
       const byChange = [...valid]
         .filter(tk => tk._changePct >= 2 && tk._changePct <= 40)
         .sort((a, b) => b._changePct - a._changePct);
-      const topByChange = byChange.slice(0, 100);
+      const topByChange = byChange.slice(0, 60);
       
       const merged = [...topByVolume, ...topByChange];
       const seen = new Set();
@@ -729,7 +707,7 @@ async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
   const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&limit=${limit}&apiKey=${POLYGON_KEY}`;
   
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 2500);
+  const id = setTimeout(() => controller.abort(), 2000);
   try {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
@@ -757,7 +735,7 @@ async function fetchNews(symbol) {
   
   const url = `https://api.polygon.io/v2/reference/news?ticker=${symbol}&limit=3&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`;
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 2000);
+  const id = setTimeout(() => controller.abort(), 1500);
   try {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
@@ -986,7 +964,7 @@ export default async function handler(req, res) {
     const heavyLimit = isPreMarket ? FILTER.PREMARKET_LIMIT : FILTER.HEAVY_LIMIT;
     const top = scored.slice(0, heavyLimit);
 
-    await inBatches(top, 8, async (s) => {
+    await inBatches(top, 6, async (s) => {
       if (Date.now() > HARD_DEADLINE) {
         s._drop = true;
         s._dropReason = "timeout";
@@ -1030,7 +1008,6 @@ export default async function handler(req, res) {
           else s.ep = Math.min(99, s.ep + 2);
         }
         if (tech.bars && tech.bars.length >= 15) {
-          // ✅ استخدام المستويات الاحترافية
           const profLevels = calcProfessionalLevels(s.price, tech.bars, s.trade_style);
           s.levels = {
             t1: profLevels.t1,
@@ -1051,7 +1028,6 @@ export default async function handler(req, res) {
           };
           s.levels_source = "professional_dynamic";
           
-          // ✅ بنية السوق الاحترافية
           s.structure = computeStructureLevels(s.price, tech.bars, s.trade_style);
           
           if (s.structure && s.structure.support) {
@@ -1066,7 +1042,6 @@ export default async function handler(req, res) {
         }
         s.week_max_jump = tech.recentMaxJump;
 
-        // استراتيجية الارتداد
         const rsiOK = s.rsi != null && s.rsi <= REBOUND.RSI_MAX;
         const dvolOK = s.price * (s.volume || 0) >= REBOUND.MIN_DOLLAR_VOL && s.price >= REBOUND.MIN_PRICE;
         const vixOK = vixRank == null || vixRank < REBOUND.MAX_VIX_RANK;
@@ -1105,7 +1080,6 @@ export default async function handler(req, res) {
           }
         }
 
-        // استراتيجية الارتداد الذكي
         let smartBounce = null;
         if (tech && tech.bars && tech.bars.length >= 20) {
           const threeMinBars = await fetchAggs(s.symbol, 3, "minute", 1, 30);
@@ -1258,7 +1232,7 @@ export default async function handler(req, res) {
     }
 
     const finalists = top.filter(s => s._primaryConfluence);
-    await inBatches(finalists, 6, async (s) => {
+    await inBatches(finalists, 4, async (s) => {
       if (Date.now() > HARD_DEADLINE) return;
       const other = s.trade_style === "مضاربة"
         ? { mult: 1, span: "day", days: 140, limit: 200 }
