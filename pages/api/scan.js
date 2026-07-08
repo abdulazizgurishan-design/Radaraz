@@ -1,11 +1,10 @@
-// pages/api/scan.js — PROFESSIONAL EDITION v7 (نسب ديناميكية حسب التقلب)
+// pages/api/scan.js — PROFESSIONAL EDITION v8 (متكامل مع المصادر العشرة)
 // ═══════════════════════════════════════════════════════════════════
-//  🎯 الإصدار الاحترافي:
-//   ✅ نسب متغيرة حسب ATR (التقلب الحقيقي)
-//   ✅ دعم ومقاومة ديناميكية
-//   ✅ مناطق دخول ووقف خسارة ذكية
-//   ✅ أهداف متعددة حسب طبيعة السهم
+//  🎯 الإصدار الاحترافي المتكامل:
 //   ✅ مسح السوق بالكامل (10,000+ سهم)
+//   ✅ دمج 10 مصادر بيانات خارجية
+//   ✅ تحليل فني + أساسي + مشاعر + ماكرو
+//   ✅ نسب ديناميكية حسب ATR
 //   ✅ محسّن للسرعة (يشتغل خلال 9.5 ثوانٍ)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -17,6 +16,10 @@ const HARD_DEADLINE_MS = 9500;
 const POLYGON_KEY  = process.env.POLYGON_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
+
+// ─── ✅ استيراد المصادر والتحليل ────────────────────────────────────
+import { fetchAllSources } from '../../lib/sources';
+import { advancedAnalysis } from '../../lib/analyzer';
 
 // ─── 🗄️ نظام التخزين المؤقت (Cache) ──────────────────────────────
 const CACHE = {
@@ -832,12 +835,15 @@ export default async function handler(req, res) {
     const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
     const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
 
-    // ✅ جلب السوق بالكامل (10,000+ سهم)
-    const [allTickers, vixData] = await Promise.all([
+    // ✅ جلب السوق بالكامل والمصادر الخارجية بالتوازي
+    const [allTickers, vixData, externalData] = await Promise.all([
       fetchFullMarket(),
       fetchVixRank(),
+      fetchAllSources([]),
     ]);
+    
     const vixRank = vixData.available ? vixData.rank : null;
+    console.log(`✅ External sources loaded: ${Object.keys(externalData).length} sources`);
 
     if (Date.now() > HARD_DEADLINE) {
       console.log('⏰ Hard deadline reached after market fetch');
@@ -868,7 +874,6 @@ export default async function handler(req, res) {
       const price = min.vw || min.c || tk.lastTrade?.p || day.c || prev.c || 0;
       const volume = day.v || min.av || 0;
       
-      // ✅ فلتر سريع لتقليل العدد
       if (!tk.ticker || tk.ticker.includes(".")) continue;
       if (!/^[A-Z]{1,6}$/.test(tk.ticker)) continue;
       if (price < FILTER.MIN_PRICE || price > FILTER.MAX_PRICE) continue;
@@ -917,10 +922,20 @@ export default async function handler(req, res) {
         signal: ep >= 80 ? "💥 انفجاري" : ep >= 60 ? "🔥 عالي" : "👀 مراقبة" };
     });
 
-    scored.sort((a, b) => (b.is_hot !== a.is_hot) ? (b.is_hot ? 1 : -1) : (b.ep !== a.ep) ? b.ep - a.ep : b.rvol - a.rvol);
+    // ✅ دمج التحليل المتقدم مع المصادر الخارجية
+    const analyzed = advancedAnalysis(scored, externalData);
+    
+    // استخدام التحليل المتقدم بدلاً من scored
+    const enhancedScored = analyzed.map(item => ({
+      ...item,
+      ep: Math.min(99, Math.round(item.scores?.total || item.ep)),
+      recommendation: item.recommendation || 'WATCH',
+    }));
+
+    enhancedScored.sort((a, b) => (b.is_hot !== a.is_hot) ? (b.is_hot ? 1 : -1) : (b.ep !== a.ep) ? b.ep - a.ep : b.rvol - a.rvol);
 
     const heavyLimit = isPreMarket ? FILTER.PREMARKET_LIMIT : FILTER.HEAVY_LIMIT;
-    const top = scored.slice(0, heavyLimit);
+    const top = enhancedScored.slice(0, heavyLimit);
 
     await inBatches(top, 6, async (s) => {
       if (Date.now() > HARD_DEADLINE) {
@@ -1259,6 +1274,16 @@ export default async function handler(req, res) {
         final: top.filter(s => s.is_rebound).length,
         smart_bounce: survivors.filter(s => s.is_smart_bounce).length,
       },
+      external_sources: {
+        finviz: externalData.finviz?.length || 0,
+        fundamentals: externalData.fundamentals?.length || 0,
+        seekingAlpha: externalData.seekingAlpha?.length || 0,
+        etf: externalData.etf?.length || 0,
+        marketCap: externalData.marketCap?.length || 0,
+        macro: externalData.macro ? Object.keys(externalData.macro).length : 0,
+        fred: externalData.fred ? Object.keys(externalData.fred).length : 0,
+        reddit: externalData.reddit ? Object.keys(externalData.reddit).length : 0,
+      },
     };
     const pctOf = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
     debug.rates = {
@@ -1288,6 +1313,7 @@ export default async function handler(req, res) {
         timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
         market_scanned: allTickers.length, after_filter: candidates.length,
         debug,
+        external_sources: debug.external_sources,
       });
     }
 
@@ -1304,6 +1330,8 @@ export default async function handler(req, res) {
       preBreakout: s._preBreakout || false,
       is_smart_bounce: s.is_smart_bounce || false,
       smart_bounce_confidence: s.smart_bounce_confidence || 0,
+      recommendation: s.recommendation || 'WATCH',
+      recommendationScore: s.scores?.total || s.ep,
     });
 
     const results = survivors.map(toCard);
