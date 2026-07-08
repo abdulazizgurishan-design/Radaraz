@@ -14,25 +14,19 @@ const H = {
   "Content-Type": "application/json",
 };
 
-// ─── دوال تنسيق الأرقام (عرض كامل مع فواصل) ──────────────────
+// ─── دوال تنسيق الأرقام ──────────────────────────────────────────
 function formatMarketCap(value) {
   if (!value) return null;
-  // ✅ Finnhub يعيد القيمة السوقية بالملايين، نحولها إلى رقم كامل
+  // ✅ Finnhub يعيد القيمة بالملايين، نحولها إلى رقم كامل مع فواصل
   const num = Number(value) * 1000000;
-  return { 
-    value: num.toLocaleString(), 
-    suffix: '' 
-  };
+  return { value: num.toLocaleString(), suffix: '' };
 }
 
 function formatShares(value) {
   if (!value) return null;
-  // ✅ Finnhub يعيد الأسهم المتاحة بالملايين، نحولها إلى رقم كامل
+  // ✅ Finnhub يعيد الأسهم بالملايين، نحولها إلى رقم كامل مع فواصل
   const num = Number(value) * 1000000;
-  return { 
-    value: num.toLocaleString(), 
-    suffix: '' 
-  };
+  return { value: num.toLocaleString(), suffix: '' };
 }
 
 export default async function handler(req, res) {
