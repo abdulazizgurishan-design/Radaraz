@@ -78,6 +78,46 @@ const REBOUND = {
 
 // ════════════════ أدوات المؤشرات ════════════════
 
+// ─── ✅ دالة return3M (حساب العائد في 3 أشهر) ────────────────────────
+function return3M(dailyCloses) {
+  if (!dailyCloses || dailyCloses.length < 30) return null;
+  
+  const now = dailyCloses[dailyCloses.length - 1];
+  const idx = Math.max(0, dailyCloses.length - 63); // ~3 أشهر تداول
+  const then = dailyCloses[idx];
+  
+  if (!then || then <= 0) return null;
+  
+  // ✅ التحقق من وجود انقسامات سهمية (Stock Splits)
+  let hasSplitAnomaly = false;
+  for (let i = idx + 1; i < dailyCloses.length; i++) {
+    const prev = dailyCloses[i - 1];
+    const cur = dailyCloses[i];
+    if (prev > 0 && cur > 0) {
+      const jump = Math.abs(cur - prev) / prev;
+      if (jump > 0.40) { // قفزة 40%+ تعني احتمال وجود انقسام
+        hasSplitAnomaly = true;
+        break;
+      }
+    }
+  }
+  
+  let base = then;
+  if (hasSplitAnomaly) {
+    // استخدام فترة أقصر لتجنب تأثير الانقسام
+    const shortIdx = Math.max(0, dailyCloses.length - 20);
+    base = dailyCloses[shortIdx];
+    if (!base || base <= 0) return null;
+  }
+  
+  const ret = ((now - base) / base) * 100;
+  
+  // ✅ استبعاد القيم غير المنطقية
+  if (ret > 300 || ret < -95) return null;
+  
+  return ret;
+}
+
 function calcEMA(prices, period) {
   if (!prices || prices.length < period) return null;
   const k = 2 / (period + 1);
@@ -253,7 +293,6 @@ function calcProfessionalLevels(price, bars, tradeStyle = "مضاربة") {
   const support = Math.min(...recent.map(b => b.l));
   const resistance = Math.max(...recent.map(b => b.h));
   const range = Math.max(resistance - support, price * 0.01);
-  const rangePct = range / price;
   
   // 3. 🎯 تحديد النسب ديناميكياً حسب التقلب
   let stopPct, entryPct, target1Pct, target2Pct, target3Pct;
