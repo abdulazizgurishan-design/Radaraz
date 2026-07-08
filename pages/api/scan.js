@@ -5,6 +5,7 @@
 //   ✅ دعم ومقاومة ديناميكية
 //   ✅ مناطق دخول ووقف خسارة ذكية
 //   ✅ أهداف متعددة حسب طبيعة السهم
+//   ✅ مسح السوق بالكامل (10,000+ سهم)
 //   ✅ محسّن للسرعة (يشتغل خلال 9.5 ثوانٍ)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -52,14 +53,14 @@ async function inBatches(items, size, fn) {
 const FILTER = {
   MIN_PRICE:      0.30,
   MAX_PRICE:      500,
-  MIN_VOLUME:     300_000,
-  MIN_CHANGE:     2,
+  MIN_VOLUME:     100_000,
+  MIN_CHANGE:     1.5,
   MAX_CHANGE:     40,
   MAX_RVOL:       100,
   MAX_RESULTS:    60,
-  HEAVY_LIMIT:    40,
-  PREMARKET_LIMIT: 20,
-  SAVE_MIN_EP:    55,
+  HEAVY_LIMIT:    60,
+  PREMARKET_LIMIT: 25,
+  SAVE_MIN_EP:    50,
   STRICT_PRICE:   0.50,
 };
 
@@ -625,76 +626,27 @@ function calcEP(s) {
   return Math.max(0, Math.min(ep, 99));
 }
 
-// ════════════════ جلب السوق (محسّن للسرعة) ════════════════
-async function fetchTopStocks() {
-  // ✅ جلب 300 سهم فقط (بدلاً من 500) لتوفير الوقت
-  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?limit=300&apiKey=${POLYGON_KEY}`;
+// ════════════════ جلب السوق بالكامل (10,000+ سهم) ════════════════
+async function fetchFullMarket() {
+  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`;
   
   for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 2500);
+    const id = setTimeout(() => controller.abort(), 4000);
     try {
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(id);
       if (!res.ok) throw new Error(`Polygon ${res.status}`);
       const data = await res.json();
-      
-      const valid = data.tickers.filter(tk => {
-        if (!tk.ticker || tk.ticker.includes(".")) return false;
-        if (!/^[A-Z]{1,6}$/.test(tk.ticker)) return false;
-        
-        const day = tk.day || {};
-        const min = tk.min || {};
-        const price = min.vw || min.c || tk.lastTrade?.p || day.c || 0;
-        const volume = day.v || min.av || 0;
-        const prevClose = tk.prevDay?.c || 0;
-        
-        if (price < 0.5 || price > 800) return false;
-        if (volume < 100_000) return false;
-        
-        let changePct = tk.todaysChangePerc;
-        if (changePct == null && prevClose > 0) {
-          changePct = ((price - prevClose) / prevClose) * 100;
-        }
-        
-        if (Math.abs(changePct || 0) < 2) return false;
-        if (Math.abs(changePct || 0) > 40) return false;
-        
-        return {
-          ...tk,
-          _price: price,
-          _volume: volume,
-          _changePct: changePct || 0,
-          _dollarVol: price * volume,
-        };
-      }).filter(tk => tk !== false);
-      
-      const byVolume = [...valid].sort((a, b) => b._volume - a._volume);
-      const topByVolume = byVolume.slice(0, 200);
-      
-      const byChange = [...valid]
-        .filter(tk => tk._changePct >= 2 && tk._changePct <= 40)
-        .sort((a, b) => b._changePct - a._changePct);
-      const topByChange = byChange.slice(0, 60);
-      
-      const merged = [...topByVolume, ...topByChange];
-      const seen = new Set();
-      const unique = merged.filter(tk => {
-        if (seen.has(tk.ticker)) return false;
-        seen.add(tk.ticker);
-        return true;
-      });
-      
-      console.log(`✅ جلب ${unique.length} سهماً`);
-      return unique;
-      
+      console.log(`✅ جلب ${data.tickers?.length || 0} سهماً (السوق بالكامل)`);
+      return data.tickers || [];
     } catch (err) {
       clearTimeout(id);
       if (attempt === 1) throw err;
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 300));
     }
   }
-  throw new Error("Failed to fetch top stocks");
+  throw new Error("Failed to fetch market");
 }
 
 async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
@@ -880,8 +832,9 @@ export default async function handler(req, res) {
     const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
     const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
 
+    // ✅ جلب السوق بالكامل (10,000+ سهم)
     const [allTickers, vixData] = await Promise.all([
-      fetchTopStocks(),
+      fetchFullMarket(),
       fetchVixRank(),
     ]);
     const vixRank = vixData.available ? vixData.rank : null;
@@ -901,7 +854,7 @@ export default async function handler(req, res) {
     }
 
     const spyT = allTickers.find(t => t.ticker === "SPY");
-    const spyPx = spyT?._price || 0;
+    const spyPx = spyT?.day?.c || spyT?.min?.c || 0;
     const spyVW = spyT?.day?.vw || 0;
     const marketWeak = spyPx > 0 && spyVW > 0 && spyPx < spyVW;
     const marketKnown = spyPx > 0 && spyVW > 0;
@@ -914,18 +867,23 @@ export default async function handler(req, res) {
       const day = tk.day || {}, prev = tk.prevDay || {}, min = tk.min || {};
       const price = min.vw || min.c || tk.lastTrade?.p || day.c || prev.c || 0;
       const volume = day.v || min.av || 0;
+      
+      // ✅ فلتر سريع لتقليل العدد
       if (!tk.ticker || tk.ticker.includes(".")) continue;
       if (!/^[A-Z]{1,6}$/.test(tk.ticker)) continue;
       if (price < FILTER.MIN_PRICE || price > FILTER.MAX_PRICE) continue;
       if (volume < minVolume) continue;
+      
       const prevClose = prev.c || day.o || price;
       let changePct = tk.todaysChangePerc;
       if (changePct == null || changePct === 0) changePct = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
       if (changePct < FILTER.MIN_CHANGE) continue;
       if (changePct > FILTER.MAX_CHANGE) continue;
+      
       const gapPct = (day.o && prevClose) ? ((day.o - prevClose) / prevClose) * 100 : 0;
       let rvol = (prev.v && prev.v > 0) ? +(volume / prev.v).toFixed(1) : 0;
       if (rvol > FILTER.MAX_RVOL) continue;
+      
       candidates.push({
         symbol: tk.ticker, price: +price.toFixed(2), open: day.o || price, volume,
         vwap: day.vw || min.vw || 0, high: day.h || min.h || price, low: day.l || min.l || price,
@@ -1142,9 +1100,9 @@ export default async function handler(req, res) {
         const band = st.resistance - st.support;
         const pos = band > 0 ? (s.price - st.support) / band : 1;
         const confirmed = s.price >= st.confirm;
-        const rrOk = st.rr != null && st.rr >= 1.3;
+        const rrOk = st.rr != null && st.rr >= 1.0;
         const room = st.resistance > s.price * 1.01;
-        const fresh = pos <= 0.72;
+        const fresh = pos <= 0.80;
 
         let adj = 0, flag;
         if (confirmed && rrOk && room && fresh) { adj = 7; flag = "دخول صحيح ✅"; }
