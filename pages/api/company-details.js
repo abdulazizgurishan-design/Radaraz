@@ -1,5 +1,4 @@
 // pages/api/company-details.js
-// جلب تفاصيل الشركة (Market Cap, Shares, Shortable, Short Interest, Description, Sector, etc.)
 // ═══════════════════════════════════════════════════════════════════
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
@@ -14,25 +13,23 @@ const H = {
   "Content-Type": "application/json",
 };
 
-// ─── دوال تنسيق الأرقام ──────────────────────────────────────────
-function formatMarketCap(value) {
+// ─── ✅ دوال تحويل الأرقام ──────────────────────────────────────────
+function formatNumber(value) {
   if (!value) return null;
-  // ✅ Finnhub يعيد القيمة بالملايين، نحولها إلى رقم كامل مع فواصل
+  // Finnhub يعيد القيمة بالملايين، نحولها إلى رقم كامل مع فواصل
   const num = Number(value) * 1000000;
-  return { value: num.toLocaleString(), suffix: '' };
-}
-
-function formatShares(value) {
-  if (!value) return null;
-  // ✅ Finnhub يعيد الأسهم بالملايين، نحولها إلى رقم كامل مع فواصل
-  const num = Number(value) * 1000000;
-  return { value: num.toLocaleString(), suffix: '' };
+  return num.toLocaleString();
 }
 
 export default async function handler(req, res) {
   const { symbol } = req.query;
+  
+  // ✅ التحقق من وجود الرمز
   if (!symbol) {
-    return res.status(400).json({ error: "Symbol required" });
+    return res.status(200).json({
+      success: false,
+      error: "Symbol required",
+    });
   }
 
   try {
@@ -46,9 +43,11 @@ export default async function handler(req, res) {
         shortable = asset?.shortable || false;
         easyToBorrow = asset?.easy_to_borrow || false;
       }
-    } catch {}
+    } catch (e) {
+      console.warn('Alpaca error:', e.message);
+    }
 
-    // ─── 2. من Finnhub (نبذة الشركة الكاملة) ──────────────────
+    // ─── 2. من Finnhub (نبذة الشركة) ──────────────────────────
     let companyName = null;
     let description = null;
     let sector = null;
@@ -78,14 +77,16 @@ export default async function handler(req, res) {
           
           if (profile.marketCapitalization) {
             marketCap = profile.marketCapitalization;
-            marketCapFormatted = formatMarketCap(marketCap);
+            marketCapFormatted = formatNumber(marketCap);
           }
           if (profile.shareOutstanding) {
             sharesOutstanding = profile.shareOutstanding;
-            sharesFormatted = formatShares(sharesOutstanding);
+            sharesFormatted = formatNumber(sharesOutstanding);
           }
         }
-      } catch {}
+      } catch (e) {
+        console.warn('Finnhub error:', e.message);
+      }
     }
 
     // ─── 3. من Polygon (short interest) ──────────────────────────
@@ -99,36 +100,39 @@ export default async function handler(req, res) {
         const siData = await siRes.json();
         shortInterest = siData?.results?.[0]?.short_interest || null;
         if (shortInterest) {
-          shortInterestFormatted = formatShares(shortInterest);
+          shortInterestFormatted = formatNumber(shortInterest);
         }
       }
-    } catch {}
+    } catch (e) {
+      console.warn('Polygon short interest error:', e.message);
+    }
 
-    // ─── 4. الرد ──────────────────────────────────────────────────
+    // ─── 4. الرد (مع التأكد من عدم وجود undefined) ──────────────
     return res.status(200).json({
       success: true,
-      symbol,
-      companyName,
-      description,
-      sector,
-      industry,
-      employees,
-      ceo,
-      website,
-      marketCap,
-      marketCapFormatted,
-      sharesOutstanding,
-      sharesFormatted,
-      shortable,
-      easyToBorrow,
-      shortInterest,
-      shortInterestFormatted,
+      symbol: symbol || null,
+      companyName: companyName || null,
+      description: description || null,
+      sector: sector || null,
+      industry: industry || null,
+      employees: employees || null,
+      ceo: ceo || null,
+      website: website || null,
+      marketCap: marketCap || null,
+      marketCapFormatted: marketCapFormatted || null,
+      sharesOutstanding: sharesOutstanding || null,
+      sharesFormatted: sharesFormatted || null,
+      shortable: shortable || false,
+      easyToBorrow: easyToBorrow || false,
+      shortInterest: shortInterest || null,
+      shortInterestFormatted: shortInterestFormatted || null,
     });
 
   } catch (error) {
+    console.error('Company details error:', error);
     return res.status(200).json({
       success: false,
-      error: error.message,
+      error: error.message || "Failed to fetch company details",
     });
   }
 }
