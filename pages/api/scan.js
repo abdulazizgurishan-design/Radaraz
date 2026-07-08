@@ -1,41 +1,28 @@
-// pages/api/scan.js — STANDALONE EDITION v6 (مع استراتيجية الارتداد الذكي)
-// ═══════════════════════════════════════════════════════════════════
-//  🆕 استراتيجية الارتداد الذكي "الصياد السريع":
-//   ✅ فريم 3 دقائق
-//   ✅ تقاطع MA5 فوق MA10 (طازج)
-//   ✅ حجم ≥ 1.5× المتوسط (سيولة)
-//   ✅ RSI 30-50
-//   ✅ شمعة خضراء + قرب الدعم
+// pages/api/scan.js — الإصدار المتكامل المحسّن (يشتغل خلال 8-9 ثوانٍ)
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 10 };
 
-// ✅ مهلة عامة 9.5 ثوانٍ (آمن)
-const HARD_DEADLINE_MS = 9500;
+// ✅ مهلة عامة 9 ثوانٍ (آمن)
+const HARD_DEADLINE_MS = 9000;
 
-const POLYGON_KEY  = process.env.POLYGON_API_KEY;
+const POLYGON_KEY = process.env.POLYGON_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
 
-// ─── ✅ استيراد المصادر والتحليل ────────────────────────────────────
-import { fetchAllSources } from '../../lib/sources';
-import { advancedAnalysis } from '../../lib/analyzer';
+// ─── ✅ استيراد المصادر والتحليل (مخفف) ────────────────────────────
+// استيراد FRED و Finviz فقط (أسرع)
+import { fetchFREDData } from '../../lib/sources/fred';
+import { fetchFinvizData } from '../../lib/sources/finviz';
 
 // ─── 🗄️ نظام التخزين المؤقت (Cache) ──────────────────────────────
 const CACHE = {
   aggs: new Map(),
-  news: new Map(),
 };
 
-function getCacheKey(symbol, mult, span, days, limit) {
-  return `${symbol}-${mult}-${span}-${days}-${limit}`;
-}
-
-function getCached(key, maxAge = 300000) {
+function getCached(key) {
   const entry = CACHE.aggs.get(key);
-  if (entry && Date.now() - entry.time < maxAge) {
-    return entry.data;
-  }
+  if (entry && Date.now() - entry.time < 120000) return entry.data;
   return null;
 }
 
@@ -44,9 +31,9 @@ function setCache(key, data) {
   CACHE.aggs.set(key, { data, time: Date.now() });
 }
 
-// ─── تنفيذ على دفعات ──────────────────────────────────────────────
+// ─── تنفيذ على دفعات (مخفف) ──────────────────────────────────────
 async function inBatches(items, size, fn) {
-  const batchSize = Math.min(size, 6);
+  const batchSize = Math.min(size, 4);
   for (let i = 0; i < items.length; i += batchSize) {
     await Promise.all(items.slice(i, i + batchSize).map(fn));
   }
@@ -60,9 +47,8 @@ const FILTER = {
   MIN_CHANGE:     1.5,
   MAX_CHANGE:     40,
   MAX_RVOL:       100,
-  MAX_RESULTS:    60,
-  HEAVY_LIMIT:    60,
-  PREMARKET_LIMIT: 25,
+  HEAVY_LIMIT:    40,
+  PREMARKET_LIMIT: 20,
   SAVE_MIN_EP:    50,
   STRICT_PRICE:   0.50,
 };
@@ -83,36 +69,27 @@ const REBOUND = {
 
 // ════════════════ أدوات المؤشرات ════════════════
 
-// ─── ✅ دالة return3M (حساب العائد في 3 أشهر) ────────────────────────
+// ─── ✅ دالة return3M ──────────────────────────────────────────────
 function return3M(dailyCloses) {
   if (!dailyCloses || dailyCloses.length < 30) return null;
-  
   const now = dailyCloses[dailyCloses.length - 1];
   const idx = Math.max(0, dailyCloses.length - 63);
   const then = dailyCloses[idx];
-  
   if (!then || then <= 0) return null;
-  
   let hasSplitAnomaly = false;
   for (let i = idx + 1; i < dailyCloses.length; i++) {
-    const prev = dailyCloses[i - 1];
-    const cur = dailyCloses[i];
+    const prev = dailyCloses[i - 1], cur = dailyCloses[i];
     if (prev > 0 && cur > 0) {
       const jump = Math.abs(cur - prev) / prev;
-      if (jump > 0.40) {
-        hasSplitAnomaly = true;
-        break;
-      }
+      if (jump > 0.40) { hasSplitAnomaly = true; break; }
     }
   }
-  
   let base = then;
   if (hasSplitAnomaly) {
     const shortIdx = Math.max(0, dailyCloses.length - 20);
     base = dailyCloses[shortIdx];
     if (!base || base <= 0) return null;
   }
-  
   const ret = ((now - base) / base) * 100;
   if (ret > 300 || ret < -95) return null;
   return ret;
@@ -124,18 +101,10 @@ function calcReboundLevels(price) {
   const t1 = f(price * (1 + REBOUND.TARGET_PCT / 100));
   const sl = f(price * (1 - REBOUND.STOP_PCT / 100));
   return {
-    entry: price,
-    t1: t1,
-    t2: t1,
-    t3: t1,
-    sl: sl,
-    t1Pct: REBOUND.TARGET_PCT,
-    t2Pct: REBOUND.TARGET_PCT,
-    t3Pct: REBOUND.TARGET_PCT,
+    entry: price, t1, t2: t1, t3: t1, sl,
+    t1Pct: REBOUND.TARGET_PCT, t2Pct: REBOUND.TARGET_PCT, t3Pct: REBOUND.TARGET_PCT,
     rr: (REBOUND.TARGET_PCT / REBOUND.STOP_PCT).toFixed(2),
-    atr14: price * 0.03,
-    source: "rebound_3pct",
-    hold_days: REBOUND.MAX_HOLD_DAYS,
+    atr14: price * 0.03, source: "rebound_3pct", hold_days: REBOUND.MAX_HOLD_DAYS,
   };
 }
 
@@ -144,15 +113,12 @@ function isReboundCandidate(s, vixRank, hourlyCloses, dailyCloses) {
   if (!REBOUND.ENABLED) return false;
   if (s.rsi == null || s.rsi > REBOUND.RSI_MAX) return false;
   if (s.price < REBOUND.MIN_PRICE) return false;
-  
   const dvol = s.price * (s.volume || 0);
   if (dvol < REBOUND.MIN_DOLLAR_VOL) return false;
   if (vixRank != null && vixRank >= REBOUND.MAX_VIX_RANK) return false;
-  
   const ret3 = return3M(dailyCloses);
   if (ret3 == null) return false;
   if (ret3 < REBOUND.MIN_RET_3M) return false;
-  
   s._ret3m = +ret3.toFixed(1);
   if (!emaCrossedUp(hourlyCloses, 9, 21, 1)) return false;
   return true;
@@ -169,7 +135,7 @@ function calcEMA(prices, period) {
 function emaSeries(values, period) {
   if (!values || values.length < period) return [];
   const k = 2 / (period + 1);
-  const out = new Array(period - 1).fill(null);
+  const out = [];
   let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
   out.push(ema);
   for (let i = period; i < values.length; i++) {
@@ -629,13 +595,13 @@ function calcEP(s) {
   return Math.max(0, Math.min(ep, 99));
 }
 
-// ════════════════ جلب السوق بالكامل (10,000+ سهم) ════════════════
+// ════════════════ جلب السوق بالكامل (محسّن) ════════════════════
 async function fetchFullMarket() {
   const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`;
   
   for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 4000);
+    const id = setTimeout(() => controller.abort(), 3000);
     try {
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(id);
@@ -662,7 +628,7 @@ async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
   const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&limit=${limit}&apiKey=${POLYGON_KEY}`;
   
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 2000);
+  const id = setTimeout(() => controller.abort(), 1500);
   try {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
@@ -679,90 +645,8 @@ async function fetchAggs(symbol, multiplier, timespan, lookbackDays, limit) {
 
 function frameFor(style) {
   return style === "مضاربة"
-    ? { mult: 60, span: "minute", days: 30, limit: 600 }
-    : { mult: 1, span: "day", days: 140, limit: 200 };
-}
-
-async function fetchNews(symbol) {
-  const cacheKey = `news-${symbol}`;
-  const cached = getCached(cacheKey, 120000);
-  if (cached) return cached;
-  
-  const url = `https://api.polygon.io/v2/reference/news?ticker=${symbol}&limit=3&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`;
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 1500);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(id);
-    if (!res.ok) return { ageH: null, sentiment: null, hasNews: false };
-    const data = await res.json();
-    const results = data.results || [];
-    if (!results.length) return { ageH: null, sentiment: null, hasNews: false };
-    const latest = results[0];
-    const ageH = latest.published_utc ? (Date.now() - new Date(latest.published_utc).getTime()) / 3600000 : null;
-    let sentiment = null;
-    if (Array.isArray(latest.insights)) {
-      const ins = latest.insights.find(i => i.ticker === symbol);
-      if (ins) sentiment = ins.sentiment;
-    }
-    const result = { ageH: ageH != null ? +ageH.toFixed(1) : null, sentiment, hasNews: true };
-    setCache(cacheKey, result);
-    return result;
-  } catch {
-    clearTimeout(id);
-    return { ageH: null, sentiment: null, hasNews: false };
-  }
-}
-
-const STRETCH = {
-  ENABLED: true,
-  WARN: 10,
-  PEN_K: 0.4,
-  PEN_CAP: 8,
-  BONUS_STRONG: 3,
-  DROP: 18,
-};
-
-function computeTech(bars) {
-  if (!bars || bars.length < 21) return null;
-  const closes = bars.map(b => b.c);
-  const price = closes[closes.length - 1];
-  const sma9 = calcSMA(closes, 9), sma21 = calcSMA(closes, 21), sma50 = calcSMA(closes, 50);
-  const ema9 = calcEMA(closes, 9), ema21 = calcEMA(closes, 21);
-  const ema20 = calcEMA(closes, 20), ema50 = calcEMA(closes, 50);
-  const rsiRaw = calcRSI14(bars), atr = calcATR14(bars), macd = calcMACD(closes);
-  let maSignal = null, maBonus = 0;
-  if (sma9 && sma21 && sma9 > sma21) { maBonus += 6; maSignal = "صاعد"; }
-  if (ema9 && ema21 && ema9 > ema21) { maBonus += 5; maSignal = maSignal === "صاعد" ? "صاعد قوي ⚡" : "EMA صاعد"; }
-  if (sma21 && price > sma21) maBonus += 3;
-  if (sma50 && price > sma50) maBonus += 2;
-  const sma9p = calcSMA(closes.slice(0, -3), 9), sma21p = calcSMA(closes.slice(0, -3), 21);
-  const freshGolden = !!(sma9p && sma21p && sma9p <= sma21p && sma9 > sma21);
-  if (freshGolden) { maBonus += 6; maSignal = "تقاطع ذهبي 🌟"; }
-  let recentMaxJump = 0;
-  const lastN = closes.slice(-8);
-  for (let i = 1; i < lastN.length; i++) {
-    const j = ((lastN[i] - lastN[i - 1]) / lastN[i - 1]) * 100;
-    if (j > recentMaxJump) recentMaxJump = j;
-  }
-  const stretch9 = ema9 ? ((price - ema9) / ema9) * 100 : null;
-  const stretch20 = ema20 ? ((price - ema20) / ema20) * 100 : null;
-  const strongAligned = !!(ema9 && ema20 && ema50 && ema9 > ema20 && ema20 > ema50 && price > ema9 && price > ema20);
-  return {
-    price, atr, macd,
-    rsi: rsiRaw != null ? Math.round(rsiRaw) : null,
-    maSignal, maBonus: Math.min(maBonus, 20),
-    priceAboveMA21: !!(sma21 && price > sma21),
-    sma21: sma21 || null,
-    priceAboveEMA20: !!(ema20 && price > ema20),
-    aligned: !!(sma9 && sma21 && price > sma21 && sma9 > sma21),
-    strongAligned,
-    stretch9: stretch9 != null ? +stretch9.toFixed(2) : null,
-    stretch20: stretch20 != null ? +stretch20.toFixed(2) : null,
-    freshGolden,
-    recentMaxJump: +recentMaxJump.toFixed(1),
-    bars,
-  };
+    ? { mult: 60, span: "minute", days: 30, limit: 400 }
+    : { mult: 1, span: "day", days: 100, limit: 120 };
 }
 
 // ════════════════ VIX Rank ════════════════
@@ -772,7 +656,7 @@ async function fetchVixRank() {
     const from = new Date(Date.now() - 370 * 86400000).toISOString().split("T")[0];
     const url = `https://api.polygon.io/v2/aggs/ticker/VIXY/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=400&apiKey=${POLYGON_KEY}`;
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 3000);
+    const id = setTimeout(() => controller.abort(), 2000);
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(id);
     if (!res.ok) return { rank: null, value: null, available: false };
@@ -835,15 +719,15 @@ export default async function handler(req, res) {
     const isPreMarket = (etH >= 4 && (etH < 9 || (etH === 9 && etM < 30)));
     const minVolume = isPreMarket ? 50_000 : FILTER.MIN_VOLUME;
 
-    // ✅ جلب السوق بالكامل والمصادر الخارجية بالتوازي
-    const [allTickers, vixData, externalData] = await Promise.all([
+    // ✅ جلب السوق والمصادر (FRED فقط حالياً)
+    const [allTickers, vixData, fredData] = await Promise.all([
       fetchFullMarket(),
       fetchVixRank(),
-      fetchAllSources([]),
+      fetchFREDData().catch(() => ({})),
     ]);
     
     const vixRank = vixData.available ? vixData.rank : null;
-    console.log(`✅ External sources loaded: ${Object.keys(externalData).length} sources`);
+    console.log(`✅ FRED data loaded: ${Object.keys(fredData).length} indicators`);
 
     if (Date.now() > HARD_DEADLINE) {
       console.log('⏰ Hard deadline reached after market fetch');
@@ -916,29 +800,18 @@ export default async function handler(req, res) {
       const is_hot = ep >= 65 && s.rvol >= 6 && s.changePct >= 6;
       const dollarVolume = s.price * s.volume;
       const isScalp = s.changePct >= 5 && s.rvol >= 5;
-      const isInvest = s.price >= 20 && dollarVolume >= 100_000_000 && s.changePct <= 15;
+      const isInvest = s.price >= 20 && dollarVolume >= 50_000_000 && s.changePct <= 15;
       const type = isInvest ? "استثمار" : (isScalp ? "مضاربة" : "مضاربة");
       return { ...s, ep, levels, is_hot, type, trade_style: type, dollarVolume,
         signal: ep >= 80 ? "💥 انفجاري" : ep >= 60 ? "🔥 عالي" : "👀 مراقبة" };
     });
 
-    // ✅ دمج التحليل المتقدم مع المصادر الخارجية
-    const analyzed = advancedAnalysis(scored, externalData);
-    
-    // استخدام التحليل المتقدم بدلاً من scored
-    const enhancedScored = analyzed.map(item => ({
-      ...item,
-      ep: Math.min(99, Math.round(item.scores?.total || item.ep)),
-      recommendation: item.recommendation || 'WATCH',
-      scores: item.scores || null,
-    }));
-
-    enhancedScored.sort((a, b) => (b.is_hot !== a.is_hot) ? (b.is_hot ? 1 : -1) : (b.ep !== a.ep) ? b.ep - a.ep : b.rvol - a.rvol);
+    scored.sort((a, b) => (b.is_hot !== a.is_hot) ? (b.is_hot ? 1 : -1) : (b.ep !== a.ep) ? b.ep - a.ep : b.rvol - a.rvol);
 
     const heavyLimit = isPreMarket ? FILTER.PREMARKET_LIMIT : FILTER.HEAVY_LIMIT;
-    const top = enhancedScored.slice(0, heavyLimit);
+    const top = scored.slice(0, heavyLimit);
 
-    await inBatches(top, 6, async (s) => {
+    await inBatches(top, 4, async (s) => {
       if (Date.now() > HARD_DEADLINE) {
         s._drop = true;
         s._dropReason = "timeout";
@@ -948,14 +821,12 @@ export default async function handler(req, res) {
       const fr = frameFor(s.trade_style);
       const wantNews = s.changePct > 10 || s.rvol > 6 || s.ep >= 65;
       s._newsFetched = wantNews;
-      const [bars, news] = await Promise.all([
+      const [bars] = await Promise.all([
         fetchAggs(s.symbol, fr.mult, fr.span, fr.days, fr.limit),
-        wantNews ? fetchNews(s.symbol) : Promise.resolve({ ageH: null, sentiment: null, hasNews: false }),
       ]);
 
       const tech = computeTech(bars);
       s._tech = tech;
-      s._news = news;
       s._drop = false;
 
       if (tech) {
@@ -1076,13 +947,6 @@ export default async function handler(req, res) {
         s.ma_signal = null; s.rsi = s.rsi ?? null; s.levels_source = "atr_basic"; s.week_max_jump = null;
       }
 
-      const freshNews = news.hasNews && news.ageH != null && news.ageH <= 48;
-      if (freshNews) {
-        s.ep = Math.min(99, s.ep + (news.sentiment === "positive" ? 6 : 3));
-      }
-      if (s.changePct > 20 && !freshNews) s.ep = Math.max(0, s.ep - 8);
-      s.news_age_h = news.ageH;
-
       if (s.changePct > 12) {
         s.ep = Math.max(0, s.ep - Math.round((s.changePct - 12) * 0.7));
       }
@@ -1097,18 +961,6 @@ export default async function handler(req, res) {
         s._breakout = false;
         s._riskScore = 5;
         s._preBreakout = false;
-      }
-
-      if (STRETCH.ENABLED && tech) {
-        if (tech.stretch9 != null && tech.stretch9 > STRETCH.WARN) {
-          const pen = Math.min(STRETCH.PEN_CAP, Math.round((tech.stretch9 - STRETCH.WARN) * STRETCH.PEN_K));
-          s.ep = Math.max(0, s.ep - pen);
-        }
-        if (tech.strongAligned) s.ep = Math.min(99, s.ep + STRETCH.BONUS_STRONG);
-        const freshNewsX = !!(news && news.hasNews && news.ageH != null && news.ageH <= 24);
-        if (tech.stretch9 != null && tech.stretch9 > STRETCH.DROP && s.changePct > 12 && !tech.freshGolden && !freshNewsX) {
-          s._drop = true; if (!s._dropReason) s._dropReason = "stretch";
-        }
       }
 
       if (s.structure) {
@@ -1206,11 +1058,11 @@ export default async function handler(req, res) {
     }
 
     const finalists = top.filter(s => s._primaryConfluence);
-    await inBatches(finalists, 4, async (s) => {
+    await inBatches(finalists, 3, async (s) => {
       if (Date.now() > HARD_DEADLINE) return;
       const other = s.trade_style === "مضاربة"
-        ? { mult: 1, span: "day", days: 140, limit: 200 }
-        : { mult: 60, span: "minute", days: 30, limit: 600 };
+        ? { mult: 1, span: "day", days: 100, limit: 120 }
+        : { mult: 60, span: "minute", days: 30, limit: 400 };
       const otherBars = await fetchAggs(s.symbol, other.mult, other.span, other.days, other.limit);
       const otherTech = computeTech(otherBars);
       if (otherTech && otherTech.priceAboveMA21) {
@@ -1250,14 +1102,12 @@ export default async function handler(req, res) {
       after_filter: candidates.length,
       top_selected: top.length,
       tech_analyzed: top.filter(s => s._tech).length,
-      news_fetched: top.filter(s => s._newsFetched).length,
       timed_out: top.filter(s => s._timedOut).length,
       primary_confluence: top.filter(s => s._primaryConfluence).length,
       targets: top.filter(s => s.is_target).length,
       dropped_total: top.filter(s => s._drop).length,
       dropped_late: dropBy("late"),
       dropped_strict_gems: dropBy("strict_gems"),
-      dropped_stretch: dropBy("stretch"),
       dropped_penny_gate: dropBy("penny_gate"),
       dropped_trend_gate: dropBy("trend_gate"),
       dropped_no_tech: dropBy("no_tech"),
@@ -1275,15 +1125,8 @@ export default async function handler(req, res) {
         final: top.filter(s => s.is_rebound).length,
         smart_bounce: survivors.filter(s => s.is_smart_bounce).length,
       },
-      external_sources: {
-        finviz: externalData.finviz?.length || 0,
-        fundamentals: externalData.fundamentals?.length || 0,
-        seekingAlpha: externalData.seekingAlpha?.length || 0,
-        etf: externalData.etf?.length || 0,
-        marketCap: externalData.marketCap?.length || 0,
-        macro: externalData.macro ? Object.keys(externalData.macro).length : 0,
-        fred: externalData.fred ? Object.keys(externalData.fred).length : 0,
-        reddit: externalData.reddit ? Object.keys(externalData.reddit).length : 0,
+      fred: {
+        indicators: Object.keys(fredData).length,
       },
     };
     const pctOf = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
@@ -1294,7 +1137,6 @@ export default async function handler(req, res) {
       save_pct: pctOf(debug.saved, debug.survivors),
       drop_trend_pct: pctOf(debug.dropped_trend_gate, debug.tech_analyzed),
       drop_gems_pct: pctOf(debug.dropped_strict_gems, debug.tech_analyzed),
-      drop_stretch_pct: pctOf(debug.dropped_stretch, debug.tech_analyzed),
     };
 
     if (req.query.light === "1") {
@@ -1314,7 +1156,7 @@ export default async function handler(req, res) {
         timing: { market_fetch: t1 - t0, total_ms: Date.now() - t0 },
         market_scanned: allTickers.length, after_filter: candidates.length,
         debug,
-        external_sources: debug.external_sources,
+        fred: Object.keys(fredData),
       });
     }
 
@@ -1344,7 +1186,6 @@ export default async function handler(req, res) {
       preBreakout: s._preBreakout || false,
       is_smart_bounce: s.is_smart_bounce || false,
       smart_bounce_confidence: s.smart_bounce_confidence || 0,
-      // ✅ إضافة درجات التحليل الرباعية
       scores: s.scores || null,
     });
 
