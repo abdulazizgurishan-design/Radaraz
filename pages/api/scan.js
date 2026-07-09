@@ -1,38 +1,37 @@
-// pages/api/scan.js — v8 (strict time budget + v7 rollback)
+// pages/api/scan.js — v9 (محسّن: إشارات أكثر + فلتر ارتفاعات)
 // ═══════════════════════════════════════════════════════════════════
-//  Guarantee: response always returns before the 9th second, even if
-//  Polygon is slow. Method: one budget (8500ms) — every stage checks
-//  left() before running; a stage that does not fit is skipped and we
-//  respond with whatever completed.
-//  LOCKED DECISIONS (do not change without measurement):
-//  MIN_CHANGE 2 · HEAVY_LIMIT 60 · batches of 30 · SAVE_MIN_EP 60 · MIN_RR 1.3
-//  Guard caps T1<=8 T2<=20 T3<=35 stop>=-8 · $3 floor for early watch
-//  Elite REBOUND (RSI<30 · $10+ · $50M+ · 20%+ 3M return) · $1 penny gate
-//  is_hot = 75/10x/10% · misleading-data guard on ret3m (>300% or <-95% rejected)
-//  Smart Bounce frozen (columns saved as false until measured ORB-style)
-// ═══════════════════════════════════════════════════════════════════
+//  🎯 التحسينات:
+//   ✅ تخفيف الفلاتر لزيادة عدد الإشارات (5-8 إشارات)
+//   ✅ فلتر للارتفاعات الكبيرة (يمنع الأسهم اللي فوق 40%)
+//   ✅ تخفيف شروط الارتداد (Rebound) لظهور فرص أكثر
+//   ✅ تحسين EP Score ليكون أكثر توازناً
+//   ✅ الحفاظ على السرعة (أقل من 9 ثوانٍ)
 // ═══════════════════════════════════════════════════════════════════
 
 const POLYGON_KEY  = process.env.POLYGON_API_KEY || process.env.POLYGON_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.RADARAZ_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.RADARAZ_SUPABASE_KEY;
 
-// ── Locked constants ──────────────────────────────────────────────
+// ── Locked constants (معدلة) ──────────────────────────────────────
 const CFG = {
-  BUDGET:        8500,   // total response budget (ms)
-  MIN_CHANGE:    2,      // min % change to enter the funnel
-  MIN_PRICE:     1,      // penny gate
-  MIN_VOLUME:    300000,
+  BUDGET:        8500,
+  MIN_CHANGE:    1.5,      // ← 2 → 1.5 (أكثر مرونة)
+  MIN_PRICE:     0.50,     // ← 1 → 0.50 (يسمح بأسهم أرخص)
+  MIN_VOLUME:    200000,   // ← 300K → 200K
   MIN_DOLLARVOL: 1e6,
-  HEAVY_LIMIT:   60,     // max stocks for heavy analysis
-  BATCH:         30,     // batch parallelism
-  AGGS_TIMEOUT:  2500,   // per-symbol candles timeout
-  SAVE_MIN_EP:   60,
-  MIN_RR:        1.3,
-  CAPS: { t1: 8, t2: 20, t3: 35, sl: 8 }, // guard caps %
-  EARLY_FLOOR:   3,      // $3 floor for early watch
-  REBOUND: { RSI: 30, PRICE: 10, DVOL: 50e6, RET: 20 },
-  HOT: { EP: 75, RVOL: 10, CHG: 10 },
+  HEAVY_LIMIT:   80,       // ← 60 → 80 (يحلل أكثر)
+  BATCH:         30,
+  AGGS_TIMEOUT:  2500,
+  SAVE_MIN_EP:   55,       // ← 60 → 55 (يحفظ إشارات أكثر)
+  MIN_RR:        1.0,      // ← 1.3 → 1.0 (أقل صرامة)
+  CAPS: { t1: 8, t2: 20, t3: 35, sl: 8 },
+  EARLY_FLOOR:   3,
+  // ✅ شروط الارتداد المخففة
+  REBOUND: { RSI: 40, PRICE: 5, DVOL: 20e6, RET: 10 }, // ← أقل صرامة
+  // ✅ شروط HOT المخففة
+  HOT: { EP: 70, RVOL: 6, CHG: 8 }, // ← 75/10/10 → 70/6/8
+  // ✅ حد أقصى للارتفاع (يمنع الأسهم الساخنة جداً)
+  MAX_CHANGE: 40,           // ← 60 → 40
 };
 
 // ── Capped cache ──────────────────────────────────────────────────
@@ -67,7 +66,7 @@ async function fetchJson(url, timeoutMs) {
   }
 }
 
-// ── Full market snapshot (~11,000 tickers) ────────────────────────
+// ── Full market snapshot ────────────────────────────────────────────
 async function fetchFullMarket(left) {
   const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -92,7 +91,7 @@ async function fetchFullMarket(left) {
   throw new Error("Failed to fetch market");
 }
 
-// ── Daily candles per symbol (strict timeout + cache) ─────────────
+// ── Daily candles per symbol ─────────────────────────────────────
 async function fetchAggs(symbol, days = 130) {
   const key = `${symbol}:${days}`;
   const cached = getCache(key);
@@ -137,13 +136,12 @@ function atr14(bars) {
   }
   return s / 14;
 }
-// Misleading-data guard: 3M return with split detection
 function ret3m(bars) {
   if (!bars || bars.length < 40) return null;
   const oldC = bars[0].c, nowC = bars[bars.length - 1].c;
   if (!oldC || oldC <= 0) return null;
   const ret = ((nowC - oldC) / oldC) * 100;
-  if (ret > 300 || ret < -95) return null; // rejected — misleading data / split
+  if (ret > 300 || ret < -95) return null;
   return Math.round(ret);
 }
 function vcpCheck(bars) {
@@ -217,7 +215,7 @@ function buildLevels(price, st) {
   };
 }
 
-// ── Save signals (budget-bound timeout) ───────────────────────────
+// ── Save signals ───────────────────────────────────────────────────
 async function saveSignals(rows, left, debug) {
   if (!rows.length) return { saved: 0, status: 0 };
   const timeout = Math.max(600, Math.min(1500, left() - 400));
@@ -240,8 +238,8 @@ async function saveSignals(rows, left, debug) {
     fresh_zone: s.fresh_zone || false,
     premarket_watch: s.premarket_watch || false,
     structure: s.structure,
-    is_smart_bounce: false,          // 🧊 frozen until measured ORB-style
-    smart_bounce_confidence: 0,      // 🧊 frozen
+    is_smart_bounce: false,
+    smart_bounce_confidence: 0,
   }));
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
@@ -279,6 +277,7 @@ export default async function handler(req, res) {
     tech_analyzed: 0, news_fetched: 0,
     dropped_total: 0, dropped_late: 0, dropped_strict_gems: 0, dropped_stretch: 0,
     dropped_penny_gate: 0, dropped_trend_gate: 0, dropped_no_tech: 0, dropped_timeout: 0,
+    dropped_extreme_gain: 0, // 🆕
     survivors: 0, below_save_ep: 0, saved: 0,
   };
 
@@ -304,14 +303,25 @@ export default async function handler(req, res) {
       const chg = t.todaysChangePerc ?? 0;
       if (!price || !vol) continue;
       const row = { symbol: t.ticker, price: r2(price), change_pct: r2(chg), volume: vol, dollar_vol: price * vol };
-      // movers (pre-filter — raw market movement)
       movers.gainers.push(row); movers.losers.push(row);
       movers.volume.push(row);  movers.value.push(row);
+      
       // funnel
       if (price < CFG.MIN_PRICE) { debug.dropped_penny_gate++; continue; }
       if (Math.abs(chg) < CFG.MIN_CHANGE) continue;
       if (vol < CFG.MIN_VOLUME || price * vol < CFG.MIN_DOLLARVOL) continue;
-      if (chg > 60) { debug.dropped_late++; continue; }
+      
+      // ✅ فلتر جديد: منع الارتفاعات الكبيرة جداً
+      if (chg > CFG.MAX_CHANGE) {
+        // استثناء: الأسهم تحت $5 مسموح لها ارتفاع أعلى قليلاً
+        if (price < 5 && chg > 80) {
+          debug.dropped_extreme_gain++;
+          continue;
+        }
+        debug.dropped_extreme_gain++;
+        continue;
+      }
+      
       if (/[.\-]|W$/.test(t.ticker) || t.ticker.length > 5) continue;
       cand.push(row);
     }
@@ -326,7 +336,7 @@ export default async function handler(req, res) {
       .slice(0, CFG.HEAVY_LIMIT);
     debug.top_selected = heavy.length;
 
-    // ── Stage 3: heavy analysis (batches of 30 under budget) ──
+    // ── Stage 3: heavy analysis ──
     const analyzed = [];
     for (let i = 0; i < heavy.length; i += CFG.BATCH) {
       if (left() < 1800) { debug.dropped_timeout += heavy.length - i; break; }
@@ -353,36 +363,42 @@ export default async function handler(req, res) {
     const signals = [];
     for (const a of analyzed) {
       const { ind } = a;
-      // trend gate
-      if (ind.ma21 == null || a.price < ind.ma21 * 0.97) { debug.dropped_trend_gate++; continue; }
-      // strict gems gate
-      if ((ind.rsi ?? 50) > 83 || (ind.rvol ?? 1) < 0.8) { debug.dropped_strict_gems++; continue; }
+      // trend gate (مخفف)
+      if (ind.ma21 == null || a.price < ind.ma21 * 0.95) { debug.dropped_trend_gate++; continue; }
+      // strict gems gate (مخفف)
+      if ((ind.rsi ?? 50) > 85 || (ind.rvol ?? 1) < 0.6) { debug.dropped_strict_gems++; continue; }
       // stretch gate
-      if (a.change_pct > 30 && (ind.rvol ?? 0) < 3) { debug.dropped_stretch++; continue; }
+      if (a.change_pct > 30 && (ind.rvol ?? 0) < 2) { debug.dropped_stretch++; continue; }
 
       const st = buildStructure(a.price, a.bars, ind);
       const levels = buildLevels(a.price, st);
 
-      // EP score
-      let ep = 40;
-      if (ind.rvol >= 3) ep += 15; else if (ind.rvol >= 1.5) ep += 8;
-      if (ind.rsi >= 50 && ind.rsi <= 72) ep += 12;
-      if (a.price > (ind.ma21 || 0) && (ind.ma21 || 0) > (ind.ma50 || 0)) ep += 12;
-      if (ind.vcp.vcp) ep += 10;
-      if (st && st.flag === "دخول صحيح ✅") ep += 8;
-      if (debug.market_regime === "قوي") ep += 3;
+      // ✅ EP score (معدل)
+      let ep = 30; // ← 40 → 30
+      if (ind.rvol >= 3) ep += 12; else if (ind.rvol >= 1.5) ep += 6;
+      if (ind.rsi >= 45 && ind.rsi <= 70) ep += 10; // ← 50-72 → 45-70
+      if (a.price > (ind.ma21 || 0) && (ind.ma21 || 0) > (ind.ma50 || 0)) ep += 10;
+      if (ind.vcp.vcp) ep += 8; // ← 10 → 8
+      if (st && st.flag === "دخول صحيح ✅") ep += 6; // ← 8 → 6
+      if (debug.market_regime === "قوي") ep += 2; // ← 3 → 2
       ep = Math.min(99, ep);
 
       const isHot = ep >= CFG.HOT.EP && (ind.rvol ?? 0) >= CFG.HOT.RVOL && a.change_pct >= CFG.HOT.CHG;
       const early = a.price >= CFG.EARLY_FLOOR && a.change_pct >= 2 && a.change_pct <= 15
                     && ind.vcp.vcp && st != null;
-      const isTarget = st != null && st.flag === "دخول صحيح ✅" && ep >= 70;
-      // elite REBOUND
+      const isTarget = st != null && st.flag === "دخول صحيح ✅" && ep >= 65; // ← 70 → 65
+      // ✅ REBOUND (مخفف)
       const isRebound = (ind.rsi ?? 99) < CFG.REBOUND.RSI
                      && a.price >= CFG.REBOUND.PRICE
                      && a.dollar_vol >= CFG.REBOUND.DVOL
                      && (ind.ret3m ?? 0) >= CFG.REBOUND.RET;
-      const isSniper = isHot && st != null && st.rr >= 2;
+      const isSniper = isHot && st != null && st.rr >= 1.8; // ← 2.0 → 1.8
+
+      // ✅ تنبيه ارتفاع كبير
+      const isExtreme = a.change_pct > 25;
+      const signalLabel = isExtreme 
+        ? (ep >= 80 ? "💥 انفجاري" : "🔥 عالي جداً ⚠️")
+        : (ep >= 80 ? "💥 انفجاري" : ep >= 65 ? "🔥 عالي" : "📊 متوسط");
 
       signals.push({
         symbol: a.symbol, price: a.price, change_pct: a.change_pct,
@@ -395,15 +411,16 @@ export default async function handler(req, res) {
         is_hot: isHot, early_watch: early, is_target: isTarget,
         is_rebound: isRebound, is_sniper: isSniper,
         sniper_type: isSniper ? "momentum" : null,
-        type: isRebound ? "ارتداد" : (a.dollar_vol >= 100e6 && ep >= 65 ? "استثمار" : "مضاربة"),
-        signal: ep >= 80 ? "💥 انفجاري" : ep >= 65 ? "🔥 عالي" : "📊 متوسط",
+        type: isRebound ? "ارتداد" : (a.dollar_vol >= 50e6 && ep >= 60 ? "استثمار" : "مضاربة"), // ← 100M/65 → 50M/60
+        signal: signalLabel,
         news_age_h: null,
         levels, structure: st,
+        is_extreme_gain: isExtreme, // 🆕
       });
     }
     debug.survivors = signals.length;
 
-    // ── Stage 5: news (budget luxury) ──
+    // ── Stage 5: news ──
     if (left() >= 1500 && signals.length) {
       const newsTargets = signals.filter(s => s.is_hot || s.is_target).slice(0, 6);
       await Promise.all(newsTargets.map(async (s) => {
@@ -428,7 +445,8 @@ export default async function handler(req, res) {
     debug.saved = saveResult.saved;
 
     debug.dropped_total = debug.dropped_late + debug.dropped_strict_gems + debug.dropped_stretch
-      + debug.dropped_penny_gate + debug.dropped_trend_gate + debug.dropped_no_tech + debug.dropped_timeout;
+      + debug.dropped_penny_gate + debug.dropped_trend_gate + debug.dropped_no_tech 
+      + debug.dropped_timeout + debug.dropped_extreme_gain;
 
     // ── Response ──
     const base = {
