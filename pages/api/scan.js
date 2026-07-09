@@ -1,10 +1,9 @@
-// pages/api/scan.js — v9 (محسّن: إشارات أكثر + فلتر ارتفاعات)
+// pages/api/scan.js — v10 (محسّن نهائي: HOT + REBOUND + وقت)
 // ═══════════════════════════════════════════════════════════════════
-//  🎯 التحسينات:
-//   ✅ تخفيف الفلاتر لزيادة عدد الإشارات (5-8 إشارات)
-//   ✅ فلتر للارتفاعات الكبيرة (يمنع الأسهم اللي فوق 40%)
-//   ✅ تخفيف شروط الارتداد (Rebound) لظهور فرص أكثر
-//   ✅ تحسين EP Score ليكون أكثر توازناً
+//  🎯 التحسينات النهائية:
+//   ✅ HOT: 65/5/6 (بدلاً من 70/6/8)
+//   ✅ REBOUND: RSI 45 · $3 · 10M · 8% (بدلاً من 40/5/20M/10)
+//   ✅ BUDGET: 9000ms (بدلاً من 8500ms)
 //   ✅ الحفاظ على السرعة (أقل من 9 ثوانٍ)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -12,26 +11,25 @@ const POLYGON_KEY  = process.env.POLYGON_API_KEY || process.env.POLYGON_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.RADARAZ_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.RADARAZ_SUPABASE_KEY;
 
-// ── Locked constants (معدلة) ──────────────────────────────────────
+// ── Locked constants (معدلة نهائياً) ──────────────────────────────
 const CFG = {
-  BUDGET:        8500,
-  MIN_CHANGE:    1.5,      // ← 2 → 1.5 (أكثر مرونة)
-  MIN_PRICE:     0.50,     // ← 1 → 0.50 (يسمح بأسهم أرخص)
-  MIN_VOLUME:    200000,   // ← 300K → 200K
+  BUDGET:        9000,     // ← 8500 → 9000 (زيادة بسيطة)
+  MIN_CHANGE:    1.5,
+  MIN_PRICE:     0.50,
+  MIN_VOLUME:    200000,
   MIN_DOLLARVOL: 1e6,
-  HEAVY_LIMIT:   80,       // ← 60 → 80 (يحلل أكثر)
+  HEAVY_LIMIT:   80,
   BATCH:         30,
   AGGS_TIMEOUT:  2500,
-  SAVE_MIN_EP:   55,       // ← 60 → 55 (يحفظ إشارات أكثر)
-  MIN_RR:        1.0,      // ← 1.3 → 1.0 (أقل صرامة)
+  SAVE_MIN_EP:   55,
+  MIN_RR:        1.0,
   CAPS: { t1: 8, t2: 20, t3: 35, sl: 8 },
   EARLY_FLOOR:   3,
-  // ✅ شروط الارتداد المخففة
-  REBOUND: { RSI: 40, PRICE: 5, DVOL: 20e6, RET: 10 }, // ← أقل صرامة
-  // ✅ شروط HOT المخففة
-  HOT: { EP: 70, RVOL: 6, CHG: 8 }, // ← 75/10/10 → 70/6/8
-  // ✅ حد أقصى للارتفاع (يمنع الأسهم الساخنة جداً)
-  MAX_CHANGE: 40,           // ← 60 → 40
+  // ✅ REBOUND (مخفف أكثر)
+  REBOUND: { RSI: 45, PRICE: 3, DVOL: 10e6, RET: 8 },
+  // ✅ HOT (مخفف)
+  HOT: { EP: 65, RVOL: 5, CHG: 6 },
+  MAX_CHANGE: 40,
 };
 
 // ── Capped cache ──────────────────────────────────────────────────
@@ -277,7 +275,7 @@ export default async function handler(req, res) {
     tech_analyzed: 0, news_fetched: 0,
     dropped_total: 0, dropped_late: 0, dropped_strict_gems: 0, dropped_stretch: 0,
     dropped_penny_gate: 0, dropped_trend_gate: 0, dropped_no_tech: 0, dropped_timeout: 0,
-    dropped_extreme_gain: 0, // 🆕
+    dropped_extreme_gain: 0,
     survivors: 0, below_save_ep: 0, saved: 0,
   };
 
@@ -306,14 +304,11 @@ export default async function handler(req, res) {
       movers.gainers.push(row); movers.losers.push(row);
       movers.volume.push(row);  movers.value.push(row);
       
-      // funnel
       if (price < CFG.MIN_PRICE) { debug.dropped_penny_gate++; continue; }
       if (Math.abs(chg) < CFG.MIN_CHANGE) continue;
       if (vol < CFG.MIN_VOLUME || price * vol < CFG.MIN_DOLLARVOL) continue;
       
-      // ✅ فلتر جديد: منع الارتفاعات الكبيرة جداً
       if (chg > CFG.MAX_CHANGE) {
-        // استثناء: الأسهم تحت $5 مسموح لها ارتفاع أعلى قليلاً
         if (price < 5 && chg > 80) {
           debug.dropped_extreme_gain++;
           continue;
@@ -363,38 +358,34 @@ export default async function handler(req, res) {
     const signals = [];
     for (const a of analyzed) {
       const { ind } = a;
-      // trend gate (مخفف)
       if (ind.ma21 == null || a.price < ind.ma21 * 0.95) { debug.dropped_trend_gate++; continue; }
-      // strict gems gate (مخفف)
       if ((ind.rsi ?? 50) > 85 || (ind.rvol ?? 1) < 0.6) { debug.dropped_strict_gems++; continue; }
-      // stretch gate
       if (a.change_pct > 30 && (ind.rvol ?? 0) < 2) { debug.dropped_stretch++; continue; }
 
       const st = buildStructure(a.price, a.bars, ind);
       const levels = buildLevels(a.price, st);
 
-      // ✅ EP score (معدل)
-      let ep = 30; // ← 40 → 30
+      let ep = 30;
       if (ind.rvol >= 3) ep += 12; else if (ind.rvol >= 1.5) ep += 6;
-      if (ind.rsi >= 45 && ind.rsi <= 70) ep += 10; // ← 50-72 → 45-70
+      if (ind.rsi >= 45 && ind.rsi <= 70) ep += 10;
       if (a.price > (ind.ma21 || 0) && (ind.ma21 || 0) > (ind.ma50 || 0)) ep += 10;
-      if (ind.vcp.vcp) ep += 8; // ← 10 → 8
-      if (st && st.flag === "دخول صحيح ✅") ep += 6; // ← 8 → 6
-      if (debug.market_regime === "قوي") ep += 2; // ← 3 → 2
+      if (ind.vcp.vcp) ep += 8;
+      if (st && st.flag === "دخول صحيح ✅") ep += 6;
+      if (debug.market_regime === "قوي") ep += 2;
       ep = Math.min(99, ep);
 
       const isHot = ep >= CFG.HOT.EP && (ind.rvol ?? 0) >= CFG.HOT.RVOL && a.change_pct >= CFG.HOT.CHG;
       const early = a.price >= CFG.EARLY_FLOOR && a.change_pct >= 2 && a.change_pct <= 15
                     && ind.vcp.vcp && st != null;
-      const isTarget = st != null && st.flag === "دخول صحيح ✅" && ep >= 65; // ← 70 → 65
+      const isTarget = st != null && st.flag === "دخول صحيح ✅" && ep >= 65;
+      
       // ✅ REBOUND (مخفف)
       const isRebound = (ind.rsi ?? 99) < CFG.REBOUND.RSI
                      && a.price >= CFG.REBOUND.PRICE
                      && a.dollar_vol >= CFG.REBOUND.DVOL
                      && (ind.ret3m ?? 0) >= CFG.REBOUND.RET;
-      const isSniper = isHot && st != null && st.rr >= 1.8; // ← 2.0 → 1.8
+      const isSniper = isHot && st != null && st.rr >= 1.8;
 
-      // ✅ تنبيه ارتفاع كبير
       const isExtreme = a.change_pct > 25;
       const signalLabel = isExtreme 
         ? (ep >= 80 ? "💥 انفجاري" : "🔥 عالي جداً ⚠️")
@@ -411,11 +402,11 @@ export default async function handler(req, res) {
         is_hot: isHot, early_watch: early, is_target: isTarget,
         is_rebound: isRebound, is_sniper: isSniper,
         sniper_type: isSniper ? "momentum" : null,
-        type: isRebound ? "ارتداد" : (a.dollar_vol >= 50e6 && ep >= 60 ? "استثمار" : "مضاربة"), // ← 100M/65 → 50M/60
+        type: isRebound ? "ارتداد" : (a.dollar_vol >= 50e6 && ep >= 60 ? "استثمار" : "مضاربة"),
         signal: signalLabel,
         news_age_h: null,
         levels, structure: st,
-        is_extreme_gain: isExtreme, // 🆕
+        is_extreme_gain: isExtreme,
       });
     }
     debug.survivors = signals.length;
