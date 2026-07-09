@@ -11,7 +11,7 @@ if (typeof document !== "undefined" && !document.getElementById("az-kf")) {
   document.head.appendChild(_el);
 }
 
-const DISPLAY_MIN_SCORE = 60;
+const DISPLAY_MIN_SCORE = 50; // ✅ تم التعديل من 60 إلى 50
 
 // ─── دوال تنسيق الأرقام (للعرض) ──────────────────────────────────
 function formatMarketCapDisplay(value) {
@@ -723,7 +723,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         marketCapFormatted: data.marketCapFormatted || formatMarketCapDisplay(Number(data.marketCap)),
         sharesFormatted: data.sharesFormatted || formatSharesDisplay(Number(data.sharesOutstanding)),
         shortInterestFormatted: data.shortInterestFormatted || formatSharesDisplay(Number(data.shortInterest)),
-        // ✅ درجات التحليل من الإشارة
         scores: r.scores || null,
       });
     } catch {
