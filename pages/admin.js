@@ -1,4 +1,6 @@
-// pages/admin.js — RadarAZ Admin Panel v4 (results: Saudi-time + win/loss filter + copyable report)
+// pages/admin.js — RadarAZ Admin Panel v5 (Dashboard + Results + Signals + Subscribers + Affiliates)
+// ═══════════════════════════════════════════════════════════════════
+
 import { useState, useEffect, useMemo } from "react";
 
 const ADMIN_KEY = "123451";
@@ -61,6 +63,62 @@ function astStr(iso) {
   if (isNaN(d)) return null;
   const p = n => String(n).padStart(2, "0");
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} · ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+
+// ─── بناء التقرير الشامل ──────────────────────────────────────────
+function buildFullReport(list, period, periodLabels) {
+  const periodLabel = periodLabels[period] || "الكل";
+  const lines = [];
+  
+  lines.push(`📊 تقرير RadarAZ الشامل — ${periodLabel}`);
+  lines.push(`═══════════════════════════`);
+  lines.push(`📅 ${new Date().toLocaleDateString('ar-SA')}`);
+  lines.push(``);
+  lines.push(`📈 إجمالي الإشارات المختومة: ${list.length}`);
+  lines.push(`✅ رابح (حقق هدف): ${list.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length}`);
+  lines.push(`❌ ضرب وقف الخسارة: ${list.filter(s => s.stop_hit).length}`);
+  lines.push(`⏳ مفتوح (لم يحسم): ${list.filter(s => s.status === 'OPEN').length}`);
+  
+  const decided = list.filter(s => s.stop_hit || s.target1_hit || s.target2_hit || s.target3_hit);
+  const rate = decided.length ? Math.round((list.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length / decided.length) * 100) : 0;
+  lines.push(`🎯 نسبة النجاح: ${rate}%`);
+  lines.push(``);
+  lines.push(`📋 تفاصيل الإشارات:`);
+  lines.push(`─────────────────────`);
+  
+  for (const s of list) {
+    const caught = astStr(s.created_at);
+    const entry = (s.entry_price || 0).toFixed(2);
+    const high = (s.high_price || entry).toFixed(2);
+    const low = (s.low_price || entry).toFixed(2);
+    const maxGain = s.max_gain_pct != null ? `+${s.max_gain_pct.toFixed(2)}%` : '—';
+    const closeGain = s.close_gain_pct != null ? `${s.close_gain_pct.toFixed(2)}%` : '—';
+    
+    let targetText = '—';
+    if (s.target3_hit) targetText = '🏆 T3';
+    else if (s.target2_hit) targetText = '🎯 T2';
+    else if (s.target1_hit) targetText = '✅ T1';
+    
+    let resultText = '⏳ مفتوح';
+    if (s.stop_hit) resultText = '❌ وقف';
+    else if (s.target1_hit || s.target2_hit || s.target3_hit) resultText = '✅ رابح';
+    
+    lines.push(`📡 $${s.symbol} (${s.type || 'مضاربة'})`);
+    if (caught) lines.push(`   🕐 رُصد: ${caught}`);
+    lines.push(`   💰 دخل: $${entry} | أعلى: $${high} | أدنى: $${low}`);
+    lines.push(`   📈 أقصى ارتفاع: ${maxGain} | 📉 أقصى انخفاض: ${closeGain}`);
+    lines.push(`   🎯 الهدف: ${targetText} | 🏁 النتيجة: ${resultText}`);
+    if (s.target1_hit_at) {
+      const hitTime = astStr(s.target1_hit_at);
+      if (hitTime) lines.push(`   ✅ وقت الهدف: ${hitTime}`);
+    }
+    lines.push(``);
+  }
+  
+  lines.push(`═══════════════════════════`);
+  lines.push(`🔗 radaraz.com`);
+  
+  return lines.join('\n');
 }
 
 // ─── Tweet builder ────────────────────────────────────────────────
@@ -366,68 +424,6 @@ function ResultCard({ s, copiedId, onCopy }) {
   );
 }
 
-// ─── بناء التقرير الشامل ──────────────────────────────────────────
-function buildFullReport(fullList, period, periodLabels) {
-  const periodLabel = periodLabels[period] || "الكل";
-  
-  // 🆕 فصل صادق: الرصد المبكر = مراقبة (لا يدخل الإحصائيات)
-  const watchList = fullList.filter(s => s.early_watch || s.premarket_watch);
-  const list = fullList.filter(s => !s.early_watch && !s.premarket_watch);
-  
-  const isEarly = s => s.early_watch || s.premarket_watch;
-  const core = list.filter(s => !isEarly(s));
-  const earlyList = list.filter(isEarly);
-  const earlyWins = earlyList.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length;
-  const wins = core.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
-  const losses = core.filter(s => s.stop_hit && !s.target1_hit);
-  const flat = core.filter(s => !s.target1_hit && !s.target2_hit && !s.target3_hit && !s.stop_hit);
-  const decided = wins.length + losses.length;
-  const rate = decided ? Math.round((wins.length / decided) * 100) : 0;
-
-  let grossWin = 0;
-  for (const s of wins) {
-    const t = s.target3_hit ? s.target3 : s.target2_hit ? s.target2 : s.target1;
-    if (s.entry_price > 0 && t > 0) grossWin += ((t - s.entry_price) / s.entry_price) * 100;
-  }
-  const grossLoss = losses.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0);
-  const pf = grossLoss > 0 ? (grossWin / grossLoss).toFixed(2) : (grossWin > 0 ? "∞" : "0.00");
-
-  const bySec = {};
-  for (const s of core) {
-    const sec = sectionOf(s);
-    if (!bySec[sec]) bySec[sec] = { total: 0, win: 0 };
-    bySec[sec].total++;
-    if (s.target1_hit || s.target2_hit || s.target3_hit) bySec[sec].win++;
-  }
-
-  // إضافة قسم الرصد المبكر منفصلاً
-  if (watchList.length) {
-    bySec["🔭 رصد مبكر (مراقبة)"] = { 
-      total: watchList.length, 
-      win: watchList.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length 
-    };
-  }
-
-  const L = [];
-  L.push(`📊 تقرير RadarAZ الشامل — ${periodLabel}`);
-  L.push(`═══════════════════════════`);
-  L.push(`📈 صفقات الرادار: ${list.length} · ✅ رابح: ${wins.length} · 🛑 وقف: ${losses.length}${flat.length ? ` · ➖ بلا حسم: ${flat.length}` : ""}`);
-  L.push(`🎯 نسبة النجاح: ${rate}% (من المحسوم — بلا رصد مبكر) · 💰 PF: ${pf}×`);
-  if (earlyList.length) L.push(`🔍 مراقبة (خارج النسبة): ${earlyWins}/${earlyList.length} رصد مبكر أصاب`);
-  
-  L.push(``);
-  L.push(`📂 حسب القسم:`);
-  for (const [sec, d] of Object.entries(bySec)) {
-    const r = d.total ? Math.round((d.win / d.total) * 100) : 0;
-    L.push(`  ${sec}: ${d.win}/${d.total} (${r}%)`);
-  }
-
-  // ... باقي الكود (الرابحون والخاسرون) كما هو
-  // ... (تم حذف الجزء المكرر للاختصار)
-
-  return L.join("\n");
-}
-
 function sectionOf(s) {
   if (s.type === "ارتداد") return "🔄 ارتداد";
   if (s.premarket_watch) return "🌅 رصد مبكر (قبل السوق)";
@@ -447,7 +443,7 @@ export default function Admin() {
   const [loading,   setLoading]   = useState(false);
   const [scanning,  setScanning]  = useState(false);
   const [copiedId,  setCopiedId]  = useState(null);
-  const [activeTab, setActiveTab] = useState("signals");
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [dash,      setDash]      = useState(null);
   const [dashLoading, setDashLoading] = useState(false);
   const [cacInput,  setCacInput]  = useState("");
@@ -780,7 +776,6 @@ export default function Admin() {
     showToast(`✅ نُسخ (${tradable.length} إنجاز · استُبعد ${winsList.length - tradable.length} قبل السوق)`, "ok");
   };
 
-  // 🆕 نسخ التقرير الشامل
   const copyFullReport = () => {
     const list = closedSignals;
     if (!list.length) { showToast("لا توجد بيانات للفترة المحددة", "err"); return; }
@@ -797,10 +792,8 @@ export default function Admin() {
     setShowFullReport(true);
   };
 
-// 🐦 نسخ تقرير التغريدة (الإشارات المعروضة فقط)
   const copyTweetReport = async () => {
     try {
-      // جلب تقرير الرادار (الإشارات المعروضة فقط)
       const res = await fetch('/api/radar-report');
       const data = await res.json();
       
@@ -844,7 +837,6 @@ export default function Admin() {
         });
       }
 
-      // 📉 تشخيص الخسائر (اختصار)
       const topLosers = report.topLosers || [];
       if (topLosers.length > 0) {
         tweet += `─────────────────────\n`;
@@ -903,10 +895,8 @@ export default function Admin() {
   };
 
   const closedAll = (summary?.signals || []).filter(s => s.status !== "OPEN" && inPeriod(s) && !isPreMarket(s));
-  // 👁️ عين المشترك فقط: ما ختمه mark-displayed
   const closedSignals = closedAll.filter(s => s.displayed === true);
   const notShownCount = closedAll.length - closedSignals.length;
-  // 🔬 الفصل الإحصائي: الرصد المبكر لا يدخل النسبة (درس تقرير 2 يوليو)
   const isEarlySig = s => s.early_watch || s.premarket_watch;
   const coreSignals  = closedSignals.filter(s => !isEarlySig(s));
   const earlySignals = closedSignals.filter(isEarlySig);
