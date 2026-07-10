@@ -1,18 +1,37 @@
-// pages/api/evaluate.js — v2 (per-signal-date + batched)
+// pages/api/evaluate.js — v3 (تقييم متعدد الأيام + إحصائيات أداء)
 // ═══════════════════════════════════════════════════════════════════
-//  ترقيات هذا الإصدار:
-//   ✅ يقيّم كل إشارة حسب يومها الصحيح (signal_date) — لا "اليوم" للجميع
-//   ✅ تنفيذ على دفعات (10) — يمنع إغراق Polygon بمئات الطلبات المتزامنة
-//   ✅ يتعامل مع تراكم الإشارات القديمة المفتوحة (backlog) بشكل صحيح
+//  مبني على v2 مع الحفاظ على كل مزاياه:
+//   ✅ شموع الدقائق ليوم الإشارة + القطع عند created_at
+//   ✅ حسم الترتيب: الوقف أولاً أم الهدف (وعند التعادل → خسارة تحفظاً)
+//   ✅ effHigh لا يحتسب ربحاً بعد ضرب الوقف
+//   ✅ دفعات 10 + retry
+//
+//  🆕 الجديد في v3 (يصلح الثغرة الجوهرية):
+//   ✅ الإشارة تبقى OPEN عبر الأيام حتى: الوقف / الهدف الثالث / انتهاء المدة
+//      (كان v2 يغلق كل شيء بعد يوم واحد بينما الأهداف 20-35% تحتاج أياماً!)
+//   ✅ الأيام التالية تُقيّم بشموع يومية (طلب واحد لكل إشارة — رخيص)
+//   ✅ تعارض هدف+وقف بنفس اليوم اللاحق → خسارة تحفظاً
+//   ✅ EXPIRED بعد MAX_HOLD_DAYS يوم تداول مع تسجيل نتيجة الإغلاق
+//   ✅ إحصائيات 30 يوم: win rate، متوسط ربح/خسارة، الأداء حسب شرائح EP
+//   ✅ max_loss_pct لمعرفة هل الوقف مناسب أم ضيق
+//
+//  📋 أعمدة جديدة مطلوبة (شغّلها مرة في Supabase SQL Editor):
+//   ALTER TABLE signals ADD COLUMN IF NOT EXISTS max_loss_pct numeric;
+//   ALTER TABLE signals ADD COLUMN IF NOT EXISTS result_pct numeric;
+//   ALTER TABLE signals ADD COLUMN IF NOT EXISTS closed_at date;
 // ═══════════════════════════════════════════════════════════════════
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
-const SUPABASE_URL = "https://ypxrrghhkjbeojzphdln.supabase.co";
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://ypxrrghhkjbeojzphdln.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 const BASE = "https://api.polygon.io";
 
+const MAX_HOLD_DAYS = 10;   // أيام تداول قبل الإغلاق كـ EXPIRED — عدّلها حسب استراتيجيتك
+
 export const config = { maxDuration: 60 };
+
+const pct = (v, entry) => +(((v - entry) / entry) * 100).toFixed(2);
 
 async function fetchRetry(url, options = {}, retries = 2) {
   for (let i = 0; i < retries; i++) {
@@ -25,7 +44,6 @@ async function fetchRetry(url, options = {}, retries = 2) {
   }
 }
 
-// تنفيذ على دفعات محكومة التزامن
 async function inBatches(items, size, fn) {
   const out = [];
   for (let i = 0; i < items.length; i += size) {
@@ -33,6 +51,62 @@ async function inBatches(items, size, fn) {
     out.push(...part);
   }
   return out;
+}
+
+async function fetchJsonTimeout(url, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+// ── تقييم اليوم الأول بشموع الدقائق (منطق v2 كما هو) ────────────────
+async function evalFirstDay(sig, day, today) {
+  const sameDay = sig.created_at && String(sig.created_at).split("T")[0] === day;
+  const cutoff = sameDay ? new Date(sig.created_at).getTime() : 0;
+
+  const murl = `${BASE}/v2/aggs/ticker/${sig.symbol}/range/1/minute/${day}/${day}?sort=asc&limit=50000&apiKey=${POLYGON_KEY}`;
+  const data = await fetchJsonTimeout(murl, 4500);
+  let bars = (data?.results || []).filter(b => b.t >= cutoff);
+  if (!bars.length) bars = data?.results || [];
+  if (!bars.length) return null;
+
+  const high  = Math.max(...bars.map(b => b.h));
+  const low   = Math.min(...bars.map(b => b.l));
+  const close = bars[bars.length - 1].c;
+
+  const tHitBar  = high >= sig.target1 ? bars.find(b => b.h >= sig.target1) : null;
+  const t2HitBar = high >= sig.target2 ? bars.find(b => b.h >= sig.target2) : null;
+  const t3HitBar = high >= sig.target3 ? bars.find(b => b.h >= sig.target3) : null;
+  const stopBar  = low <= sig.stop_loss ? bars.find(b => b.l <= sig.stop_loss) : null;
+  const tHitTime = tHitBar ? tHitBar.t : Infinity;
+  const stopTime = stopBar ? stopBar.t : Infinity;
+
+  const stoppedFirst = !!stopBar && stopTime <= tHitTime;
+
+  let effHigh = high;
+  if (stoppedFirst) {
+    const upto = bars.filter(b => b.t <= stopTime);
+    effHigh = upto.length ? Math.max(...upto.map(b => b.h)) : sig.entry_price;
+  }
+
+  return {
+    stopped: stoppedFirst,
+    t1: !!tHitBar && !stoppedFirst,
+    t2: !!t2HitBar && !stoppedFirst,
+    t3: !!t3HitBar && !stoppedFirst,
+    t1At: (!stoppedFirst && tHitBar)  ? new Date(tHitBar.t).toISOString()  : null,
+    t2At: (!stoppedFirst && t2HitBar) ? new Date(t2HitBar.t).toISOString() : null,
+    t3At: (!stoppedFirst && t3HitBar) ? new Date(t3HitBar.t).toISOString() : null,
+    effHigh, low, close,
+  };
 }
 
 export default async function handler(req, res) {
@@ -43,12 +117,11 @@ export default async function handler(req, res) {
   if (!isAuthorized) return res.status(401).json({ error: "Unauthorized" });
 
   try {
-    // تخطّي عطلة نهاية الأسبوع (إلا لو تشغيل يدوي بـ ?force=1 لتقييم المتراكم)
     const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
     const dow = etNow.getDay();
     const force = req.query.force === "1";
     if ((dow === 0 || dow === 6) && !force) {
-      return res.status(200).json({ success: true, message: "عطلة نهاية الأسبوع — لا تقييم (أضف ?force=1 للتقييم اليدوي)", evaluated: 0 });
+      return res.status(200).json({ success: true, message: "عطلة نهاية الأسبوع — لا تقييم (?force=1 للتشغيل اليدوي)", evaluated: 0 });
     }
 
     // 1) كل الإشارات المفتوحة
@@ -61,89 +134,98 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, message: "لا توجد إشارات مفتوحة", evaluated: 0 });
     }
 
-    // تاريخ اليوم (ET) كاحتياطي للإشارات القديمة بدون signal_date
     const today = etNow.toISOString().split("T")[0];
 
-    // 2) قيّم كل إشارة حسب يومها الصحيح — على دفعات من 10
+    // 2) تقييم كل إشارة عبر كل أيامها منذ الرصد — دفعات من 10
     const updates = await inBatches(signals, 10, async (sig) => {
       try {
-        // يوم الإشارة: signal_date → تاريخ الإنشاء → اليوم
-        const d = sig.signal_date
+        const day = sig.signal_date
           || (sig.created_at ? String(sig.created_at).split("T")[0] : today);
 
-        // ⏱️ نقيس فقط حركة السعر بعد لحظة الرصد (created_at) — لا نظلم الإشارة بنزولٍ
-        //    حصل صباحاً قبل أن يرصدها الرادار. نطبّق القطع فقط إذا كان الرصد بنفس اليوم.
-        const sameDay = sig.created_at && String(sig.created_at).split("T")[0] === d;
-        const cutoff = sameDay ? new Date(sig.created_at).getTime() : 0;
+        // ── اليوم الأول: دقائق + cutoff (منطق v2) ──
+        const d1 = await evalFirstDay(sig, day, today);
+        if (!d1) return null;
 
-        // شموع الدقائق ليوم الإشارة (طلب واحد لكل إشارة)
-        const murl = `${BASE}/v2/aggs/ticker/${sig.symbol}/range/1/minute/${d}/${d}?sort=asc&limit=50000&apiKey=${POLYGON_KEY}`;
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 4500);
-        const r2 = await fetch(murl, { signal: ctrl.signal });
-        clearTimeout(timer);
-        const data = await r2.json();
-        let bars = (data?.results || []).filter(b => b.t >= cutoff);
-        if (!bars.length) bars = data?.results || [];   // الرصد بعد آخر شمعة → نكتفي باليوم كامل
-        if (!bars.length) return null;                   // لا بيانات إطلاقاً
+        let stopped = d1.stopped;
+        let t1 = d1.t1, t2 = d1.t2, t3 = d1.t3;
+        let t1At = d1.t1At, t2At = d1.t2At, t3At = d1.t3At;
+        let maxHigh = d1.effHigh;
+        let minLow  = d1.low;
+        let lastClose = d1.close;
+        let tradingDays = 1;
 
-        const high  = Math.max(...bars.map(b => b.h));
-        const low   = Math.min(...bars.map(b => b.l));
-        const close = bars[bars.length - 1].c;
+        // ── الأيام التالية: شموع يومية (طلب واحد) — فقط إن لم تُحسم يوم 1 ──
+        if (!stopped && !t3 && day < today) {
+          const nextDay = new Date(new Date(day).getTime() + 86400000).toISOString().split("T")[0];
+          const durl = `${BASE}/v2/aggs/ticker/${sig.symbol}/range/1/day/${nextDay}/${today}?adjusted=true&sort=asc&limit=60&apiKey=${POLYGON_KEY}`;
+          const ddata = await fetchJsonTimeout(durl, 4000);
+          const dbars = ddata?.results || [];
 
-        const t1_reached = high >= sig.target1;
-        const t2_reached = high >= sig.target2;
-        const t3_reached = high >= sig.target3;
-        const stop_reached = low <= sig.stop_loss;
+          for (const b of dbars) {
+            tradingDays++;
+            const hitStop = b.l <= sig.stop_loss;
+            const hitAnyTarget = b.h >= sig.target1;
 
-        // ⏱️ حسم الترتيب: أول دقيقة لمس فيها السعر كل هدف، وأول دقيقة لمس فيها الوقف
-        const tHitBar  = t1_reached  ? bars.find(b => b.h >= sig.target1)  : null;
-        const t2HitBar = t2_reached  ? bars.find(b => b.h >= sig.target2)  : null;
-        const t3HitBar = t3_reached  ? bars.find(b => b.h >= sig.target3)  : null;
-        const stopBar  = stop_reached ? bars.find(b => b.l <= sig.stop_loss) : null;
-        const tHitTime = tHitBar ? tHitBar.t : Infinity;
-        const stopTime = stopBar ? stopBar.t : Infinity;
+            // ⚠️ تعارض بنفس اليوم اللاحق (لا دقائق هنا) → خسارة تحفظاً
+            if (hitStop) {
+              stopped = true;
+              // أقصى ربح حتى هذا اليوم فقط (بدون افتراض أن القمة سبقت الوقف)
+              minLow = Math.min(minLow, b.l);
+              break;
+            }
+            if (b.h > maxHigh) maxHigh = b.h;
+            if (b.l < minLow)  minLow  = b.l;
+            lastClose = b.c;
 
-        // النتيجة الحقيقية حسب ما حصل أولاً (وعند التساوي في نفس الدقيقة → نحسبها خسارة تحفّظاً):
-        const stoppedFirst = stop_reached && stopTime <= tHitTime;
-        const t1_hit = t1_reached && !stoppedFirst;
-        const t2_hit = t2_reached && !stoppedFirst;
-        const t3_hit = t3_reached && !stoppedFirst;
-        const stop_hit = stoppedFirst;
-
-        // أقصى ربح يُحتسب فقط حتى لحظة ضرب الوقف (لا نُجمّل بربح حصل بعد خروجنا)
-        let effHigh = high;
-        if (stoppedFirst) {
-          const upto = bars.filter(b => b.t <= stopTime);
-          effHigh = upto.length ? Math.max(...upto.map(b => b.h)) : sig.entry_price;
+            const iso = new Date(b.t).toISOString();
+            if (!t1 && b.h >= sig.target1) { t1 = true; t1At = iso; }
+            if (!t2 && b.h >= sig.target2) { t2 = true; t2At = iso; }
+            if (!t3 && b.h >= sig.target3) { t3 = true; t3At = iso; break; }
+          }
         }
-        const max_gain_pct = +(((effHigh - sig.entry_price) / sig.entry_price) * 100).toFixed(2);
-        const close_gain_pct = +(((close - sig.entry_price) / sig.entry_price) * 100).toFixed(2);
 
-        // وقت إصابة كل هدف (للرابح الفعلي فقط) + سعر الهدف نفسه
-        const target1_hit_at = (t1_hit && tHitBar)  ? new Date(tHitBar.t).toISOString()  : null;
-        const target2_hit_at = (t2_hit && t2HitBar) ? new Date(t2HitBar.t).toISOString() : null;
-        const target3_hit_at = (t3_hit && t3HitBar) ? new Date(t3HitBar.t).toISOString() : null;
+        // ── قرار الإغلاق ──
+        let status = "OPEN";
+        let result_pct = null;
+        if (stopped) {
+          status = "STOPPED";
+          result_pct = pct(sig.stop_loss, sig.entry_price);
+        } else if (t3) {
+          status = "T3_HIT";
+          result_pct = pct(sig.target3, sig.entry_price);
+        } else if (tradingDays >= MAX_HOLD_DAYS) {
+          // انتهت المدة: النتيجة = أفضل هدف تحقق، وإلا سعر الإغلاق
+          status = t2 ? "T2_HIT" : t1 ? "T1_HIT" : "EXPIRED";
+          result_pct = t2 ? pct(sig.target2, sig.entry_price)
+                     : t1 ? pct(sig.target1, sig.entry_price)
+                     : pct(lastClose, sig.entry_price);
+        }
 
-        return {
-          id: sig.id,
-          high_price: high, low_price: low, close_price: close,
-          target1_hit: t1_hit, target2_hit: t2_hit, target3_hit: t3_hit, stop_hit,
-          target1_hit_at, target2_hit_at, target3_hit_at,
-          max_gain_pct, close_gain_pct,
+        const fields = {
+          high_price: maxHigh, low_price: minLow, close_price: lastClose,
+          target1_hit: t1, target2_hit: t2, target3_hit: t3, stop_hit: stopped,
+          target1_hit_at: t1At, target2_hit_at: t2At, target3_hit_at: t3At,
+          max_gain_pct: pct(maxHigh, sig.entry_price),
+          max_loss_pct: pct(minLow, sig.entry_price),
+          close_gain_pct: pct(lastClose, sig.entry_price),
           evaluated_at: new Date().toISOString(),
-          status: "CLOSED",
+          status,
         };
+        if (status !== "OPEN") {
+          fields.result_pct = result_pct;
+          fields.closed_at = today;
+        }
+        return { id: sig.id, ...fields, _closed: status !== "OPEN" };
       } catch {
         return null;
       }
     });
 
-    // 3) حدّث السجلات (على دفعات كذلك)
+    // 3) تحديث السجلات — دفعات
     const valid = updates.filter(Boolean);
-    let updated = 0;
+    let updated = 0, closedNow = 0;
     await inBatches(valid, 10, async (u) => {
-      const { id, ...fields } = u;
+      const { id, _closed, ...fields } = u;
       const resp = await fetchRetry(`${SUPABASE_URL}/rest/v1/signals?id=eq.${id}`, {
         method: "PATCH",
         headers: {
@@ -153,15 +235,54 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify(fields),
       });
-      if (resp.ok) updated++;
+      if (resp.ok) { updated++; if (_closed) closedNow++; }
       return null;
     });
+
+    // 4) 📊 إحصائيات الأداء (آخر 30 يوم) — مقياس الجودة الحقيقي
+    const statsSince = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+    const sr = await fetchRetry(
+      `${SUPABASE_URL}/rest/v1/signals?status=neq.OPEN&signal_date=gte.${statsSince}` +
+      `&select=status,result_pct,close_gain_pct,score,is_hot,type,target1_hit&limit=1000`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+    );
+    const closed = (await sr.json()) || [];
+    const isWin = s => ["T1_HIT", "T2_HIT", "T3_HIT"].includes(s.status) || s.target1_hit === true;
+    const wins = closed.filter(isWin);
+    const stops = closed.filter(s => s.status === "STOPPED");
+    const avg = arr => arr.length ? +(arr.reduce((a, s) => a + (s.result_pct ?? s.close_gain_pct ?? 0), 0) / arr.length).toFixed(2) : 0;
+
+    const bucket = (lo, hi) => {
+      const g = closed.filter(s => (s.score ?? 0) >= lo && (s.score ?? 0) < hi);
+      const w = g.filter(isWin);
+      return g.length ? { count: g.length, win_rate: +((w.length / g.length) * 100).toFixed(1) } : null;
+    };
 
     return res.status(200).json({
       success: true,
       evaluated: updated,
+      closed_now: closedNow,
+      still_open: valid.filter(u => !u._closed).length,
       total_open: signals.length,
       no_data: signals.length - valid.length,
+      // 📊 هذه الأرقام هي التي تطوّر بها الرادار:
+      performance_30d: {
+        closed_total: closed.length,
+        win_rate_pct: closed.length ? +((wins.length / closed.length) * 100).toFixed(1) : null,
+        avg_win_pct: avg(wins),
+        avg_loss_pct: avg(stops),
+        stopped_count: stops.length,
+        by_score: {          // ← إن كانت 80-99 أعلى بوضوح → ارفع SAVE_MIN_EP
+          "55-65": bucket(55, 65),
+          "65-75": bucket(65, 75),
+          "75-99": bucket(75, 100),
+        },
+        hot_signals: (() => {
+          const h = closed.filter(s => s.is_hot);
+          const w = h.filter(isWin);
+          return h.length ? { count: h.length, win_rate: +((w.length / h.length) * 100).toFixed(1) } : null;
+        })(),
+      },
     });
 
   } catch (error) {
