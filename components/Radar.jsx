@@ -1,4 +1,11 @@
-// components/Radar.js — الإصدار المحسن مع درجات التحليل والتصميم المتطور
+// components/Radar.js — v12 (حالة الدخول 🟢🟡🔴 + فرز ذكي)
+// ═══════════════════════════════════════════════════════════════════
+//  🆕 v12 — مبني حرفياً على نسختك + 4 تعديلات موسومة "🆕 v12":
+//   1. toCard يمرر حقول scan v11: entry_state / entry_label / wait_price / rs20 / in_cooldown
+//   2. فرز الأقسام: 🟢 داخل المنطقة → "فرص جاهزة" · 🟡 → "مراقبة" · 🔴 ملاحقة → "زخم متأخر"
+//      (مع الرجوع لمنطقك القديم إذا الحقول غير موجودة — آمن مع إشارات قديمة)
+//   3. ترتيب كل قسم بالسكور تنازلياً
+//   4. شارة حالة الدخول على كل بطاقة + ❄️ ضرب وقفه مؤخراً + 💪 أقوى من السوق
 // ═══════════════════════════════════════════════════════════════════
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
@@ -761,6 +768,17 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
   const risk = getRisk();
   const strength = getStrength();
 
+  // 🆕 v12: شارة حالة الدخول (من scan v11) — تحل مشكلة الدخول على أسهم ممتدة
+  const entryBadge = (() => {
+    if (!r.entry_state) return null;
+    if (r.entry_state === "in_zone")
+      return { txt: en ? "🟢 In entry zone now" : "🟢 داخل منطقة الدخول", c: "#22c55e", bg: "rgba(34,197,94,0.12)" };
+    if (r.entry_state === "chasing")
+      return { txt: en ? "🔴 Chasing — don't enter now" : "🔴 ملاحقة — لا تدخل الآن", c: "#ef4444", bg: "rgba(239,68,68,0.12)" };
+    const wp = r.wait_price != null ? " $" + (+r.wait_price).toFixed(2) : "";
+    return { txt: (en ? "🟡 Wait for pullback to" : "🟡 ممتد — انتظره عند") + wp, c: "#eab308", bg: "rgba(234,179,8,0.12)" };
+  })();
+
   const saveNote = () => {
     try {
       const notes = JSON.parse(localStorage.getItem('favorite_notes') || '{}');
@@ -799,6 +817,11 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
     }
     if (r.vcp) {
       ind.push({ label: "VCP", value: r.vcp_contraction + "%", color: "#34d399", status: en ? "Contraction" : "انكماش" });
+    }
+    // 🆕 v12: القوة النسبية مقابل SPY
+    if (r.rs20 != null) {
+      const rsColor = r.rs20 >= 5 ? "#22c55e" : r.rs20 >= 0 ? "#fbbf24" : "#94a3b8";
+      ind.push({ label: "RS vs SPY", value: (r.rs20 >= 0 ? "+" : "") + r.rs20.toFixed(1) + "%", color: rsColor, status: en ? "20 days" : "20 يوم" });
     }
     if (r.news_age_h != null && r.news_age_h < 24) {
       ind.push({ label: "📰 News", value: r.news_age_h + "h", color: "#fbbf24", status: en ? "Fresh" : "حديث" });
@@ -861,6 +884,22 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
       </div>
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 13, fontWeight: 600, alignItems: "center" }}>
+        {/* 🆕 v12: شارة حالة الدخول — أول شارة يشوفها المشترك */}
+        {entryBadge && (
+          <span style={{ color: entryBadge.c, background: entryBadge.bg, padding: "2px 12px", borderRadius: 20, border: `1px solid ${entryBadge.c}55`, fontWeight: 700 }}>
+            {entryBadge.txt}
+          </span>
+        )}
+        {r.in_cooldown && (
+          <span style={{ color: "#94a3b8", background: "rgba(148,163,184,0.1)", padding: "2px 12px", borderRadius: 20 }}>
+            ❄️ {en ? "Stopped out recently" : "ضرب وقفه مؤخراً"}
+          </span>
+        )}
+        {r.rs20 != null && r.rs20 >= 5 && (
+          <span style={{ color: "#34d399", background: "rgba(52,211,153,0.1)", padding: "2px 12px", borderRadius: 20 }}>
+            💪 {en ? "Stronger than market" : "أقوى من السوق"}
+          </span>
+        )}
         <span style={{ color: strength.color, background: "rgba(255,255,255,0.05)", padding: "2px 12px", borderRadius: 20 }}>
           {strength.label}
         </span>
@@ -920,6 +959,12 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
               {en ? " with " : " مع "}
               <span style={{ color: risk.color }}>{risk.label.toLowerCase()}</span> {en ? "risk." : "مخاطرة."}
             </p>
+            {/* 🆕 v12: توجيه الدخول في الشرح البسيط */}
+            {entryBadge && (
+              <p style={{ margin: "4px 0", fontSize: 13, color: entryBadge.c, fontWeight: 700 }}>
+                {entryBadge.txt}
+              </p>
+            )}
             {r.levels?.t1 && (
               <p style={{ margin: "4px 0", fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
                 🎯 {en ? "First target at" : "الهدف الأول عند"} <strong>{formatPrice(r.levels.t1)}</strong> ({formatPct(r.levels.t1Pct)})
@@ -1399,6 +1444,11 @@ export default function Radar() {
         is_smart_bounce: s.is_smart_bounce || false,
         smart_bounce_confidence: s.smart_bounce_confidence || 0,
         scores: s.scores || null,
+        // 🆕 v12: حقول حالة الدخول من scan v11 (مع قراءة احتياطية من structure للإشارات المحفوظة)
+        entry_state: s.entry_state || (s.structure && s.structure.entry_state && s.structure.entry_state.code) || null,
+        wait_price: s.wait_price ?? (s.structure && s.structure.entry_state && s.structure.entry_state.wait_price) ?? null,
+        rs20: s.rs20 ?? (s.structure && s.structure.rs20) ?? null,
+        in_cooldown: s.in_cooldown || (s.structure && s.structure.cooldown) || false,
       });
 
       const allCards = raw.map(toCard);
@@ -1411,14 +1461,20 @@ export default function Radar() {
       if (data.movers) setMovers(data.movers);
       if (data.market_regime) setMarketRegime(data.market_regime);
 
+      // 🆕 v12: التصنيف بحالة الدخول أولاً (الأدق) ثم منطقك القديم كاحتياط للإشارات بدونها
       const tiers = { ready: [], watch: [], late: [], hidden: [] };
       for (const c of allCards) {
         const flag = (c.structure && c.structure.flag) || "";
-        if (c.is_target || flag.includes("دخول صحيح")) tiers.ready.push(c);
+        if (c.entry_state === "chasing") tiers.late.push(c);
+        else if (c.entry_state === "in_zone") tiers.ready.push(c);
+        else if (c.entry_state === "wait_pullback") tiers.watch.push(c);
+        else if (c.is_target || flag.includes("دخول صحيح")) tiers.ready.push(c);
         else if (c.early_watch || flag === "مقبول") tiers.watch.push(c);
         else if (c.change_pct >= 12) tiers.late.push(c);
         else if ((c.score || 0) >= 70 && (c.volume || 0) < 1_000_000) tiers.hidden.push(c);
       }
+      // 🆕 v12: ترتيب كل قسم بالسكور تنازلياً — الأفضل دائماً بالأعلى
+      for (const k of Object.keys(tiers)) tiers[k].sort((a, b) => (b.score || 0) - (a.score || 0));
       setOpportunities(tiers);
       setCounts({ ready: tiers.ready.length, watch: tiers.watch.length, late: tiers.late.length, hidden: tiers.hidden.length, total: allCards.length });
 
@@ -1610,6 +1666,8 @@ export default function Radar() {
         <div style={S.statsRow}>
           {[
             { label: t.scanRange, value: total || "—", color: "#6366f1", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.2)" },
+            // 🆕 v12: عداد الفرص داخل منطقة الدخول — أهم رقم للمشترك
+            { label: lang === "en" ? "🟢 In Zone" : "🟢 بمنطقة الدخول", value: counts.ready, color: "#22c55e", bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.25)" },
             { label: t.filterSniper, value: sniperCount, color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.25)" },
             { label: t.filterRebound, value: reboundCount, color: "#38bdf8", bg: "rgba(56,189,248,0.1)", border: "rgba(56,189,248,0.25)" },
             { label: "🚨 HOT", value: hotCount, color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.2)" },
@@ -1727,6 +1785,7 @@ export default function Radar() {
             bg="rgba(251,191,36,0.08)" 
             border="rgba(251,191,36,0.3)" 
             t={t}
+            defaultOpen={false}
           >
             {opportunities.late.map((r, i) => (
               <SmartCard 
