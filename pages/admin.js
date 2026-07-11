@@ -1,4 +1,12 @@
-// pages/admin.js — RadarAZ Admin Panel v5 (Dashboard + Results + Signals + Subscribers + Affiliates)
+// pages/admin.js — RadarAZ Admin Panel v6 (تقارير المعروض فقط + حالة الدخول + أرقام صادقة)
+// ═══════════════════════════════════════════════════════════════════
+//  🆕 v6 — إصلاح لخبطة التقارير (كل التعديلات موسومة "🆕 v6"):
+//   1. كل التقارير والتغريدات من المعروض فعلاً فقط (displayed=true) — ما شاهده المشترك حرفياً
+//   2. أرقام صادقة: الرابح يُنشر بنسبة وسعر المستوى المُصاب (T1/T2/T3) لا max_gain
+//   3. حالة الدخول 🟢🟡🔴 لكل سهم في التقارير (من scan v11: structure.entry_state)
+//   4. مركز نشر موحّد: 🎯 الرابحين · 🛑 الخاسرين بصدق · 📊 الشامل · 📋 التقرير الكامل
+//   5. التقرير الشامل أعيد بناؤه: مجمّع (رابح/خاسر/بلا حسم) + حالة الدخول لكل سهم
+//   6. أداء المعروض مدموج داخل بطاقة التدقيق (بدل ثلاث كتل متداخلة)
 // ═══════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useMemo } from "react";
@@ -65,94 +73,153 @@ function astStr(iso) {
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} · ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
 
-// ─── بناء التقرير الشامل ──────────────────────────────────────────
+// ═══ 🆕 v6: النتيجة الصادقة — المستوى المُصاب = السعر = النسبة ═══
+// (لا نستخدم max_gain في النشر — الرابح يُنشر بما تحقق فعلاً عند مستواه)
+function honestResult(s) {
+  const entry = Number(s.entry_price) || 0;
+  const pctOf = (px) => (entry > 0 && px > 0) ? +(((px - entry) / entry) * 100).toFixed(2) : null;
+  if (s.target3_hit) return { won: true,  stop: false, tier: "T3 🏆", price: Number(s.target3) || 0,  pct: pctOf(Number(s.target3)),  hitAt: s.target3_hit_at || s.target2_hit_at || s.target1_hit_at };
+  if (s.target2_hit) return { won: true,  stop: false, tier: "T2 🎯", price: Number(s.target2) || 0,  pct: pctOf(Number(s.target2)),  hitAt: s.target2_hit_at || s.target1_hit_at };
+  if (s.target1_hit) return { won: true,  stop: false, tier: "T1 ✅", price: Number(s.target1) || 0,  pct: pctOf(Number(s.target1)),  hitAt: s.target1_hit_at };
+  if (s.stop_hit)   return { won: false, stop: true,  tier: "وقف ❌", price: Number(s.stop_loss) || 0, pct: pctOf(Number(s.stop_loss)), hitAt: null };
+  return { won: false, stop: false, tier: "بلا حسم ⏳", price: null, pct: s.close_gain_pct ?? null, hitAt: null };
+}
+
+// ═══ 🆕 v6: حالة الدخول وقت الرصد (من scan v11) ═══
+function entryStateOf(s) {
+  const code = s.structure && s.structure.entry_state && s.structure.entry_state.code;
+  if (code === "in_zone")       return { code, txt: "🟢 كان بمنطقة الدخول — جاهز للشراء" };
+  if (code === "wait_pullback") return { code, txt: "🟡 كان ممتداً — انتظار ارتداد" };
+  if (code === "chasing")       return { code, txt: "🔴 كان ملاحقة وقت الرصد" };
+  return null;
+}
+
+// ═══ 🆕 v6: كتلة سهم واحد للنشر (تُستخدم في كل التغريدات والنسخ) ═══
+function stockBlock(s, opts = {}) {
+  const r = honestResult(s);
+  const es = entryStateOf(s);
+  const caught = astStr(s.created_at);
+  const hitAt = astStr(r.hitAt);
+  const entry = (Number(s.entry_price) || 0).toFixed(2);
+  const lines = [];
+  if (r.won) {
+    lines.push(`🎯 $${s.symbol}  +${r.pct}%  (وصل ${r.tier})`);
+  } else if (r.stop) {
+    lines.push(`🛑 $${s.symbol}  ${r.pct != null ? `${r.pct}%` : ""}  (ضرب الوقف)`);
+  } else {
+    lines.push(`➖ $${s.symbol}  ${r.pct != null ? `${r.pct >= 0 ? "+" : ""}${r.pct}%` : ""}  (بلا حسم)`);
+  }
+  if (es && opts.withEntryState !== false) lines.push(`   ${es.txt}`);
+  if (caught) lines.push(`   📅 رُصد: ${caught} (السعودية) @ $${entry}`);
+  if (r.won && r.price) lines.push(`   ✅ أصاب ${r.tier}${hitAt ? `: ${hitAt}` : ""} @ $${r.price.toFixed(2)}`);
+  if (r.stop && r.price) lines.push(`   🛑 الوقف @ $${r.price.toFixed(2)}`);
+  return lines.join("\n");
+}
+
+// ─── 🆕 v6: بناء التقرير الشامل (المعروض فقط · مجمّع · صادق) ─────
 function buildFullReport(list, period, periodLabels) {
   const periodLabel = periodLabels[period] || "الكل";
+  const wins  = list.filter(s => honestResult(s).won);
+  const stops = list.filter(s => s.stop_hit && !s.target1_hit);
+  const rest  = list.filter(s => !honestResult(s).won && !(s.stop_hit && !s.target1_hit));
+  const decided = wins.length + stops.length;
+  const rate = decided ? Math.round((wins.length / decided) * 100) : 0;
+  const inZone = list.filter(s => entryStateOf(s)?.code === "in_zone").length;
+
   const lines = [];
-  
-  lines.push(`📊 تقرير RadarAZ الشامل — ${periodLabel}`);
+  lines.push(`📊 تقرير RadarAZ — ${periodLabel}`);
   lines.push(`═══════════════════════════`);
   lines.push(`📅 ${new Date().toLocaleDateString('ar-SA')}`);
+  lines.push(`👁️ كل ما يلي عُرض للمشتركين في الرادار فعلاً`);
   lines.push(``);
-  lines.push(`📈 إجمالي الإشارات المختومة: ${list.length}`);
-  lines.push(`✅ رابح (حقق هدف): ${list.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length}`);
-  lines.push(`❌ ضرب وقف الخسارة: ${list.filter(s => s.stop_hit).length}`);
-  lines.push(`⏳ مفتوح (لم يحسم): ${list.filter(s => s.status === 'OPEN').length}`);
-  
-  const decided = list.filter(s => s.stop_hit || s.target1_hit || s.target2_hit || s.target3_hit);
-  const rate = decided.length ? Math.round((list.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length / decided.length) * 100) : 0;
-  lines.push(`🎯 نسبة النجاح: ${rate}%`);
+  lines.push(`📈 إشارات معروضة محسومة: ${list.length}`);
+  lines.push(`✅ رابح: ${wins.length} · ❌ وقف: ${stops.length} · ➖ بلا حسم: ${rest.length}`);
+  lines.push(`🎯 نسبة النجاح: ${rate}% (رابح ÷ محسوم)`);
+  lines.push(`🟢 كانت بمنطقة الدخول وقت الرصد: ${inZone}`);
   lines.push(``);
-  lines.push(`📋 تفاصيل الإشارات:`);
-  lines.push(`─────────────────────`);
-  
-  for (const s of list) {
-    const caught = astStr(s.created_at);
-    const entry = (s.entry_price || 0).toFixed(2);
-    const high = (s.high_price || entry).toFixed(2);
-    const low = (s.low_price || entry).toFixed(2);
-    const maxGain = s.max_gain_pct != null ? `+${s.max_gain_pct.toFixed(2)}%` : '—';
-    const closeGain = s.close_gain_pct != null ? `${s.close_gain_pct.toFixed(2)}%` : '—';
-    
-    let targetText = '—';
-    if (s.target3_hit) targetText = '🏆 T3';
-    else if (s.target2_hit) targetText = '🎯 T2';
-    else if (s.target1_hit) targetText = '✅ T1';
-    
-    let resultText = '⏳ مفتوح';
-    if (s.stop_hit) resultText = '❌ وقف';
-    else if (s.target1_hit || s.target2_hit || s.target3_hit) resultText = '✅ رابح';
-    
-    lines.push(`📡 $${s.symbol} (${s.type || 'مضاربة'})`);
-    if (caught) lines.push(`   🕐 رُصد: ${caught}`);
-    lines.push(`   💰 دخل: $${entry} | أعلى: $${high} | أدنى: $${low}`);
-    lines.push(`   📈 أقصى ارتفاع: ${maxGain} | 📉 أقصى انخفاض: ${closeGain}`);
-    lines.push(`   🎯 الهدف: ${targetText} | 🏁 النتيجة: ${resultText}`);
-    if (s.target1_hit_at) {
-      const hitTime = astStr(s.target1_hit_at);
-      if (hitTime) lines.push(`   ✅ وقت الهدف: ${hitTime}`);
+
+  if (wins.length) {
+    lines.push(`━━━ 🎯 حققت أهدافها (${wins.length}) ━━━`);
+    for (const s of wins.sort((a, b) => (honestResult(b).pct || 0) - (honestResult(a).pct || 0))) {
+      lines.push(stockBlock(s));
+      lines.push(``);
     }
-    lines.push(``);
   }
-  
+  if (stops.length) {
+    lines.push(`━━━ 🛑 ضربت الوقف (${stops.length}) — ننشرها بصدق ━━━`);
+    for (const s of stops) {
+      lines.push(stockBlock(s));
+      lines.push(``);
+    }
+  }
+  if (rest.length) {
+    lines.push(`━━━ ➖ أُغلقت بلا هدف/وقف (${rest.length}) ━━━`);
+    for (const s of rest) {
+      lines.push(stockBlock(s));
+      lines.push(``);
+    }
+  }
+
   lines.push(`═══════════════════════════`);
+  lines.push(`📊 ليست نصيحة استثمارية`);
   lines.push(`🔗 radaraz.com`);
-  
   return lines.join('\n');
 }
 
-// ─── Tweet builder ────────────────────────────────────────────────
+// ─── 🆕 v6: تغريدة حسب الحالة (wins | stops | all) ────────────────
+function buildCaseTweet(list, date, mode) {
+  const wins  = list.filter(s => honestResult(s).won);
+  const stops = list.filter(s => s.stop_hit && !s.target1_hit);
+  const decided = wins.length + stops.length;
+  const rate = decided ? Math.round((wins.length / decided) * 100) : 0;
+  const lines = [];
+
+  if (mode === "wins") {
+    lines.push(`🎯 إنجازات رادار الأسهم — ${date}\n`);
+    wins
+      .sort((a, b) => (honestResult(b).pct || 0) - (honestResult(a).pct || 0))
+      .slice(0, 6)
+      .forEach(s => { lines.push(stockBlock(s)); lines.push(``); });
+    lines.push(`✅ ${wins.length} رابح من ${decided} محسوم · نسبة نجاح ${rate}%`);
+    lines.push(`👁️ كلها عُرضت للمشتركين وقت الرصد`);
+  } else if (mode === "stops") {
+    lines.push(`🛑 الشفافية أولاً — صفقات ضربت وقفها ${date}\n`);
+    stops.slice(0, 6).forEach(s => { lines.push(stockBlock(s)); lines.push(``); });
+    lines.push(`ننشر الخسائر كما ننشر الأرباح — وقف الخسارة جزء من النظام.`);
+    lines.push(`✅ ${wins.length} رابح مقابل ${stops.length} وقف · نجاح ${rate}%`);
+  } else {
+    lines.push(`📊 حصاد رادار الأسهم — ${date}\n`);
+    lines.push(`✅ ${wins.length} رابح · ❌ ${stops.length} وقف · نجاح ${rate}%\n`);
+    if (wins.length) {
+      lines.push(`🏆 أبرز الرابحين:`);
+      wins.sort((a, b) => (honestResult(b).pct || 0) - (honestResult(a).pct || 0))
+        .slice(0, 4).forEach(s => { lines.push(stockBlock(s)); lines.push(``); });
+    }
+    if (stops.length) {
+      lines.push(`🛑 وبكل صدق — ضربت الوقف:`);
+      stops.slice(0, 3).forEach(s => { lines.push(stockBlock(s, { withEntryState: false })); lines.push(``); });
+    }
+  }
+  lines.push(`\n📊 ليست نصيحة استثمارية`);
+  lines.push(`🔗 radaraz.com`);
+  return lines.join("\n");
+}
+
+// ─── Tweet builder (تبويب الإشارات) ──────────────────────────────
 function buildTweet(signals, date, mode = "signals") {
   const lines = [`📡 رادار الأسهم — ${date}\n`];
   if (mode === "results") {
-    const hit = signals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit).length;
-    const st  = signals.filter(s => s.stop_hit && !s.target1_hit).length;
-    const decided = hit + st;
-    const rate = decided ? Math.round((hit / decided) * 100) : 0;
-
-    const topGainers = [...signals]
-      .filter(s => (s.target1_hit || s.target2_hit || s.target3_hit) && (s.max_gain_pct || 0) > 0)
-      .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
-      .slice(0, 4);
-
-    lines.push(`🎯 أبرز ارتفاعات اليوم:\n`);
-    topGainers.forEach(s => {
-      const icon = s.type === "استثمار" ? "📈" : "⚡";
-      const g = (s.max_gain_pct || 0).toFixed(1);
-      const caught = astStr(s.created_at);
-      const hitAt = astStr(s.target1_hit_at);
-      lines.push(`${icon} $${s.symbol} +${g}%`);
-      if (caught) lines.push(`   رُصد: ${caught}`);
-      if (hitAt)  lines.push(`   أصاب الهدف: ${hitAt}`);
-    });
-    lines.push(`\n✅ ${hit} رابح من ${decided} محسوم · نسبة نجاح ${rate}% 🔥`);
+    // 🆕 v6: وضع النتائج تحوّل للتغريدة الشاملة الصادقة
+    return buildCaseTweet(signals, date, "all");
   } else {
     signals.slice(0, 8).forEach(s => {
       const hot = s.is_hot ? " 🚨" : "";
       const early = s.early_watch ? " 🔍" : "";
+      const es = entryStateOf(s);
       const chg = s.change_pct != null ? ` ${s.change_pct >= 0 ? "+" : ""}${Math.round(parseFloat(s.change_pct))}%${s.change_pct >= 0 ? "▲" : "▼"}` : "";
       const ma = s.ma_signal ? ` · ${s.ma_signal}` : "";
       lines.push(`📡 $${s.symbol}${hot}${early} (EP: ${s.ep || s.score}%)${chg}${ma}`);
+      if (es) lines.push(`  ${es.txt}`);
       lines.push(`  دخل: $${(s.entry_price || 0).toFixed(2)}`);
       lines.push(`  🎯 T1: $${(s.target1 || 0).toFixed(2)} | T2: $${(s.target2 || 0).toFixed(2)} | T3: $${(s.target3 || 0).toFixed(2)}`);
       lines.push(`  🛑 وقف: $${(s.stop_loss || 0).toFixed(2)}\n`);
@@ -164,10 +231,12 @@ function buildTweet(signals, date, mode = "signals") {
 
 function getResult(s) {
   if (s?.status === "OPEN") return null;
-  if (s?.target3_hit) return { icon: "🏆", label: "وصل T3", pct: s?.max_gain_pct };
-  if (s?.target2_hit) return { icon: "🎯", label: "وصل T2", pct: s?.max_gain_pct };
-  if (s?.target1_hit) return { icon: "✅", label: "وصل T1", pct: s?.max_gain_pct };
-  if (s?.stop_hit)    return { icon: "❌", label: "ضرب الوقف", pct: s?.close_gain_pct };
+  // 🆕 v6: النسبة المعروضة = نسبة المستوى المُصاب (صادقة) لا max_gain
+  const hr = honestResult(s);
+  if (s?.target3_hit) return { icon: "🏆", label: "وصل T3", pct: hr.pct };
+  if (s?.target2_hit) return { icon: "🎯", label: "وصل T2", pct: hr.pct };
+  if (s?.target1_hit) return { icon: "✅", label: "وصل T1", pct: hr.pct };
+  if (s?.stop_hit)    return { icon: "❌", label: "ضرب الوقف", pct: hr.pct };
   return { icon: "⏳", label: "لم يصل هدف", pct: s?.close_gain_pct };
 }
 
@@ -250,8 +319,9 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
   const ep  = s.ep || s.score || 0;
   const hot = s.is_hot;
   const epc = epColor(ep);
+  const es  = entryStateOf(s);  // 🆕 v6
 
-  const text = `📡 $${s.symbol} — EP ${ep}%\nدخل: $${(s.entry_price||0).toFixed(2)}\nT1: $${(s.target1||0).toFixed(2)} | T2: $${(s.target2||0).toFixed(2)} | T3: $${(s.target3||0).toFixed(2)}\n🛑 وقف: $${(s.stop_loss||0).toFixed(2)}\n\nradaraz.com`;
+  const text = `📡 $${s.symbol} — EP ${ep}%\n${es ? es.txt + "\n" : ""}دخل: $${(s.entry_price||0).toFixed(2)}\nT1: $${(s.target1||0).toFixed(2)} | T2: $${(s.target2||0).toFixed(2)} | T3: $${(s.target3||0).toFixed(2)}\n🛑 وقف: $${(s.stop_loss||0).toFixed(2)}\n\nradaraz.com`;
 
   return (
     <div
@@ -289,6 +359,15 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
               )}
               {hot && <HotBadge />}
               <EPBadge ep={ep} />
+              {/* 🆕 v6: شارة حالة الدخول */}
+              {es && (
+                <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6,
+                  background: es.code === "in_zone" ? "rgba(34,197,94,.14)" : es.code === "chasing" ? "rgba(239,68,68,.12)" : "rgba(234,179,8,.12)",
+                  color: es.code === "in_zone" ? "#22c55e" : es.code === "chasing" ? "#ef4444" : "#eab308",
+                  border: `1px solid ${es.code === "in_zone" ? "rgba(34,197,94,.35)" : es.code === "chasing" ? "rgba(239,68,68,.3)" : "rgba(234,179,8,.3)"}` }}>
+                  {es.code === "in_zone" ? "🟢 بمنطقة الدخول" : es.code === "chasing" ? "🔴 ملاحقة" : "🟡 ممتد"}
+                </span>
+              )}
               {s.type && (
                 <span style={{ fontSize: 11, color: "#475569" }}>{s.type}</span>
               )}
@@ -366,29 +445,15 @@ function SignalCard({ s, copiedId, onCopy, selectMode, selected, onToggle }) {
 function ResultCard({ s, copiedId, onCopy }) {
   const r   = getResult(s);
   const ep  = s.ep || s.score || 0;
-  const won = s.target1_hit || s.target2_hit || s.target3_hit;
+  const hr  = honestResult(s);        // 🆕 v6
+  const es  = entryStateOf(s);        // 🆕 v6
+  const won = hr.won;
   const caught = astStr(s.created_at);
-  const hitAt  = astStr(s.target1_hit_at);
+  const hitAt  = astStr(hr.hitAt);
   const entry  = (s.entry_price || 0).toFixed(2);
-  const tier   = s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅";
-  const tgt    = (s.target1 || 0).toFixed(2);
-  const gain   = s.max_gain_pct != null ? `+${s.max_gain_pct}%` : (r?.pct != null ? `${r.pct}%` : "");
 
-  let text;
-  if (won) {
-    text =
-      `🎯 $${s.symbol}  ${gain}  (وصل ${tier})\n` +
-      (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : `📅 سعر الالتقاط: $${entry}\n`) +
-      (hitAt ? `✅ أصاب الهدف الأول: ${hitAt} @ $${tgt}\n` : `✅ أصاب الهدف @ $${tgt}\n`) +
-      `— RadarAZ`;
-  } else if (s.stop_hit) {
-    text =
-      `🛑 $${s.symbol}  ${r?.pct != null ? (r.pct >= 0 ? `+${r.pct}%` : `${r.pct}%`) : ""}\n` +
-      (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : "") +
-      `🛑 ضرب وقف الخسارة\n— RadarAZ`;
-  } else {
-    text = `➖ $${s.symbol} — أغلق دون هدف/وقف ${r?.pct != null ? `(${r.pct}%)` : ""}\n— RadarAZ`;
-  }
+  // 🆕 v6: نص النسخ = كتلة صادقة موحّدة (نفس المستخدمة بالتغريدات)
+  const text = stockBlock(s) + "\n— RadarAZ · radaraz.com";
 
   return (
     <div style={{
@@ -400,12 +465,24 @@ function ResultCard({ s, copiedId, onCopy }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 18 }}>{r ? r.icon : "📡"}</span>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
               <span style={{ fontWeight: 800, fontFamily: "monospace", fontSize: 16, color: "#f1f5f9" }}>${s.symbol}</span>
               <EPBadge ep={ep} />
+              {/* 🆕 v6: شارة حالة الدخول في النتائج */}
+              {es && (
+                <span style={{ fontSize: 9, fontWeight: 800, padding: "1px 7px", borderRadius: 6,
+                  background: es.code === "in_zone" ? "rgba(34,197,94,.14)" : es.code === "chasing" ? "rgba(239,68,68,.12)" : "rgba(234,179,8,.12)",
+                  color: es.code === "in_zone" ? "#22c55e" : es.code === "chasing" ? "#ef4444" : "#eab308" }}>
+                  {es.code === "in_zone" ? "🟢 منطقة الدخول" : es.code === "chasing" ? "🔴 ملاحقة" : "🟡 ممتد"}
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 12, color: won ? "#34d399" : s.stop_hit ? "#f87171" : "#475569", marginTop: 3, fontWeight: 600 }}>
               {r ? `${r.label} ${r.pct != null ? (r.pct >= 0 ? `+${r.pct}%` : `${r.pct}%`) : ""}` : "⏳ مفتوحة"}
+              {/* 🆕 v6: max_gain كمعلومة داخلية ثانوية — لا تدخل النشر */}
+              {won && s.max_gain_pct != null && s.max_gain_pct > (hr.pct || 0) && (
+                <span style={{ fontSize: 10, color: "#64748b", marginRight: 6 }}> (بلغ أقصى +{s.max_gain_pct}%)</span>
+              )}
             </div>
           </div>
         </div>
@@ -414,10 +491,11 @@ function ResultCard({ s, copiedId, onCopy }) {
         </button>
       </div>
 
-      {(caught || hitAt) && (
+      {(caught || hitAt || es) && (
         <div style={{ marginTop: 9, paddingTop: 9, borderTop: "1px solid rgba(255,255,255,.06)", fontSize: 11, color: "#94a3b8", lineHeight: 1.9 }}>
+          {es && <div>{es.txt}</div>}
           {caught && <div>📅 التُقط: <span style={{ color: "#cbd5e1", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>{caught}</span> <span style={{ color: "#475569" }}>(السعودية)</span> @ <span style={{ color: "#60a5fa", fontFamily: "monospace" }}>${entry}</span></div>}
-          {won && hitAt && <div>✅ الهدف: <span style={{ color: "#cbd5e1", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>{hitAt}</span> @ <span style={{ color: "#34d399", fontFamily: "monospace" }}>${tgt}</span></div>}
+          {won && hr.price && <div>✅ أصاب {hr.tier}: <span style={{ color: "#cbd5e1", direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}>{hitAt || "—"}</span> @ <span style={{ color: "#34d399", fontFamily: "monospace" }}>${hr.price.toFixed(2)}</span></div>}
         </div>
       )}
     </div>
@@ -522,7 +600,7 @@ export default function Admin() {
     }
   };
 
-  // 🔍 تدقيق المطابقة
+  // 🔍 تدقيق المطابقة + أداء المعروض
   const runAudit = async () => {
     setAuditBusy(true); setAudit(null);
     try {
@@ -539,29 +617,34 @@ export default function Admin() {
       const displayed = todaySymbols.filter(sym => displayedSet.has(sym));
       const notDisplayed = todaySymbols.filter(sym => !displayedSet.has(sym));
 
-      const closed = todaySignals.filter(s => s.status === "CLOSED");
+      // 🆕 v6: الأداء يُحسب من المعروض فقط — التقرير يطابق ما شاهده المشترك
+      const closed = todaySignals.filter(s => s.displayed === true && s.status === "CLOSED");
       const hit = closed.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
       const stopHit = closed.filter(s => s.stop_hit && !s.target1_hit);
       const totalClosed = closed.length;
       const winRate = totalClosed > 0 ? Math.round((hit.length / totalClosed) * 100) : 0;
 
+      // 🆕 v6: أرقام النشر الصادقة (نسبة المستوى المُصاب)
       const bestTrades = [...hit]
-        .sort((a, b) => (b.max_gain_pct || 0) - (a.max_gain_pct || 0))
+        .sort((a, b) => (honestResult(b).pct || 0) - (honestResult(a).pct || 0))
         .slice(0, 6)
-        .map(s => ({
-          symbol: s.symbol,
-          gain: (s.max_gain_pct || 0).toFixed(2),
-          target: s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅",
-          entry: s.entry_price,
-          targetPrice: s.target1,
-          caughtAt: s.created_at,
-          hitAt: s.target1_hit_at,
-        }));
+        .map(s => {
+          const hr = honestResult(s);
+          return {
+            symbol: s.symbol,
+            gain: (hr.pct || 0).toFixed(2),
+            target: hr.tier,
+            entry: s.entry_price,
+            targetPrice: hr.price,
+            caughtAt: s.created_at,
+            hitAt: hr.hitAt,
+          };
+        });
 
-      const avgGain = hit.length > 0 ? (hit.reduce((a, s) => a + (s.max_gain_pct || 0), 0) / hit.length).toFixed(2) : 0;
-      const avgLoss = stopHit.length > 0 ? (stopHit.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0) / stopHit.length).toFixed(2) : 0;
-      const totalGain = hit.reduce((a, s) => a + (s.max_gain_pct || 0), 0);
-      const totalLoss = stopHit.reduce((a, s) => a + Math.abs(s.close_gain_pct || 0), 0);
+      const avgGain = hit.length > 0 ? (hit.reduce((a, s) => a + (honestResult(s).pct || 0), 0) / hit.length).toFixed(2) : 0;
+      const avgLoss = stopHit.length > 0 ? (stopHit.reduce((a, s) => a + Math.abs(honestResult(s).pct || 0), 0) / stopHit.length).toFixed(2) : 0;
+      const totalGain = hit.reduce((a, s) => a + (honestResult(s).pct || 0), 0);
+      const totalLoss = stopHit.reduce((a, s) => a + Math.abs(honestResult(s).pct || 0), 0);
       const profitFactor = totalLoss > 0 ? (totalGain / totalLoss).toFixed(2) : "0.00";
 
       const byType = {};
@@ -586,7 +669,7 @@ export default function Admin() {
           notDisplayedSymbols: notDisplayed,
         },
         performance: {
-          totalDisplayed: todaySymbols.length,
+          totalDisplayed: displayed.length,
           hitT1: closed.filter(s => s.target1_hit).length,
           hitT2: closed.filter(s => s.target2_hit).length,
           hitT3: closed.filter(s => s.target3_hit).length,
@@ -758,30 +841,13 @@ export default function Admin() {
     return mins < 8 * 60;
   };
 
+  // 🆕 v6: نسخ الإنجازات — كتل صادقة موحّدة + حالة الدخول
   const copyAllWins = (winsList) => {
     const tradable = winsList.filter(s => !isPreMarket(s));
     if (!tradable.length) { showToast("لا يوجد رابحون (بعد استبعاد ما قبل السوق)", "err"); return; }
-    const blocks = tradable.map(s => {
-      const caught = astStr(s.created_at);
-      const hitAt = astStr(s.target1_hit_at);
-      const entry = (s.entry_price || 0).toFixed(2);
-      const tier = s.target3_hit ? "T3 🏆" : s.target2_hit ? "T2 🎯" : "T1 ✅";
-      const t1price = (s.target1 || 0).toFixed(2);
-      const gain = s.max_gain_pct != null ? `+${s.max_gain_pct}%` : "";
-      return `🎯 $${s.symbol}  ${gain}  (وصل ${tier})\n` +
-        (caught ? `📅 التُقط: ${caught} (السعودية) @ $${entry}\n` : `📅 @ $${entry}\n`) +
-        (hitAt ? `✅ أصاب الهدف الأول: ${hitAt} @ $${t1price}` : `✅ أصاب الهدف @ $${t1price}`);
-    });
-    copyText(`📡 سجل إنجازات RadarAZ\n\n${blocks.join("\n\n")}\n\n📊 ليست نصيحة استثمارية\n🔗 radaraz.com`, "all-wins");
+    const blocks = tradable.map(s => stockBlock(s));
+    copyText(`📡 سجل إنجازات RadarAZ — كل ما يلي عُرض للمشتركين\n\n${blocks.join("\n\n")}\n\n📊 ليست نصيحة استثمارية\n🔗 radaraz.com`, "all-wins");
     showToast(`✅ نُسخ (${tradable.length} إنجاز · استُبعد ${winsList.length - tradable.length} قبل السوق)`, "ok");
-  };
-
-  const copyFullReport = () => {
-    const list = closedSignals;
-    if (!list.length) { showToast("لا توجد بيانات للفترة المحددة", "err"); return; }
-    const report = buildFullReport(list, datePeriod, periodLabels);
-    copyText(report, "التقرير الشامل");
-    setShowFullReport(false);
   };
 
   const handleFullReport = () => {
@@ -790,73 +856,6 @@ export default function Admin() {
     const report = buildFullReport(list, datePeriod, periodLabels);
     setTweetText(report);
     setShowFullReport(true);
-  };
-
-  const copyTweetReport = async () => {
-    try {
-      const res = await fetch('/api/radar-report');
-      const data = await res.json();
-      
-      if (!data.success || !data.report) {
-        showToast("❌ فشل جلب تقرير الرادار", "error");
-        return;
-      }
-
-      const report = data.report;
-      const today = new Date().toLocaleDateString("ar-SA");
-      const summary = report.summary;
-
-      let tweet = `📡 تقرير رادار الأسهم - ${today}\n`;
-      tweet += `🕐 الفترة: 3م - 11م (السعودية)\n`;
-      tweet += `─────────────────────\n`;
-      tweet += `📈 الإشارات المعروضة: ${summary.displayedInRadar || 0}\n`;
-      tweet += `✅ وصلت هدف: ${summary.hit || 0} (${summary.winRate || 0}%)\n`;
-      tweet += `❌ ضربت وقف: ${summary.stopHit || 0}\n`;
-      tweet += `💰 Profit Factor: ${summary.profitFactor || 0}×\n`;
-      tweet += `📈 متوسط الربح: ${summary.avgGain || 0}%\n`;
-      tweet += `📉 متوسط الخسارة: ${summary.avgLoss || 0}%\n`;
-      tweet += `─────────────────────\n`;
-      tweet += `🏆 أبرز الصفقات:\n\n`;
-
-      const topGainers = report.topGainers || [];
-      if (topGainers.length === 0) {
-        tweet += `   لا توجد صفقات رابحة اليوم\n\n`;
-      } else {
-        topGainers.slice(0, 6).forEach(s => {
-          const target = s.target || "T1 ✅";
-          const gain = s.gain || "0.00";
-          const caught = s.caughtAt ? new Date(s.caughtAt).toLocaleTimeString() : "";
-          const hit = s.hitAt ? new Date(s.hitAt).toLocaleTimeString() : "";
-          const entry = s.entry || 0;
-          const targetPrice = s.targetPrice || 0;
-
-          tweet += `$${s.symbol}  +${gain}%  (${target})\n`;
-          if (caught) tweet += `   📅 التقط: ${caught} @ $${entry.toFixed(2)}\n`;
-          if (hit) tweet += `   ✅ الهدف: ${hit} @ $${targetPrice.toFixed(2)}\n`;
-          tweet += `\n`;
-        });
-      }
-
-      const topLosers = report.topLosers || [];
-      if (topLosers.length > 0) {
-        tweet += `─────────────────────\n`;
-        tweet += `📉 أبرز الخاسرين:\n`;
-        topLosers.slice(0, 3).forEach(s => {
-          tweet += `   $${s.symbol} -${s.loss}% (${s.reasons.slice(0, 1).join("")})\n`;
-        });
-      }
-
-      tweet += `─────────────────────\n`;
-      tweet += `✅ جميع الأسهم المعروضة ظهرت للمشتركين\n`;
-      tweet += `🔗 radaraz.com`;
-
-      await navigator.clipboard.writeText(tweet);
-      showToast(`✅ تم نسخ تقرير التغريدة (${summary.displayedInRadar || 0} إشارة معروضة)`, "ok");
-
-    } catch (error) {
-      console.error("خطأ في نسخ التقرير:", error);
-      showToast("❌ خطأ في نسخ التقرير", "error");
-    }
   };
 
   const hotCount  = signals.filter(s => s.is_hot).length;
@@ -911,9 +910,12 @@ export default function Admin() {
 
   const winsList = closedSignals.filter(s => s.target1_hit || s.target2_hit || s.target3_hit);
   const lossList = closedSignals.filter(s => s.stop_hit && !s.target1_hit);
+  // 🆕 v6: قائمة "كانت بمنطقة الدخول"
+  const inZoneList = closedSignals.filter(s => entryStateOf(s)?.code === "in_zone");
   const resultsToShow = closedSignals.filter(s => {
     if (resultView === "wins")   return s.target1_hit || s.target2_hit || s.target3_hit;
     if (resultView === "losses") return s.stop_hit && !s.target1_hit;
+    if (resultView === "inzone") return entryStateOf(s)?.code === "in_zone";
     return true;
   });
 
@@ -932,8 +934,12 @@ export default function Admin() {
     const early  = list.filter(s => s.early_watch).length;
     const lowEp  = list.filter(s => (num(s.ep) || num(s.score) || 0) < 70).length;
     const avgEp  = Math.round(list.reduce((a, s) => a + (num(s.ep) || num(s.score) || 0), 0) / n);
+    // 🆕 v6: حالة الدخول ضمن التشخيص المقارن
+    const chasing = list.filter(s => entryStateOf(s)?.code === "chasing").length;
+    const inzone  = list.filter(s => entryStateOf(s)?.code === "in_zone").length;
     return { penny: pctG(penny), chased: pctG(chased), hiRsi: pctG(hiRsi), noNews: pctG(noNews),
              spec, invest, hot, early, lowEp: pctG(lowEp), avgEp,
+             chasing: pctG(chasing), inzone: pctG(inzone), chasingN: chasing, inzoneN: inzone,
              pennyN: penny, chasedN: chased, hiRsiN: hiRsi, noNewsN: noNews, lowEpN: lowEp };
   };
   const lossPat = patternOf(lossList);
@@ -946,6 +952,9 @@ export default function Admin() {
     { k: "بلا أخبار",            lv: `${lossPat.noNewsN} (${lossPat.noNews}%)`, wv: `${winPat.noNews}%`, warn: lossPat.noNews >= 60 && lossPat.noNews > winPat.noNews + 15 },
     { k: "EP < 70",             lv: `${lossPat.lowEpN} (${lossPat.lowEp}%)`, wv: `${winPat.lowEp}%`, warn: lossPat.lowEp >= 50 && lossPat.lowEp > winPat.lowEp + 15 },
     { k: "متوسط EP",            lv: `${lossPat.avgEp}`, wv: `${winPat.avgEp}`, warn: lossPat.avgEp + 3 < winPat.avgEp },
+    // 🆕 v6: هل الخاسرون ملاحقات؟ هل الرابحون من منطقة الدخول؟ — برهان قيمة entry_state
+    { k: "🔴 كانت ملاحقة",       lv: `${lossPat.chasingN} (${lossPat.chasing}%)`, wv: `${winPat.chasing}%`, warn: lossPat.chasing >= 30 && lossPat.chasing > winPat.chasing },
+    { k: "🟢 كانت بمنطقة الدخول", lv: `${lossPat.inzoneN} (${lossPat.inzone}%)`, wv: `${winPat.inzone}%`, warn: false },
     { k: "مضاربة / استثمار",     lv: `${lossPat.spec}/${lossPat.invest}`, wv: `${winPat.spec}/${winPat.invest}`, warn: false },
     { k: "HOT / رصد مبكر",      lv: `${lossPat.hot}/${lossPat.early}`, wv: `${winPat.hot}/${winPat.early}`, warn: false },
   ] : null;
@@ -1098,7 +1107,7 @@ export default function Admin() {
               {[
                 { label: "إجمالي",   value: signals.length,                                color: "#818cf8" },
                 { label: "🚨 HOT",   value: hotCount,                                      color: "#f87171" },
-                { label: "قيادي",    value: signals.filter(s => s.type === "قيادي").length, color: "#34d399" },
+                { label: "🟢 بمنطقة الدخول", value: signals.filter(s => entryStateOf(s)?.code === "in_zone").length, color: "#22c55e" },
                 { label: "مضاربة",   value: signals.filter(s => s.type === "مضاربة").length,color: "#fbbf24" },
                 { label: "خبر <24h", value: newsCount,                                      color: "#c084fc" },
               ].map(s => (
@@ -1173,11 +1182,40 @@ export default function Admin() {
           <>
             {loading && <div style={{ textAlign: "center", color: "#334155", padding: 30 }}>جاري التحميل...</div>}
 
+            {/* 🆕 v6: مركز النشر الموحّد — كل الأزرار بمكان واحد، كلها من المعروض فقط */}
+            <div style={{ marginBottom: 18, padding: "14px 16px", borderRadius: 14, background: "linear-gradient(135deg,rgba(29,161,242,.07),rgba(99,102,241,.05))", border: "1px solid rgba(29,161,242,.25)" }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#60a5fa", marginBottom: 3 }}>🐦 مركز النشر — من المعروض للمشتركين فقط</div>
+              <div style={{ fontSize: 11, color: "#64748b", marginBottom: 10 }}>
+                الفترة: {periodLabels[datePeriod]} · {closedSignals.length} إشارة معروضة محسومة · الأرقام = المستوى المُصاب فعلاً (لا max_gain)
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button style={S.btn("linear-gradient(135deg,#059669,#10b981)")}
+                  onClick={() => { if (!winsList.length) { showToast("لا رابحين بالفترة", "err"); return; } setTweetText(buildCaseTweet(closedSignals, date, "wins")); }}>
+                  🎯 تغريدة الرابحين ({winsList.length})
+                </button>
+                <button style={S.btn("linear-gradient(135deg,#b91c1c,#ef4444)")}
+                  onClick={() => { if (!lossList.length) { showToast("لا خاسرين بالفترة", "err"); return; } setTweetText(buildCaseTweet(closedSignals, date, "stops")); }}>
+                  🛑 تغريدة الخاسرين بصدق ({lossList.length})
+                </button>
+                <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")}
+                  onClick={() => { if (!closedSignals.length) { showToast("لا بيانات بالفترة", "err"); return; } setTweetText(buildCaseTweet(closedSignals, date, "all")); }}>
+                  📊 تغريدة شاملة
+                </button>
+                <button style={S.btn("linear-gradient(135deg,#8b5cf6,#6366f1)")} onClick={handleFullReport}>
+                  📋 التقرير الشامل (كل سهم + حالة الدخول)
+                </button>
+                <button style={S.btn("rgba(52,211,153,.18)")} onClick={() => copyAllWins(winsList)}>
+                  📋 نسخ الإنجازات
+                </button>
+              </div>
+            </div>
+
+            {/* 🔍 تدقيق المطابقة + أداء المعروض (كتلة واحدة بدل ثلاث) */}
             <div style={{ marginBottom: 18, padding: "14px 16px", borderRadius: 14, background: "rgba(99,102,241,.06)", border: "1px solid rgba(99,102,241,.2)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: "#a5b4fc" }}>🔍 تدقيق المطابقة</div>
-                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>كم إشارة عُرضت فعلاً في الرادار؟</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#a5b4fc" }}>🔍 تدقيق المطابقة + أداء المعروض</div>
+                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>كم إشارة عُرضت فعلاً؟ وكيف كان أداء المعروض؟</div>
                 </div>
                 <button onClick={runAudit} disabled={auditBusy} style={S.btn(auditBusy ? "rgba(255,255,255,.06)" : "rgba(99,102,241,.25)")}>
                   {auditBusy ? "⟳ جاري الفحص..." : "▶ افحص الآن"}
@@ -1205,18 +1243,66 @@ export default function Admin() {
                   </div>
                   {audit.today.notDisplayed > 0 && (
                     <div style={{ marginTop: 10, padding: "10px 12px", background: "rgba(248,113,113,.06)", borderRadius: 8, border: "1px solid rgba(248,113,113,.15)" }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: "#f87171", marginBottom: 4 }}>❌ الأسهم اللي ما عُرضت:</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#f87171", marginBottom: 4 }}>❌ الأسهم اللي ما عُرضت (خارج كل التقارير):</div>
                       <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.6 }}>
                         {audit.today.notDisplayedSymbols.join(" · ") || "—"}
                       </div>
                       <div style={{ fontSize: 10, color: "#64748b", marginTop: 6 }}>
-                        💡 سبب عدم العرض: EP أقل من 60، أو لم تستوفِ شروط الفلترة وقت المسح
+                        💡 سبب عدم العرض: EP أقل من عتبة العرض، أو لم تستوفِ شروط الفلترة وقت المسح
                       </div>
                     </div>
                   )}
                   {audit.today.displayRate >= 80 && (
                     <div style={{ fontSize: 12, color: "#34d399", marginTop: 10, fontWeight: 600 }}>
                       ✅ نسبة عرض ممتازة — أكثر من 80% من الإشارات ظهرت للمشتركين
+                    </div>
+                  )}
+
+                  {/* 🆕 v6: أداء المعروض داخل نفس البطاقة */}
+                  {audit.performance && (
+                    <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,.06)" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                        <div style={{ textAlign: "center", padding: "10px", background: "rgba(52,211,153,.08)", borderRadius: 10 }}>
+                          <div style={{ fontSize: 22, fontWeight: 900, color: "#34d399" }}>{audit.performance.winRate}%</div>
+                          <div style={{ fontSize: 10, color: "#64748b" }}>نسبة نجاح المعروض</div>
+                        </div>
+                        <div style={{ textAlign: "center", padding: "10px", background: "rgba(251,191,36,.08)", borderRadius: 10 }}>
+                          <div style={{ fontSize: 22, fontWeight: 900, color: "#fbbf24" }}>{audit.performance.profitFactor}×</div>
+                          <div style={{ fontSize: 10, color: "#64748b" }}>Profit Factor</div>
+                        </div>
+                        <div style={{ textAlign: "center", padding: "10px", background: "rgba(129,140,248,.08)", borderRadius: 10 }}>
+                          <div style={{ fontSize: 22, fontWeight: 900, color: "#818cf8" }}>{audit.performance.totalClosed}</div>
+                          <div style={{ fontSize: 10, color: "#64748b" }}>محسوم من المعروض</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+                        <div style={{ textAlign: "center", padding: "8px", background: "rgba(52,211,153,.08)", borderRadius: 8 }}>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: "#34d399" }}>{audit.performance.hitT1}</div>
+                          <div style={{ fontSize: 9, color: "#64748b" }}>T1 ✅</div>
+                        </div>
+                        <div style={{ textAlign: "center", padding: "8px", background: "rgba(251,191,36,.08)", borderRadius: 8 }}>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: "#fbbf24" }}>{audit.performance.hitT2}</div>
+                          <div style={{ fontSize: 9, color: "#64748b" }}>T2 🎯</div>
+                        </div>
+                        <div style={{ textAlign: "center", padding: "8px", background: "rgba(192,132,252,.08)", borderRadius: 8 }}>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: "#c084fc" }}>{audit.performance.hitT3}</div>
+                          <div style={{ fontSize: 9, color: "#64748b" }}>T3 🏆</div>
+                        </div>
+                        <div style={{ textAlign: "center", padding: "8px", background: "rgba(248,113,113,.08)", borderRadius: 8 }}>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: "#f87171" }}>{audit.performance.stopHit}</div>
+                          <div style={{ fontSize: 9, color: "#64748b" }}>وقف ❌</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 12 }}>
+                        <div style={{ flex: 1, padding: "8px 12px", background: "rgba(52,211,153,.08)", borderRadius: 8, textAlign: "center" }}>
+                          <span style={{ fontSize: 11, color: "#64748b" }}>📈 متوسط الربح (صادق)</span>
+                          <span style={{ fontSize: 16, fontWeight: 700, color: "#34d399", display: "block" }}>+{audit.performance.avgGain}%</span>
+                        </div>
+                        <div style={{ flex: 1, padding: "8px 12px", background: "rgba(248,113,113,.08)", borderRadius: 8, textAlign: "center" }}>
+                          <span style={{ fontSize: 11, color: "#64748b" }}>📉 متوسط الخسارة</span>
+                          <span style={{ fontSize: 16, fontWeight: 700, color: "#f87171", display: "block" }}>-{audit.performance.avgLoss}%</span>
+                        </div>
+                      </div>
                     </div>
                   )}
                   <div style={{ fontSize: 10, color: "#475569", marginTop: 8 }}>
@@ -1229,312 +1315,76 @@ export default function Admin() {
               )}
             </div>
 
-            {audit && audit.performance && (
-              <div style={{ 
-                marginTop: 18, 
-                padding: "16px 18px", 
-                borderRadius: 14, 
-                background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(52,211,153,0.06))",
-                border: "1px solid rgba(99,102,241,0.25)" 
-              }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: "#818cf8", marginBottom: 4 }}>
-                  📊 تقرير أداء الرادار - اليوم
+            {/* 📉 تشخيص الخسائر من /api/radar-report (أداة تطوير — تبقى) */}
+            {radarReport && radarReport.topLosers && radarReport.topLosers.length > 0 && (
+              <div style={{ marginBottom: 18, padding: "14px 16px", borderRadius: 12, background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.2)" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#f87171", marginBottom: 10 }}>
+                  📉 تشخيص الخسائر ({radarReport.lossStats?.total || 0} صفقة)
                 </div>
-                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 12 }}>
-                  الفترة: 3 مساءً - 11 مساءً (بتوقيت السعودية)
-                </div>
-                
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
-                  <div style={{ textAlign: "center", padding: "10px", background: "rgba(255,255,255,.04)", borderRadius: 10 }}>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: "#818cf8" }}>{audit.performance.totalDisplayed}</div>
-                    <div style={{ fontSize: 10, color: "#64748b" }}>إجمالي الإشارات</div>
-                  </div>
-                  <div style={{ textAlign: "center", padding: "10px", background: "rgba(52,211,153,.08)", borderRadius: 10 }}>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: "#34d399" }}>{audit.performance.winRate}%</div>
-                    <div style={{ fontSize: 10, color: "#64748b" }}>نسبة النجاح</div>
-                  </div>
-                  <div style={{ textAlign: "center", padding: "10px", background: "rgba(251,191,36,.08)", borderRadius: 10 }}>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: "#fbbf24" }}>{audit.performance.profitFactor}×</div>
-                    <div style={{ fontSize: 10, color: "#64748b" }}>Profit Factor</div>
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-                  <div style={{ textAlign: "center", padding: "8px", background: "rgba(52,211,153,.08)", borderRadius: 8 }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#34d399" }}>{audit.performance.hitT1}</div>
-                    <div style={{ fontSize: 9, color: "#64748b" }}>T1 ✅</div>
-                  </div>
-                  <div style={{ textAlign: "center", padding: "8px", background: "rgba(251,191,36,.08)", borderRadius: 8 }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#fbbf24" }}>{audit.performance.hitT2}</div>
-                    <div style={{ fontSize: 9, color: "#64748b" }}>T2 🎯</div>
-                  </div>
-                  <div style={{ textAlign: "center", padding: "8px", background: "rgba(192,132,252,.08)", borderRadius: 8 }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#c084fc" }}>{audit.performance.hitT3}</div>
-                    <div style={{ fontSize: 9, color: "#64748b" }}>T3 🏆</div>
-                  </div>
-                  <div style={{ textAlign: "center", padding: "8px", background: "rgba(248,113,113,.08)", borderRadius: 8 }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#f87171" }}>{audit.performance.stopHit}</div>
-                    <div style={{ fontSize: 9, color: "#64748b" }}>وقف ❌</div>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-                  <div style={{ flex: 1, padding: "8px 12px", background: "rgba(52,211,153,.08)", borderRadius: 8, textAlign: "center" }}>
-                    <span style={{ fontSize: 11, color: "#64748b" }}>📈 متوسط الربح</span>
-                    <span style={{ fontSize: 16, fontWeight: 700, color: "#34d399", display: "block" }}>+{audit.performance.avgGain}%</span>
-                  </div>
-                  <div style={{ flex: 1, padding: "8px 12px", background: "rgba(248,113,113,.08)", borderRadius: 8, textAlign: "center" }}>
-                    <span style={{ fontSize: 11, color: "#64748b" }}>📉 متوسط الخسارة</span>
-                    <span style={{ fontSize: 16, fontWeight: 700, color: "#f87171", display: "block" }}>{audit.performance.avgLoss}%</span>
-                  </div>
-                  <div style={{ flex: 1, padding: "8px 12px", background: "rgba(251,191,36,.08)", borderRadius: 8, textAlign: "center" }}>
-                    <span style={{ fontSize: 11, color: "#64748b" }}>💰 Profit Factor</span>
-                    <span style={{ fontSize: 16, fontWeight: 700, color: "#fbbf24", display: "block" }}>{audit.performance.profitFactor}×</span>
-                  </div>
-                </div>
-
-                {audit.performance.bestTrades && audit.performance.bestTrades.length > 0 && (
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#fbbf24", marginBottom: 4 }}>🏆 أفضل الصفقات اليوم</div>
-                    <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
-                      {audit.performance.bestTrades.map((t, i) => (
-                        <span key={i}>
-                          {t.symbol} +{t.gain}% ({t.target})
-                          {i < audit.performance.bestTrades.length - 1 ? "  ·  " : ""}
+                {radarReport.lossStats?.byReason && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {Object.entries(radarReport.lossStats.byReason).map(([reason, count]) => (
+                        <span key={reason} style={{
+                          fontSize: 10,
+                          padding: "3px 10px",
+                          borderRadius: 12,
+                          background: count >= 3 ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.1)",
+                          color: count >= 3 ? "#ef4444" : "#fbbf24",
+                          border: `1px solid ${count >= 3 ? "rgba(239,68,68,0.3)" : "rgba(251,191,36,0.2)"}`,
+                        }}>
+                          {reason} ({count})
                         </span>
                       ))}
                     </div>
                   </div>
                 )}
-
-                {audit.performance.byType && (
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#818cf8", marginBottom: 4 }}>📊 توزيع الصفقات حسب النوع</div>
-                    <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
-                      {Object.entries(audit.performance.byType).map(([type, data], i) => (
-                        <span key={type}>
-                          {type}: {data.rate}% نجاح ({data.win}/{data.total})
-                          {i < Object.entries(audit.performance.byType).length - 1 ? "  ·  " : ""}
+                {radarReport.topLosers.slice(0, 5).map((s, i) => (
+                  <div key={i} style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "8px 10px",
+                    background: "rgba(255,255,255,0.03)",
+                    borderRadius: 8,
+                    marginBottom: 6,
+                    borderRight: `3px solid ${s.severity === "🔴" ? "#ef4444" : "#fbbf24"}`,
+                  }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#e2e8f0" }}>{s.symbol}</span>
+                        <span style={{ fontSize: 10, color: s.severity === "🔴" ? "#ef4444" : "#fbbf24" }}>
+                          {s.severity}
                         </span>
-                      ))}
+                        <span style={{ fontSize: 10, color: "#64748b" }}>{s.type}</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
+                        {s.reasons.slice(0, 2).join(" · ")}
+                        {s.reasons.length > 2 && <span style={{ color: "#64748b" }}> +{s.reasons.length - 2} أسباب</span>}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171" }}>-{s.loss}%</div>
+                      <div style={{ fontSize: 9, color: "#64748b" }}>وقف {s.stopPct}%</div>
                     </div>
                   </div>
-                )}
+                ))}
+                <button
+                  onClick={fetchRadarReport}
+                  style={{ ...S.btn("rgba(248,113,113,0.15)"), marginTop: 6, fontSize: 12 }}
+                >
+                  🔄 تحديث التشخيص
+                </button>
               </div>
             )}
 
-            {/* 📊 تقرير الرادار اليومي */}
-            <div style={{ marginTop: 18, padding: "16px 18px", borderRadius: 14, background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.2)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: "#a5b4fc" }}>📊 تقرير الرادار اليومي</div>
-                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>جميع الإشارات التي عُرضت للمشتركين</div>
-                </div>
-                <button 
-                  onClick={async () => {
-                    try {
-                      const res = await fetch('/api/radar-report');
-                      const data = await res.json();
-                      if (data.success) {
-                        setRadarReport(data.report);
-                        showToast('✅ تم تحديث التقرير', 'ok');
-                      } else {
-                        showToast('❌ فشل جلب التقرير', 'error');
-                      }
-                    } catch {
-                      showToast('❌ خطأ في الاتصال', 'error');
-                    }
-                  }}
-                  style={S.btn("rgba(99,102,241,0.25)")}
-                >
-                  🔄 تحديث
-                </button>
-              </div>
-
-              {radarReport ? (
-                <div>
-                  {/* إحصائيات سريعة */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-                    <div style={{ textAlign: "center", padding: "10px", background: "rgba(129,140,248,0.08)", borderRadius: 10 }}>
-                      <div style={{ fontSize: 22, fontWeight: 900, color: "#818cf8" }}>{radarReport.summary.totalSignals}</div>
-                      <div style={{ fontSize: 9, color: "#64748b" }}>إجمالي الإشارات</div>
-                    </div>
-                    <div style={{ textAlign: "center", padding: "10px", background: "rgba(52,211,153,0.08)", borderRadius: 10 }}>
-                      <div style={{ fontSize: 22, fontWeight: 900, color: "#34d399" }}>{radarReport.summary.displayedInRadar}</div>
-                      <div style={{ fontSize: 9, color: "#64748b" }}>عُرضت في الرادار</div>
-                    </div>
-                    <div style={{ textAlign: "center", padding: "10px", background: "rgba(251,191,36,0.08)", borderRadius: 10 }}>
-                      <div style={{ fontSize: 22, fontWeight: 900, color: "#fbbf24" }}>{radarReport.summary.displayRate}%</div>
-                      <div style={{ fontSize: 9, color: "#64748b" }}>نسبة العرض</div>
-                    </div>
-                    <div style={{ textAlign: "center", padding: "10px", background: "rgba(52,211,153,0.08)", borderRadius: 10 }}>
-                      <div style={{ fontSize: 22, fontWeight: 900, color: "#34d399" }}>{radarReport.summary.winRate}%</div>
-                      <div style={{ fontSize: 9, color: "#64748b" }}>نسبة النجاح</div>
-                    </div>
-                  </div>
-
-                  {/* الأهداف والوقف */}
-                  <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-                    <div style={{ flex: 1, background: "rgba(52,211,153,0.06)", padding: "10px", borderRadius: 10, textAlign: "center" }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#34d399" }}>{radarReport.summary.hit}</div>
-                      <div style={{ fontSize: 9, color: "#64748b" }}>✅ وصلت هدف</div>
-                    </div>
-                    <div style={{ flex: 1, background: "rgba(248,113,113,0.06)", padding: "10px", borderRadius: 10, textAlign: "center" }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171" }}>{radarReport.summary.stopHit}</div>
-                      <div style={{ fontSize: 9, color: "#64748b" }}>❌ ضربت وقف</div>
-                    </div>
-                    <div style={{ flex: 1, background: "rgba(251,191,36,0.06)", padding: "10px", borderRadius: 10, textAlign: "center" }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24" }}>{radarReport.summary.profitFactor}×</div>
-                      <div style={{ fontSize: 9, color: "#64748b" }}>💰 Profit Factor</div>
-                    </div>
-                    <div style={{ flex: 1, background: "rgba(129,140,248,0.06)", padding: "10px", borderRadius: 10, textAlign: "center" }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#818cf8" }}>{radarReport.summary.avgGain}% / {radarReport.summary.avgLoss}%</div>
-                      <div style={{ fontSize: 9, color: "#64748b" }}>📈 ربح / 📉 خسارة</div>
-                    </div>
-                  </div>
-
-                  {/* أفضل الصفقات */}
-                  {radarReport.topGainers && radarReport.topGainers.length > 0 && (
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24", marginBottom: 6 }}>🏆 أفضل الصفقات اليوم</div>
-                      {radarReport.topGainers.slice(0, 5).map((s, i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: 4 }}>
-                          <span style={{ fontFamily: "monospace", color: "#e2e8f0" }}>{s.symbol}</span>
-                          <span style={{ color: "#34d399", fontWeight: 700 }}>+{s.gain}%</span>
-                          <span style={{ color: "#fbbf24", fontSize: 11 }}>{s.target}</span>
-                          <span style={{ color: "#64748b", fontSize: 11 }}>{s.caughtAt ? new Date(s.caughtAt).toLocaleTimeString() : ""}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* 📉 تشخيص الخسائر */}
-                  {radarReport.topLosers && radarReport.topLosers.length > 0 && (
-                    <div style={{ marginTop: 14, padding: "14px 16px", borderRadius: 12, background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.2)" }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#f87171", marginBottom: 10 }}>
-                        📉 تشخيص الخسائر ({radarReport.lossStats?.total || 0} صفقة)
-                      </div>
-
-                      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                        <div style={{ background: "rgba(248,113,113,0.08)", padding: "6px 12px", borderRadius: 8 }}>
-                          <span style={{ fontSize: 11, color: "#94a3b8" }}>متوسط الخسارة</span>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: "#f87171", display: "block" }}>{radarReport.lossStats?.avgLoss || 0}%</span>
-                        </div>
-                        <div style={{ background: "rgba(248,113,113,0.08)", padding: "6px 12px", borderRadius: 8 }}>
-                          <span style={{ fontSize: 11, color: "#94a3b8" }}>متوسط الوقف</span>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24", display: "block" }}>{radarReport.lossStats?.closeStopAvg || 0}%</span>
-                        </div>
-                        <div style={{ background: "rgba(239,68,68,0.08)", padding: "6px 12px", borderRadius: 8 }}>
-                          <span style={{ fontSize: 11, color: "#94a3b8" }}>🔴 شديدة</span>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: "#ef4444", display: "block" }}>{radarReport.lossStats?.severe || 0}</span>
-                        </div>
-                        <div style={{ background: "rgba(251,191,36,0.08)", padding: "6px 12px", borderRadius: 8 }}>
-                          <span style={{ fontSize: 11, color: "#94a3b8" }}>🟡 تحذير</span>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24", display: "block" }}>{radarReport.lossStats?.warning || 0}</span>
-                        </div>
-                      </div>
-
-                      {radarReport.lossStats?.byReason && (
-                        <div style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 6 }}>🔍 أسباب الخسائر:</div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                            {Object.entries(radarReport.lossStats.byReason).map(([reason, count]) => (
-                              <span key={reason} style={{
-                                fontSize: 10,
-                                padding: "3px 10px",
-                                borderRadius: 12,
-                                background: count >= 3 ? "rgba(239,68,68,0.15)" : "rgba(251,191,36,0.1)",
-                                color: count >= 3 ? "#ef4444" : "#fbbf24",
-                                border: `1px solid ${count >= 3 ? "rgba(239,68,68,0.3)" : "rgba(251,191,36,0.2)"}`,
-                              }}>
-                                {reason} ({count})
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {radarReport.topLosers.slice(0, 5).map((s, i) => (
-                        <div key={i} style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          padding: "8px 10px",
-                          background: "rgba(255,255,255,0.03)",
-                          borderRadius: 8,
-                          marginBottom: 6,
-                          borderRight: `3px solid ${s.severity === "🔴" ? "#ef4444" : "#fbbf24"}`,
-                        }}>
-                          <div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#e2e8f0" }}>{s.symbol}</span>
-                              <span style={{ fontSize: 10, color: s.severity === "🔴" ? "#ef4444" : "#fbbf24" }}>
-                                {s.severity}
-                              </span>
-                              <span style={{ fontSize: 10, color: "#64748b" }}>{s.type}</span>
-                            </div>
-                            <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
-                              {s.reasons.slice(0, 2).join(" · ")}
-                              {s.reasons.length > 2 && <span style={{ color: "#64748b" }}> +{s.reasons.length - 2} أسباب</span>}
-                            </div>
-                          </div>
-                          <div style={{ textAlign: "right" }}>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171" }}>-{s.loss}%</div>
-                            <div style={{ fontSize: 9, color: "#64748b" }}>وقف {s.stopPct}%</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* توزيع حسب النوع */}
-                  {radarReport.byType && (
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#818cf8", marginBottom: 4 }}>📊 توزيع الصفقات حسب النوع</div>
-                      <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
-                        {Object.entries(radarReport.byType).map(([type, data], i) => (
-                          <span key={type}>
-                            {type}: {data.rate}% نجاح ({data.win}/{data.total})
-                            {i < Object.entries(radarReport.byType).length - 1 ? "  ·  " : ""}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div style={{ fontSize: 11, color: "#34d399", marginTop: 10, fontWeight: 600 }}>
-                    ✅ جميع الأسهم المعروضة ظهرت للمشتركين
-                  </div>
-                </div>
-              ) : (
-                <div style={{ textAlign: "center", padding: "20px", color: "#64748b", fontSize: 13 }}>
-                  اضغط "تحديث" لعرض التقرير
-                </div>
-              )}
-            </div>
-
-            {/* 🆕 زر التقرير الشامل */}
-            <div style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <button 
-                onClick={handleFullReport}
-                style={S.btn("linear-gradient(135deg,#8b5cf6,#6366f1)")}
-              >
-                📊 التقرير الشامل
-              </button>
-              <button 
-                onClick={copyTweetReport}
-                style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")}
-              >
-                🐦 نسخ تقرير التغريدة
-              </button>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", marginTop: 16 }}>
+            <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
               {[
                 { label: "T1 ✅", value: t1,  color: "#34d399" },
                 { label: "T2 🎯", value: t2,  color: "#fbbf24" },
                 { label: "T3 🏆", value: t3,  color: "#c084fc" },
                 { label: "وقف ❌", value: stp, color: "#f87171" },
+                { label: "🟢 من منطقة الدخول", value: inZoneList.length, color: "#22c55e" },
               ].map(s => (
                 <div key={s.label} style={{ flex: 1, minWidth: 70, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 12, padding: "10px 12px", textAlign: "center" }}>
                   <div style={{ fontSize: 20, fontWeight: 900, color: s.color }}>{s.value}</div>
@@ -1561,7 +1411,7 @@ export default function Admin() {
             {decided > 0 && (
               <div style={{ marginBottom: 20, padding: "14px 18px", borderRadius: 12, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.07)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>نسبة النجاح <span style={{ fontSize: 11, color: "#475569" }}>(رابح ÷ المحسوم)</span></span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>نسبة النجاح <span style={{ fontSize: 11, color: "#475569" }}>(رابح ÷ المحسوم · المعروض فقط)</span></span>
                   <span style={{ fontSize: 16, fontWeight: 900, color: successRate >= 60 ? "#34d399" : successRate >= 40 ? "#fbbf24" : "#f87171" }}>
                     {successRate}%
                   </span>
@@ -1573,7 +1423,7 @@ export default function Admin() {
                   <span style={{ color: "#34d399", fontWeight: 700 }}>
                     [{datePeriod === "today" ? "اليوم" : datePeriod === "yesterday" ? "أمس" : datePeriod === "week" ? "7 أيام" : "الكل"}]
                   </span>
-                  {" "}{hit} رابح · {stp} خاسر · {hit}/{decided} محسوم · ({closedSignals.length} معروضة للمشترك{notShownCount ? ` · ${notShownCount} محفوظة لم تُعرض` : ""})
+                  {" "}{hit} رابح · {stp} خاسر · {hit}/{decided} محسوم · ({closedSignals.length} معروضة للمشترك{notShownCount ? ` · ${notShownCount} محفوظة لم تُعرض — خارج التقارير` : ""})
                   {earlySignals.length > 0 && <div style={{ marginTop: 4 }}>🔍 سطر المراقبة (خارج النسبة): {earlyHit}/{earlySignals.length} رصد مبكر أصاب</div>}
                 </div>
               </div>
@@ -1585,18 +1435,13 @@ export default function Admin() {
                   { id: "all",    label: `الكل (${closedSignals.length})` },
                   { id: "wins",   label: `🎯 الرابحون (${winsList.length})` },
                   { id: "losses", label: `🛑 الخاسرون (${stp})` },
+                  { id: "inzone", label: `🟢 من منطقة الدخول (${inZoneList.length})` },
                 ].map(v => (
                   <button key={v.id} onClick={() => setResultView(v.id)}
                     style={S.btn(resultView === v.id ? "rgba(99,102,241,.3)" : "rgba(255,255,255,.06)")}>
                     {v.label}
                   </button>
                 ))}
-                <button style={S.btn("rgba(52,211,153,.18)")} onClick={() => copyAllWins(winsList)}>
-                  📋 نسخ الإنجازات
-                </button>
-                <button style={S.btn("linear-gradient(135deg,#1da1f2,#0d8ecf)")} onClick={() => setTweetText(buildTweet(closedSignals, date, "results"))}>
-                  🐦 تغريد النتائج
-                </button>
               </div>
             )}
 
