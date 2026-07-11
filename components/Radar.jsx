@@ -840,6 +840,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "monospace" }}>{r.symbol}</span>
+          {r.is_golden && <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 12, background: "rgba(255,215,0,0.15)", color: "#ffd700", border: "1px solid rgba(255,215,0,0.4)" }}>🥇 زخم ذهبي</span>}
           {r.is_sniper && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(251,191,36,0.2)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>🎯</span>}
           {r.is_rebound && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(56,189,248,0.2)", color: "#38bdf8", border: "1px solid rgba(56,189,248,0.3)" }}>🔄</span>}
           {r.early_watch && !r.is_rebound && !r.is_sniper && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(52,211,153,0.2)", color: "#34d399", border: "1px solid rgba(52,211,153,0.3)" }}>🔍</span>}
@@ -1449,6 +1450,7 @@ export default function Radar() {
         wait_price: s.wait_price ?? (s.structure && s.structure.entry_state && s.structure.entry_state.wait_price) ?? null,
         rs20: s.rs20 ?? (s.structure && s.structure.rs20) ?? null,
         in_cooldown: s.in_cooldown || (s.structure && s.structure.cooldown) || false,
+        is_golden: s.is_golden || !!(s.structure && s.structure.golden) || false,
       });
 
       const allCards = raw.map(toCard);
@@ -1520,6 +1522,9 @@ export default function Radar() {
     return () => clearInterval(autoTimerRef.current);
   }, [autoRefresh, scan]);
 
+  const goldenList = useMemo(() => results.filter(r => r.is_golden), [results]);
+  const hotCount = useMemo(() => results.filter((r) => r.is_hot).length, [results]);
+
   const filtered = useMemo(() => {
     if (filter === "favorites") {
       return favorites.map((fav) => {
@@ -1562,7 +1567,6 @@ export default function Radar() {
   const favSet = useMemo(() => new Set(favorites.map((f) => f.symbol)), [favorites]);
   const favCount = useMemo(() => favorites.length, [favorites]);
 
-  const hotCount = useMemo(() => results.filter((r) => r.is_hot).length, [results]);
   const earlyCount = useMemo(() => earlyWatch.length, [earlyWatch]);
   const reboundCount = useMemo(() => rebound.length, [rebound]);
   const sniperCount = useMemo(() => sniper.length, [sniper]);
@@ -1668,6 +1672,7 @@ export default function Radar() {
             { label: t.scanRange, value: total || "—", color: "#6366f1", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.2)" },
             // 🆕 v12: عداد الفرص داخل منطقة الدخول — أهم رقم للمشترك
             { label: lang === "en" ? "🟢 In Zone" : "🟢 بمنطقة الدخول", value: counts.ready, color: "#22c55e", bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.25)" },
+            { label: lang === "en" ? "🥇 Golden" : "🥇 زخم ذهبي", value: goldenList.length, color: "#ffd700", bg: "rgba(255,215,0,0.08)", border: "rgba(255,215,0,0.25)" },
             { label: t.filterSniper, value: sniperCount, color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.25)" },
             { label: t.filterRebound, value: reboundCount, color: "#38bdf8", bg: "rgba(56,189,248,0.1)", border: "rgba(56,189,248,0.25)" },
             { label: "🚨 HOT", value: hotCount, color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.2)" },
@@ -1725,6 +1730,22 @@ export default function Radar() {
             defaultOpen={false}
           >
             <MarketMovers movers={movers} t={t} lang={lang} />
+          </CollapsibleSection>
+        )}
+
+        {!loading && done && filter === "all" && goldenList.length > 0 && (
+          <CollapsibleSection
+            title={lang === "en" ? "🥇 Golden Momentum" : "🥇 الزخم الذهبي — فرص الساعة الأولى"}
+            subtitle={lang === "en" ? "6 strict conditions met · strong market only" : "استوفت 6 شروط صارمة · فوق VWAP · سوق قوي فقط"}
+            count={goldenList.length}
+            color="#ffd700"
+            bg="rgba(255,215,0,0.07)"
+            border="rgba(255,215,0,0.3)"
+            t={t}
+          >
+            {goldenList.map((r, i) => (
+              <SmartCard key={"golden-" + r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />
+            ))}
           </CollapsibleSection>
         )}
 
@@ -1895,7 +1916,7 @@ export default function Radar() {
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: #080c18; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); borderRadius: 4px; }
         button:hover:not(:disabled) { filter: brightness(1.1); }
         @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.8; } }
       `}</style>
