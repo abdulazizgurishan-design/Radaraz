@@ -1,33 +1,26 @@
-// pages/api/scan.js — v11 (الأسطوري: تحكم عن بعد + حالة دخول + قوة نسبية + تهدئة)
+// pages/api/scan.js — v12 (v11 + 🥇 الزخم الذهبي)
 // ═══════════════════════════════════════════════════════════════════
-//  🏗️ مبني حرفياً على v10 المنشور — نفس المنطق، نفس الأوزان، نفس البوابات.
+//  🏗️ مبني حرفياً على v11 المنشور (التحكم عن بعد + حالة الدخول + قوة نسبية
+//     + تهدئة + score_trace + حارس بيانات) — كل ذلك كما هو بلا تغيير.
 //
-//  🛡️ طبقة 1 — غير قابل للكسر:
-//   ✅ إعدادات من Supabase (جدول radar_config) — تعدّل أي عتبة من غير نشر
-//   ✅ مفاتيح تشغيل FF لكل ميزة جديدة — أي مشكلة تطفئها فوراً من Supabase
-//   ✅ لو Supabase تأخر/فشل → يعمل بالإعدادات المدمجة (صفر انكسار)
-//   ✅ حارس بيانات: تنظيف شموع فاسدة + كشف split/قفزة مشبوهة (data_warn)
-//   ✅ maxDuration:10 مصرّح بها (كانت مفقودة)
+//  🆕 v12 — دمج استراتيجية الزخم الذهبي (كنوع إشارة إضافي، لا يغيّر شيئاً قائماً):
+//   ✅ شروطها الست من بيانات متوفرة أصلاً (صفر طلبات API إضافية):
+//      1. السعر فوق VWAP اليومي (من snapshot بوليجون day.vw)
+//      2. RVOL ≥ 3
+//      3. تغير اليوم بين 4% و 15% (زخم بلا تطرف)
+//      4. السعر بين $2 و $20
+//      5. RSI < 80 + ليس صاعداً 3 أيام متتالية قبل اليوم (يمنع الدخول المتأخر)
+//      6. نافذة الزخم: 9:30 – 11:00 بتوقيت نيويورك + SPY أخضر
+//   ✅ من يستوفيها: بادج is_golden + مكافأة +5 نقاط (موسومة في score_trace)
+//   ✅ خلف مفتاح FF.golden_momentum — تطفئه من Supabase بلا نشر
+//   ✅ عتبات الاستراتيجية في CFG.GOLDEN — تعدّلها من Supabase بلا نشر
+//   ✅ بدون أي عمود SQL جديد (يُحفظ داخل structure jsonb)
 //
-//  🎯 طبقة 2 — جودة:
-//   ✅ حالة دخول لكل سهم: 🟢 داخل المنطقة / 🟡 انتظره عند X / 🔴 ملاحقة خطرة
-//   ✅ قوة نسبية مقابل SPY آخر 20 يوم (صفر تكلفة API — شموع SPY بطلب واحد مكاش)
-//   ✅ فترة تهدئة: سهم ضرب وقفه آخر 3 أيام يُخصم −8 (طلب Supabase واحد متوازٍ)
-//
-//  🧠 طبقة 3 — يتطور ذاتياً:
-//   ✅ score_trace: كل إشارة تحفظ "لماذا" أخذت نقاطها (داخل structure — بدون SQL جديد)
-//   ✅ جدول config نفسه هو مدخل حلقة التعلم مستقبلاً
-//
-//  ⚙️ SQL لمرة واحدة في Supabase (ثم انسَ الموضوع):
-//   create table if not exists radar_config (
-//     key text primary key, value jsonb, updated_at timestamptz default now());
-//   insert into radar_config (key, value) values ('scan', '{}')
-//     on conflict (key) do nothing;
-//
-//  🎛️ أمثلة تحكم لاحقاً (من Supabase Table Editor، عمود value لصف scan):
-//   {"SAVE_MIN_EP": 60}                     → رفع عتبة الحفظ بدون نشر
-//   {"FF": {"cooldown": false}}             → إطفاء التهدئة فوراً
-//   {"HOT": {"EP": 70}}                     → تشديد HOT
+//  📝 ما لم يُدمج عمداً (قرار CTO):
+//   - Float<50M: يحتاج طلب لكل سهم = يكسر ميزانية 10 ثوانٍ
+//   - VIX<25: يحتاج اشتراك مؤشرات — بديله فلتر SPY الموجود
+//   - كسر قمة أول شمعة 5د: مشغّل تنفيذ لحظي — مكانه trade.js لا الماسح اليومي
+//   - trailing/breakeven: منفّذة أصلاً في trade v11
 // ═══════════════════════════════════════════════════════════════════
 
 export const config = { maxDuration: 10 };
@@ -36,7 +29,7 @@ const POLYGON_KEY  = process.env.POLYGON_API_KEY || process.env.POLYGON_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.RADARAZ_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.RADARAZ_SUPABASE_KEY;
 
-// ── الإعدادات المدمجة (نسخة الطوارئ — مطابقة 100% لـ v10 المنشور) ──
+// ── الإعدادات المدمجة (نسخة الطوارئ — مطابقة لـ v11 المنشور) ──
 const CFG_DEFAULT = {
   BUDGET:        9000,
   MIN_CHANGE:    1.5,
@@ -53,25 +46,36 @@ const CFG_DEFAULT = {
   REBOUND: { RSI: 45, PRICE: 3, DVOL: 10e6, RET: 8 },
   HOT: { EP: 65, RVOL: 5, CHG: 6 },
   MAX_CHANGE: 40,
-  // 🆕 عتبات الميزات الجديدة (قابلة للتعديل عن بعد)
-  CHASE_EXT_PCT:  15,   // تمدد فوق MA21 يعتبر ملاحقة
-  CHASE_BAND:     0.95, // موقع في النطاق يعتبر قمة
+  // عتبات ميزات v11
+  CHASE_EXT_PCT:  15,
+  CHASE_BAND:     0.95,
   COOLDOWN_DAYS:  3,
   COOLDOWN_PENALTY: 8,
-  RS_BONUS: 4, RS_PENALTY: 3, RS_EDGE: 5,   // قوة نسبية: حد التفوق %
+  RS_BONUS: 4, RS_PENALTY: 3, RS_EDGE: 5,
   DATA_WARN_PENALTY: 5,
   CHASE_PENALTY: 6,
+  // 🆕 v12: عتبات الزخم الذهبي (قابلة للتعديل عن بعد)
+  GOLDEN: {
+    CHG_MIN: 4, CHG_MAX: 15,
+    RVOL: 3,
+    PRICE_MIN: 2, PRICE_MAX: 20,
+    RSI_MAX: 80,
+    WINDOW_START: 570,   // 9:30 ET بالدقائق
+    WINDOW_END:   660,   // 11:00 ET
+    BONUS: 5,
+  },
 };
 
-// ── مفاتيح الميزات (الافتراضي = آمن؛ ما يغيّر سلوك v10 إلا بالإضافة) ──
+// ── مفاتيح الميزات ──
 const FF_DEFAULT = {
-  remote_config: true,   // قراءة الإعدادات من Supabase
-  entry_state:   true,   // 🟢🟡🔴 حالة الدخول (عرض + خصم ملاحقة)
-  rel_strength:  true,   // قوة نسبية مقابل SPY
-  cooldown:      true,   // تهدئة الأسهم الموقوفة مؤخراً
-  score_trace:   true,   // تسجيل مكونات السكور
-  data_guard:    true,   // تنظيف الشموع + كشف القفزات المشبوهة
-  news:          true,   // مرحلة الأخبار (كما في v10)
+  remote_config: true,
+  entry_state:   true,
+  rel_strength:  true,
+  cooldown:      true,
+  score_trace:   true,
+  data_guard:    true,
+  news:          true,
+  golden_momentum: true,   // 🆕 v12
 };
 
 // ── Capped cache ──────────────────────────────────────────────────
@@ -111,7 +115,7 @@ const SB_HEADERS = {
   Authorization: `Bearer ${SUPABASE_KEY}`,
 };
 
-// ── 🆕 إعدادات عن بعد (فشلها = نعمل بالمدمج، لا ينكسر شيء) ─────────
+// ── إعدادات عن بعد ──
 async function fetchRemoteConfig() {
   const data = await fetchJson(
     `${SUPABASE_URL}/rest/v1/radar_config?key=eq.scan&select=value`,
@@ -126,7 +130,7 @@ function mergeConfig(base, remote) {
   for (const k of Object.keys(remote)) {
     if (k === "FF" && typeof remote.FF === "object") {
       for (const f of Object.keys(remote.FF)) if (f in ff) ff[f] = !!remote.FF[f];
-    } else if (["CAPS", "REBOUND", "HOT"].includes(k) && typeof remote[k] === "object") {
+    } else if (["CAPS", "REBOUND", "HOT", "GOLDEN"].includes(k) && typeof remote[k] === "object") {  // 🆕 v12: GOLDEN
       cfg[k] = { ...cfg[k], ...remote[k] };
     } else if (k in cfg && typeof remote[k] === typeof cfg[k]) {
       cfg[k] = remote[k];
@@ -135,7 +139,7 @@ function mergeConfig(base, remote) {
   return { cfg, ff, source: "remote" };
 }
 
-// ── 🆕 قائمة التهدئة: رموز ضربت وقفها مؤخراً (طلب واحد متوازٍ) ──────
+// ── قائمة التهدئة ──
 async function fetchCooldownSet(days) {
   const since = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
   const data = await fetchJson(
@@ -186,14 +190,12 @@ async function fetchAggs(symbol, timeoutMs, days = 130) {
   return bars;
 }
 
-// ── 🆕 حارس البيانات ───────────────────────────────────────────────
+// ── حارس البيانات ──
 function cleanBars(bars) {
   if (!bars) return null;
   const out = bars.filter(b => b && b.c > 0 && b.h > 0 && b.l > 0 && b.h >= b.l && b.v >= 0);
   return out.length ? out : null;
 }
-// قفزة يومية > 60% خلال آخر 60 يوم (خارج آخر 3 أيام — حركة اليوم مشروعة)
-// = اشتباه split/بيانات مضللة → لا نرفض، نضع تحذيراً وخصماً بسيطاً
 function splitSuspect(bars) {
   if (!bars || bars.length < 10) return false;
   const scan = bars.slice(-63, -3);
@@ -243,7 +245,6 @@ function ret3m(bars) {
   if (ret > 300 || ret < -95) return null;
   return Math.round(ret);
 }
-// 🆕 عائد آخر 20 شمعة (للقوة النسبية)
 function ret20(bars) {
   if (!bars || bars.length < 21) return null;
   const oldC = bars[bars.length - 21].c, nowC = bars[bars.length - 1].c;
@@ -263,8 +264,18 @@ function vcpCheck(bars) {
   const ok = r3 < r2v && r2v < r1 && r3 < 12;
   return { vcp: ok, contraction: ok ? Math.round(r3) : null };
 }
+// 🆕 v12: هل السهم صاعد 3 أيام متتالية قبل اليوم؟ (شرط "لا تدخل متأخراً")
+function upStreak3(bars) {
+  if (!bars || bars.length < 5) return false;
+  // آخر شمعة = اليوم الجاري غالباً — نفحص الثلاث قبلها
+  const b = bars.slice(-4, -1);
+  if (b.length < 3) return false;
+  return b.every((bar, i) => i === 0
+    ? bar.c > bars[bars.length - 5].c
+    : bar.c > b[i - 1].c);
+}
 
-// ── AI-Az structure with guard caps (منطق v10 كما هو) ──────────────
+// ── AI-Az structure (كما في v11) ──────────────────────────────────
 function buildStructure(price, bars, ind, CFG) {
   if (!bars || bars.length < 30 || !price) return null;
   const cap = (v, maxPct) => Math.min(v, price * (1 + maxPct / 100));
@@ -321,7 +332,7 @@ function buildLevels(price, st) {
   };
 }
 
-// ── 🆕 حالة الدخول: يحل مشكلة "أسهم مرتفعة خطر أدخل فيها" ──────────
+// ── حالة الدخول (كما في v11) ──
 function entryState(price, ind, st, CFG) {
   if (!st) return { code: "none", label: "—", wait_price: null };
   const extPct = ind.ma21 ? ((price - ind.ma21) / ind.ma21) * 100 : 0;
@@ -332,6 +343,20 @@ function entryState(price, ind, st, CFG) {
     return { code: "in_zone", label: "🟢 داخل منطقة الدخول", wait_price: null, ext_pct: r2(extPct) };
   }
   return { code: "wait_pullback", label: `🟡 ممتد — انتظره عند ${st.entry}`, wait_price: st.entry, ext_pct: r2(extPct) };
+}
+
+// ── 🆕 v12: فحص الزخم الذهبي (كل مدخلاته متوفرة مسبقاً — صفر تكلفة) ──
+function goldenCheck(a, ind, minsET, regime, G) {
+  const checks = {
+    above_vwap: a.vwap != null && a.price > a.vwap,
+    rvol:       (ind.rvol ?? 0) >= G.RVOL,
+    change:     a.change_pct >= G.CHG_MIN && a.change_pct <= G.CHG_MAX,
+    price:      a.price >= G.PRICE_MIN && a.price <= G.PRICE_MAX,
+    not_late:   (ind.rsi ?? 100) < G.RSI_MAX && !ind.up3,
+    window:     minsET >= G.WINDOW_START && minsET <= G.WINDOW_END && regime === "قوي",
+  };
+  const passed = Object.values(checks).filter(Boolean).length;
+  return { golden: passed === 6, passed, checks };
 }
 
 // ── Save signals ───────────────────────────────────────────────────
@@ -356,7 +381,7 @@ async function saveSignals(rows, left, debug, CFG) {
     vcp: s.vcp, vcp_contraction: s.vcp_contraction,
     fresh_zone: s.fresh_zone || false,
     premarket_watch: s.premarket_watch || false,
-    structure: s.structure,   // ← يحمل داخله entry_state + score_trace + rs20 (jsonb — بدون SQL جديد)
+    structure: s.structure,   // يحمل entry_state + score_trace + rs20 + golden (jsonb)
     is_smart_bounce: false,
     smart_bounce_confidence: 0,
   }));
@@ -388,7 +413,7 @@ async function saveSignals(rows, left, debug, CFG) {
 // ═══════════════════════════════════════════════════════════════════
 export default async function handler(req, res) {
   const T0 = Date.now();
-  let CFG = { ...CFG_DEFAULT, CAPS: { ...CFG_DEFAULT.CAPS }, REBOUND: { ...CFG_DEFAULT.REBOUND }, HOT: { ...CFG_DEFAULT.HOT } };
+  let CFG = { ...CFG_DEFAULT, CAPS: { ...CFG_DEFAULT.CAPS }, REBOUND: { ...CFG_DEFAULT.REBOUND }, HOT: { ...CFG_DEFAULT.HOT }, GOLDEN: { ...CFG_DEFAULT.GOLDEN } };
   let FF  = { ...FF_DEFAULT };
   const left = () => CFG.BUDGET - (Date.now() - T0);
   const light = req.query.light === "1";
@@ -401,11 +426,12 @@ export default async function handler(req, res) {
     dropped_penny_gate: 0, dropped_trend_gate: 0, dropped_no_tech: 0, dropped_timeout: 0,
     dropped_extreme_gain: 0,
     data_warned: 0, chase_flagged: 0, cooldown_hits: 0,
+    golden_count: 0,   // 🆕 v12
     survivors: 0, below_save_ep: 0, saved: 0,
   };
 
   try {
-    // ── Stage 1: كل الجلبات المستقلة بالتوازي (صفر وقت إضافي تقريباً) ──
+    // ── Stage 1: الجلبات المستقلة بالتوازي ──
     const [tickers, remoteCfg, cooldownSet] = await Promise.all([
       fetchFullMarket(left),
       FF.remote_config ? fetchRemoteConfig() : Promise.resolve(null),
@@ -413,20 +439,23 @@ export default async function handler(req, res) {
     ]);
     debug.market_scanned = tickers.length;
 
-    // دمج الإعدادات عن بعد (إن وُجدت)
     const merged = mergeConfig({ cfg: CFG, ff: FF }, remoteCfg);
     CFG = merged.cfg; FF = merged.ff;
     debug.config_source = merged.source;
     debug.cooldown_symbols = cooldownSet.size;
 
-    // ── SPY pulse (كما في v10) ──
+    // ── SPY pulse ──
     const spy = tickers.find(t => t.ticker === "SPY");
     if (spy && spy.day) {
       const spyChg = spy.todaysChangePerc ?? 0;
       debug.market_regime = spyChg >= 0 ? "قوي" : "ضعيف";
     }
 
-    // ── Stage 2: primary funnel (منطق v10 + إصلاح صامت لفرع MAX_CHANGE المكرر) ──
+    // 🆕 v12: دقائق الجلسة الحالية (لنافذة الزخم الذهبي)
+    const ny = nyNow();
+    const minsET = ny.getHours() * 60 + ny.getMinutes();
+
+    // ── Stage 2: primary funnel ──
     const movers = { gainers: [], losers: [], volume: [], value: [] };
     const cand = [];
     for (const t of tickers) {
@@ -435,7 +464,8 @@ export default async function handler(req, res) {
       const vol = d.v || 0;
       const chg = t.todaysChangePerc ?? 0;
       if (!price || !vol) continue;
-      const row = { symbol: t.ticker, price: r2(price), change_pct: r2(chg), volume: vol, dollar_vol: price * vol };
+      // 🆕 v12: التقاط VWAP اليومي من السنابشوت (d.vw) — مجاني
+      const row = { symbol: t.ticker, price: r2(price), change_pct: r2(chg), volume: vol, dollar_vol: price * vol, vwap: d.vw || null };
       movers.gainers.push(row); movers.losers.push(row);
       movers.volume.push(row);  movers.value.push(row);
 
@@ -457,7 +487,7 @@ export default async function handler(req, res) {
       .slice(0, CFG.HEAVY_LIMIT);
     debug.top_selected = heavy.length;
 
-    // ── 🆕 شموع SPY للقوة النسبية (طلب واحد، مكاش 5 دقائق) ──
+    // ── شموع SPY للقوة النسبية ──
     let spyRet20 = null;
     if (FF.rel_strength && left() > 3000) {
       const spyBars = cleanBars(await fetchAggs("SPY", CFG.AGGS_TIMEOUT));
@@ -465,7 +495,7 @@ export default async function handler(req, res) {
       debug.spy_rs_ready = spyRet20 != null;
     }
 
-    // ── Stage 3: heavy analysis (منطق v10 + حارس بيانات + ret20) ──
+    // ── Stage 3: heavy analysis ──
     const analyzed = [];
     for (let i = 0; i < heavy.length; i += CFG.BATCH) {
       if (left() < 1800) { debug.dropped_timeout += heavy.length - i; break; }
@@ -484,6 +514,7 @@ export default async function handler(req, res) {
           ret20: ret20(bars),
           vcp: vcpCheck(bars),
           data_warn: FF.data_guard ? splitSuspect(bars) : false,
+          up3: upStreak3(bars),   // 🆕 v12
         };
         return { ...c, bars, ind };
       }));
@@ -491,7 +522,7 @@ export default async function handler(req, res) {
     }
     debug.tech_analyzed = analyzed.length;
 
-    // ── Stage 4: gates + structure + score (أوزان v10 كما هي + إضافات موسومة) ──
+    // ── Stage 4: gates + structure + score ──
     const signals = [];
     for (const a of analyzed) {
       const { ind } = a;
@@ -503,7 +534,7 @@ export default async function handler(req, res) {
       const levels = buildLevels(a.price, st);
       const eState = FF.entry_state ? entryState(a.price, ind, st, CFG) : null;
 
-      // 🧠 السكور مع تتبع المكونات — نفس أوزان v10 حرفياً + مكونات جديدة موسومة
+      // السكور مع تتبع المكونات — أوزان v11 كما هي
       const trace = {};
       let ep = 30; trace.base = 30;
       const add = (k, v) => { if (v) { ep += v; trace[k] = v; } };
@@ -515,20 +546,23 @@ export default async function handler(req, res) {
       if (st && st.flag === "دخول صحيح ✅") add("entry_flag", 6);
       if (debug.market_regime === "قوي") add("regime", 2);
 
-      // 🆕 قوة نسبية مقابل SPY
       let rs20 = null;
       if (FF.rel_strength && spyRet20 != null && ind.ret20 != null) {
         rs20 = r2(ind.ret20 - spyRet20);
         if (rs20 >= CFG.RS_EDGE) add("rel_strength", CFG.RS_BONUS);
         else if (rs20 < 0) add("rel_weak", -CFG.RS_PENALTY);
       }
-      // 🆕 تهدئة: ضرب وقفه مؤخراً
       const inCooldown = FF.cooldown && cooldownSet.has(a.symbol);
       if (inCooldown) { add("cooldown", -CFG.COOLDOWN_PENALTY); debug.cooldown_hits++; }
-      // 🆕 خصم ملاحقة
       if (eState && eState.code === "chasing") { add("chasing", -CFG.CHASE_PENALTY); debug.chase_flagged++; }
-      // 🆕 تحذير بيانات مشبوهة
       if (ind.data_warn) { add("data_warn", -CFG.DATA_WARN_PENALTY); debug.data_warned++; }
+
+      // 🆕 v12: الزخم الذهبي — فحص الشروط الست + مكافأة
+      let golden = null;
+      if (FF.golden_momentum) {
+        golden = goldenCheck(a, ind, minsET, debug.market_regime, CFG.GOLDEN);
+        if (golden.golden) { add("golden", CFG.GOLDEN.BONUS); debug.golden_count++; }
+      }
 
       ep = Math.max(0, Math.min(99, ep));
 
@@ -548,7 +582,6 @@ export default async function handler(req, res) {
         ? (ep >= 80 ? "💥 انفجاري" : "🔥 عالي جداً ⚠️")
         : (ep >= 80 ? "💥 انفجاري" : ep >= 65 ? "🔥 عالي" : "📊 متوسط");
 
-      // structure يحمل الحقول الجديدة (jsonb — بدون تعديل سكيمة)
       const stOut = st ? {
         ...st,
         ...(eState ? { entry_state: eState } : {}),
@@ -556,6 +589,7 @@ export default async function handler(req, res) {
         ...(rs20 != null ? { rs20 } : {}),
         ...(inCooldown ? { cooldown: true } : {}),
         ...(ind.data_warn ? { data_warn: true } : {}),
+        ...(golden && golden.golden ? { golden: golden.checks } : {}),   // 🆕 v12
       } : st;
 
       signals.push({
@@ -574,18 +608,21 @@ export default async function handler(req, res) {
         news_age_h: null,
         levels, structure: stOut,
         is_extreme_gain: isExtreme,
-        // 🆕 حقول جاهزة للواجهة مباشرة (فرز 🟢 أولاً):
         entry_state: eState ? eState.code : null,
         entry_label: eState ? eState.label : null,
         wait_price: eState ? eState.wait_price : null,
         rs20, in_cooldown: inCooldown || false,
+        // 🆕 v12: حقول الزخم الذهبي للواجهة
+        is_golden: !!(golden && golden.golden),
+        golden_passed: golden ? golden.passed : null,
+        vwap: a.vwap,
       });
     }
     debug.survivors = signals.length;
 
-    // ── Stage 5: news (كما في v10 + مفتاح تشغيل) ──
+    // ── Stage 5: news ──
     if (FF.news && left() >= 1500 && signals.length) {
-      const newsTargets = signals.filter(s => s.is_hot || s.is_target).slice(0, 6);
+      const newsTargets = signals.filter(s => s.is_hot || s.is_target || s.is_golden).slice(0, 6);   // 🆕 v12: الذهبي يستحق فحص الخبر
       await Promise.all(newsTargets.map(async (s) => {
         const data = await fetchJson(
           `https://api.polygon.io/v2/reference/news?ticker=${s.symbol}&limit=1&apiKey=${POLYGON_KEY}`,
@@ -601,7 +638,7 @@ export default async function handler(req, res) {
       debug.news_skipped = true;
     }
 
-    // ── Stage 6: save (كما في v10) ──
+    // ── Stage 6: save ──
     const toSave = signals.filter(s => s.score >= CFG.SAVE_MIN_EP && s.structure);
     debug.below_save_ep = signals.length - toSave.length;
     const saveResult = await saveSignals(toSave, left, debug, CFG);
@@ -611,7 +648,7 @@ export default async function handler(req, res) {
       + debug.dropped_penny_gate + debug.dropped_trend_gate + debug.dropped_no_tech
       + debug.dropped_timeout + debug.dropped_extreme_gain;
 
-    // ── Response (v10 + عدادات حالة الدخول للواجهة) ──
+    // ── Response ──
     const base = {
       success: true,
       total: signals.length,
@@ -622,6 +659,7 @@ export default async function handler(req, res) {
       rebound: signals.filter(s => s.is_rebound).length,
       in_zone: signals.filter(s => s.entry_state === "in_zone").length,
       chasing: signals.filter(s => s.entry_state === "chasing").length,
+      golden: signals.filter(s => s.is_golden).length,   // 🆕 v12
       saved: saveResult.saved,
       saveResult,
       elapsed_ms: Date.now() - T0,
