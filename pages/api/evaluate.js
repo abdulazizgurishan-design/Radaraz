@@ -1,24 +1,25 @@
-// pages/api/evaluate.js — v3 (تقييم متعدد الأيام + إحصائيات أداء)
+// pages/api/evaluate.js — v4 (إصلاح تلوث الإحصائيات + بداية نظيفة)
 // ═══════════════════════════════════════════════════════════════════
-//  مبني على v2 مع الحفاظ على كل مزاياه:
-//   ✅ شموع الدقائق ليوم الإشارة + القطع عند created_at
-//   ✅ حسم الترتيب: الوقف أولاً أم الهدف (وعند التعادل → خسارة تحفظاً)
-//   ✅ effHigh لا يحتسب ربحاً بعد ضرب الوقف
-//   ✅ دفعات 10 + retry
+//  🏗️ مبني على v3 — نفس منطق التقييم (شموع دقائق لليوم الأول + شموع يومية
+//     للأيام التالية + حسم الترتيب المتحفظ) — لم يُمس، فقط طبقة الإحصائيات.
 //
-//  🆕 الجديد في v3 (يصلح الثغرة الجوهرية):
-//   ✅ الإشارة تبقى OPEN عبر الأيام حتى: الوقف / الهدف الثالث / انتهاء المدة
-//      (كان v2 يغلق كل شيء بعد يوم واحد بينما الأهداف 20-35% تحتاج أياماً!)
-//   ✅ الأيام التالية تُقيّم بشموع يومية (طلب واحد لكل إشارة — رخيص)
-//   ✅ تعارض هدف+وقف بنفس اليوم اللاحق → خسارة تحفظاً
-//   ✅ EXPIRED بعد MAX_HOLD_DAYS يوم تداول مع تسجيل نتيجة الإغلاق
-//   ✅ إحصائيات 30 يوم: win rate، متوسط ربح/خسارة، الأداء حسب شرائح EP
-//   ✅ max_loss_pct لمعرفة هل الوقف مناسب أم ضيق
+//  🆕 v4 — إصلاح تلوث الإحصائيات الذي ظهر في أول تشغيل:
+//   🔴 المشكلة: avg_win_pct طلع 0.38% (رقم مستحيل) لأن 700 صف قديم كان
+//      result_pct فيها NULL (العمود أُنشئ للتو)، والكود كان يعوّضها بصفر
+//      عبر (result_pct ?? close_gain_pct ?? 0) — يسحب المتوسط للأسفل زوراً.
+//   ✅ الإصلاح: avg() الآن تستبعد أي صف result_pct = null من الحساب تماماً
+//      بدل احتسابه صفراً — صف بلا نتيجة معروفة لا يدخل المتوسط، لا يُشوّهه.
+//   ✅ عتبة "بداية نظيفة" STATS_SINCE قابلة للتعديل عبر ?statsSince=YYYY-MM-DD
+//      — تفصل إحصائيات ما بعد نشر v11/v12 عن تراث v10/evaluate-v2 المختلط
+//      (ذاك كان يُغلق كل إشارة بعد يوم واحد حتى لو هدفها T2/T3 بعيد).
+//   ✅ عدّاد شفاف جديد: excluded_no_result — كم صفاً استُبعد من الحساب
+//      لأنه بلا result_pct، حتى تعرف حجم "التلوث" القديم بوضوح.
+//   ✅ by_score تستبعد نفس الصفوف — المقارنة بين الشرائح تصير ذات معنى فعلي.
 //
-//  📋 أعمدة جديدة مطلوبة (شغّلها مرة في Supabase SQL Editor):
-//   ALTER TABLE signals ADD COLUMN IF NOT EXISTS max_loss_pct numeric;
-//   ALTER TABLE signals ADD COLUMN IF NOT EXISTS result_pct numeric;
-//   ALTER TABLE signals ADD COLUMN IF NOT EXISTS closed_at date;
+//  🎛️ الاستخدام:
+//   /api/evaluate?secret=...                          → دورة تقييم عادية
+//   /api/evaluate?secret=...&statsSince=2026-07-13     → إحصائيات بعد تاريخ محدد فقط
+//   (بدون statsSince: الافتراضي 30 يوماً كالسابق، لكن مع استبعاد التلوث)
 // ═══════════════════════════════════════════════════════════════════
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
@@ -67,7 +68,7 @@ async function fetchJsonTimeout(url, ms) {
   }
 }
 
-// ── تقييم اليوم الأول بشموع الدقائق (منطق v2 كما هو) ────────────────
+// ── تقييم اليوم الأول بشموع الدقائق (كما في v3 — لم يُمس) ───────────
 async function evalFirstDay(sig, day, today) {
   const sameDay = sig.created_at && String(sig.created_at).split("T")[0] === day;
   const cutoff = sameDay ? new Date(sig.created_at).getTime() : 0;
@@ -142,7 +143,6 @@ export default async function handler(req, res) {
         const day = sig.signal_date
           || (sig.created_at ? String(sig.created_at).split("T")[0] : today);
 
-        // ── اليوم الأول: دقائق + cutoff (منطق v2) ──
         const d1 = await evalFirstDay(sig, day, today);
         if (!d1) return null;
 
@@ -154,7 +154,6 @@ export default async function handler(req, res) {
         let lastClose = d1.close;
         let tradingDays = 1;
 
-        // ── الأيام التالية: شموع يومية (طلب واحد) — فقط إن لم تُحسم يوم 1 ──
         if (!stopped && !t3 && day < today) {
           const nextDay = new Date(new Date(day).getTime() + 86400000).toISOString().split("T")[0];
           const durl = `${BASE}/v2/aggs/ticker/${sig.symbol}/range/1/day/${nextDay}/${today}?adjusted=true&sort=asc&limit=60&apiKey=${POLYGON_KEY}`;
@@ -164,12 +163,9 @@ export default async function handler(req, res) {
           for (const b of dbars) {
             tradingDays++;
             const hitStop = b.l <= sig.stop_loss;
-            const hitAnyTarget = b.h >= sig.target1;
 
-            // ⚠️ تعارض بنفس اليوم اللاحق (لا دقائق هنا) → خسارة تحفظاً
             if (hitStop) {
               stopped = true;
-              // أقصى ربح حتى هذا اليوم فقط (بدون افتراض أن القمة سبقت الوقف)
               minLow = Math.min(minLow, b.l);
               break;
             }
@@ -184,7 +180,6 @@ export default async function handler(req, res) {
           }
         }
 
-        // ── قرار الإغلاق ──
         let status = "OPEN";
         let result_pct = null;
         if (stopped) {
@@ -194,7 +189,6 @@ export default async function handler(req, res) {
           status = "T3_HIT";
           result_pct = pct(sig.target3, sig.entry_price);
         } else if (tradingDays >= MAX_HOLD_DAYS) {
-          // انتهت المدة: النتيجة = أفضل هدف تحقق، وإلا سعر الإغلاق
           status = t2 ? "T2_HIT" : t1 ? "T1_HIT" : "EXPIRED";
           result_pct = t2 ? pct(sig.target2, sig.entry_price)
                      : t1 ? pct(sig.target1, sig.entry_price)
@@ -239,18 +233,30 @@ export default async function handler(req, res) {
       return null;
     });
 
-    // 4) 📊 إحصائيات الأداء (آخر 30 يوم) — مقياس الجودة الحقيقي
-    const statsSince = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+    // 4) 📊 إحصائيات الأداء — 🆕 v4: نظيفة من التلوث + بداية قابلة للتحديد
+    // statsSince: افتراضياً 30 يوماً كالسابق، لكن يمكن تحديد تاريخ نشر v11/v12
+    // يدوياً عبر ?statsSince=YYYY-MM-DD لفصل البيانات الحديثة عن التراث القديم
+    const defaultSince = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+    const statsSince = (req.query.statsSince && /^\d{4}-\d{2}-\d{2}$/.test(req.query.statsSince))
+      ? req.query.statsSince
+      : defaultSince;
+
     const sr = await fetchRetry(
       `${SUPABASE_URL}/rest/v1/signals?status=neq.OPEN&signal_date=gte.${statsSince}` +
       `&select=status,result_pct,close_gain_pct,score,is_hot,type,target1_hit&limit=1000`,
       { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
     );
-    const closed = (await sr.json()) || [];
+    const closedAll = (await sr.json()) || [];
+
+    // 🆕 v4: الفصل الحاسم — صف بلا result_pct معروف لا يدخل أي حساب إحصائي
+    // (كان الكود القديم يعوّضه بـ close_gain_pct ?? 0 فيُلوّث المتوسط بأصفار وهمية)
+    const closed = closedAll.filter(s => s.result_pct != null);
+    const excludedNoResult = closedAll.length - closed.length;
+
     const isWin = s => ["T1_HIT", "T2_HIT", "T3_HIT"].includes(s.status) || s.target1_hit === true;
     const wins = closed.filter(isWin);
     const stops = closed.filter(s => s.status === "STOPPED");
-    const avg = arr => arr.length ? +(arr.reduce((a, s) => a + (s.result_pct ?? s.close_gain_pct ?? 0), 0) / arr.length).toFixed(2) : 0;
+    const avg = arr => arr.length ? +(arr.reduce((a, s) => a + s.result_pct, 0) / arr.length).toFixed(2) : 0;
 
     const bucket = (lo, hi) => {
       const g = closed.filter(s => (s.score ?? 0) >= lo && (s.score ?? 0) < hi);
@@ -265,14 +271,15 @@ export default async function handler(req, res) {
       still_open: valid.filter(u => !u._closed).length,
       total_open: signals.length,
       no_data: signals.length - valid.length,
-      // 📊 هذه الأرقام هي التي تطوّر بها الرادار:
       performance_30d: {
+        stats_since: statsSince,   // 🆕 v4: شفافية — من أي تاريخ حُسبت هذه الأرقام
         closed_total: closed.length,
+        excluded_no_result: excludedNoResult,   // 🆕 v4: كم صفاً قديماً استُبعد (بلا result_pct)
         win_rate_pct: closed.length ? +((wins.length / closed.length) * 100).toFixed(1) : null,
         avg_win_pct: avg(wins),
         avg_loss_pct: avg(stops),
         stopped_count: stops.length,
-        by_score: {          // ← إن كانت 80-99 أعلى بوضوح → ارفع SAVE_MIN_EP
+        by_score: {
           "55-65": bucket(55, 65),
           "65-75": bucket(65, 75),
           "75-99": bucket(75, 100),
