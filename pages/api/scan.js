@@ -1,4 +1,4 @@
-// pages/api/scan.js — v12 (v11 + 🥇 الزخم الذهبي)
+// pages/api/scan.js — v12 (v11 + 🥇 الزخم الذهبي + فلاتر مخففة)
 // ═══════════════════════════════════════════════════════════════════
 //  🏗️ مبني حرفياً على v11 المنشور (التحكم عن بعد + حالة الدخول + قوة نسبية
 //     + تهدئة + score_trace + حارس بيانات) — كل ذلك كما هو بلا تغيير.
@@ -130,7 +130,7 @@ function mergeConfig(base, remote) {
   for (const k of Object.keys(remote)) {
     if (k === "FF" && typeof remote.FF === "object") {
       for (const f of Object.keys(remote.FF)) if (f in ff) ff[f] = !!remote.FF[f];
-    } else if (["CAPS", "REBOUND", "HOT", "GOLDEN"].includes(k) && typeof remote[k] === "object") {  // 🆕 v12: GOLDEN
+    } else if (["CAPS", "REBOUND", "HOT", "GOLDEN"].includes(k) && typeof remote[k] === "object") {
       cfg[k] = { ...cfg[k], ...remote[k] };
     } else if (k in cfg && typeof remote[k] === typeof cfg[k]) {
       cfg[k] = remote[k];
