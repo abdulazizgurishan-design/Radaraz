@@ -1,4 +1,4 @@
-// pages/api/scan.js — v19.6 (مع تحويل القيم العشرية إلى أعداد صحيحة للحفظ)
+// pages/api/scan.js — v19.7 (إصلاح خطأ نحوي في buildStructure)
 export const config = { maxDuration: 15 };
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY || process.env.POLYGON_KEY;
@@ -334,11 +334,11 @@ function calculateBreakoutProbability(price, bars, structure) {
   return { probability: Math.min(prob, 100), reasons };
 }
 
-// ─── Structure ────────────────────────────────────────────────────
+// ─── Structure (تم إصلاح الخطأ النحوي) ───────────────────────────
 function buildStructure(price, bars, ind, CFG) {
   if (!bars || !Array.isArray(bars) || bars.length < 30 || !price) return null;
   const cap = (v, maxPct) => Math.min(v, price * (1 + maxPct / 100));
-  const capDn = (v, maxPct) => Math.max(v, price(Math * (1 - maxPct / 100));
+  const capDn = (v, maxPct) => Math.max(v, price * (1 - maxPct / 100)); // ✅ إصلاح: كان price(Math * ...) خطأ
   let hi20 = -Infinity,
     lo20 = Infinity;
   for (const b of bars.slice(-20)) { if (b.h > hi20) hi20 = b.h; if (b.l < lo20) lo20 = b.l; }
@@ -347,7 +347,7 @@ function buildStructure(price, bars, ind, CFG) {
   const support = capDn(lo20, 12);
   const stop = capDn(Math.min(support * 0.995, price * (1 - CFG.CAPS.sl / 100)), CFG.CAPS.sl);
   const entry = r2(Math.min(price, (support + price) / 2));
-  const confirm = r2.min(price * 1.01, hi20 * 1.001));
+  const confirm = r2(Math.min(price * 1.01, hi20 * 1.001));
   const resistance = r2(Math.max(hi20, price * 1.02));
   const t1 = r2(cap(price * (1 + Math.min(CFG.CAPS.t1, Math.max(3, atrPct * 1.2)) / 100), CFG.CAPS.t1));
   const t2 = r2(cap(price * (1 + Math.min(CFG.CAPS.t2, Math.max(8, atrPct * 2.5)) / 100), CFG.CAPS.t2));
@@ -431,7 +431,7 @@ function goldenCheck(a, ind, minsET, regime, G) {
   return { golden: passed === 6, passed, checks };
 }
 
-// ─── ✅ دالة الحفظ مع تحويل القيم العشرية إلى أعداد صحيحة ──────
+// ─── دالة الحفظ مع تحويل القيم العشرية إلى أعداد صحيحة ──────
 async function saveSignals(rows, left, debug, CFG) {
   if (!rows.length) return { saved: 0, status: 0 };
   const timeout = Math.max(600, Math.min(1500, left() - 400));
@@ -445,7 +445,6 @@ async function saveSignals(rows, left, debug, CFG) {
     target2: s.levels.t2,
     target3: s.levels.t3,
     stop_loss: s.levels.sl,
-    // ✅ تحويل القيم العشرية إلى أعداد صحيحة
     score: Math.round(s.predictionScore || s.score || 0),
     ep: Math.round(s.predictionScore || s.score || 0),
     volume: s.volume,
