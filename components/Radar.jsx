@@ -1,13 +1,4 @@
-// components/Radar.js — v12 (حالة الدخول 🟢🟡🔴 + فرز ذكي) + ترجمة المصطلحات
-// ═══════════════════════════════════════════════════════════════════
-//  🆕 v12 — مبني حرفياً على نسختك + 4 تعديلات موسومة "🆕 v12":
-//   1. toCard يمرر حقول scan v11: entry_state / entry_label / wait_price / rs20 / in_cooldown
-//   2. فرز الأقسام: 🟢 داخل المنطقة → "فرص جاهزة" · 🟡 → "مراقبة" · 🔴 ملاحقة → "زخم متأخر"
-//      (مع الرجوع لمنطقك القديم إذا الحقول غير موجودة — آمن مع إشارات قديمة)
-//   3. ترتيب كل قسم بالسكور تنازلياً
-//   4. شارة حالة الدخول على كل بطاقة + ❄️ ضرب وقفه مؤخراً + 💪 أقوى من السوق
-// ═══════════════════════════════════════════════════════════════════
-
+// components/Radar.js — التصميم الأصلي مع إضافة الحقول الجديدة فقط
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 
 // حقن حركة نبض اللمبة مرة واحدة (آمن مع SSR)
@@ -18,7 +9,7 @@ if (typeof document !== "undefined" && !document.getElementById("az-kf")) {
   document.head.appendChild(_el);
 }
 
-const DISPLAY_MIN_SCORE = 50; // ✅ تم التعديل من 60 إلى 50
+const DISPLAY_MIN_SCORE = 50;
 
 // ─── دوال تنسيق الأرقام (للعرض) ──────────────────────────────────
 function formatMarketCapDisplay(value) {
@@ -697,7 +688,7 @@ function MarketMovers({ movers, t, lang }) {
   );
 }
 
-// ─── 🃏 بطاقة ذكية ───
+// ─── 🃏 بطاقة ذكية مع حقول v19 الجديدة ─────────────────────
 function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
   const en = lang === "en";
   const [showSimple, setShowSimple] = useState(false);
@@ -750,6 +741,60 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
   const formatPrice = (n) => "$" + (+n).toFixed(2);
   const formatPct = (n) => (n >= 0 ? "+" : "") + Math.round(n) + "%";
 
+  // 🆕 v19: استخدام الحقول الجديدة
+  const predictionGrade = r.predictionGrade || r.structure?.predictionGrade || 'WATCH';
+  const predictionScore = r.predictionScore || r.score || 0;
+  const timing = r.timing?.timing || r.structure?.timing || 'UNKNOWN';
+
+  // دالة التصنيف بالعربي
+  const getGradeLabel = (grade) => {
+    const map = {
+      'ELITE': '🏆 نخبة',
+      'PRIME': '⭐ ممتاز',
+      'STRONG': '💪 قوي',
+      'GOOD': '📊 جيد',
+      'WATCH': '👀 مراقبة',
+      'AVOID': '❌ تجنب',
+    };
+    return map[grade] || grade || '—';
+  };
+
+  const getGradeColor = (grade) => {
+    const map = {
+      'ELITE': '#00d4aa',
+      'PRIME': '#34d399',
+      'STRONG': '#60a5fa',
+      'GOOD': '#fbbf24',
+      'WATCH': '#94a3b8',
+      'AVOID': '#ef4444',
+    };
+    return map[grade] || '#94a3b8';
+  };
+
+  const getTimingLabel = (timing) => {
+    const map = {
+      'PRE_BREAKOUT': '⚡ قبل الاختراق',
+      'BREAKOUT': '🚀 اختراق',
+      'EARLY_MOMENTUM': '📈 زخم مبكر',
+      'WAIT': '⏳ مراقبة',
+      'LATE': '⚠️ متأخر',
+      'UNKNOWN': '❓ غير معروف',
+    };
+    return map[timing] || timing || '—';
+  };
+
+  const getTimingColor = (timing) => {
+    const map = {
+      'PRE_BREAKOUT': '#34d399',
+      'BREAKOUT': '#60a5fa',
+      'EARLY_MOMENTUM': '#fbbf24',
+      'WAIT': '#94a3b8',
+      'LATE': '#ef4444',
+      'UNKNOWN': '#6b7280',
+    };
+    return map[timing] || '#94a3b8';
+  };
+
   const getRisk = () => {
     const slPct = Math.abs(r.levels?.slPct || 0);
     if (slPct <= 4) return { label: en ? "🟢 Low" : "🟢 منخفضة", color: "#22c55e" };
@@ -758,7 +803,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
   };
 
   const getStrength = () => {
-    const score = r.score || 0;
+    const score = predictionScore || 0;
     if (score >= 80) return { label: en ? "🔥 Very Strong" : "🔥 قوي جداً", color: "#ff6b35" };
     if (score >= 60) return { label: en ? "💪 Strong" : "💪 قوي", color: "#fbbf24" };
     if (score >= 40) return { label: en ? "📊 Neutral" : "📊 محايد", color: "#60a5fa" };
@@ -768,7 +813,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
   const risk = getRisk();
   const strength = getStrength();
 
-  // 🆕 v12: شارة حالة الدخول (من scan v11) — تحل مشكلة الدخول على أسهم ممتدة
+  // 🆕 v12: شارة حالة الدخول (من scan v11)
   const entryBadge = (() => {
     if (!r.entry_state) return null;
     if (r.entry_state === "in_zone")
@@ -818,7 +863,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
     if (r.vcp) {
       ind.push({ label: "VCP", value: r.vcp_contraction + "%", color: "#34d399", status: en ? "Contraction" : "انكماش" });
     }
-    // 🆕 v12: القوة النسبية مقابل SPY
     if (r.rs20 != null) {
       const rsColor = r.rs20 >= 5 ? "#22c55e" : r.rs20 >= 0 ? "#fbbf24" : "#94a3b8";
       ind.push({ label: "RS vs SPY", value: (r.rs20 >= 0 ? "+" : "") + r.rs20.toFixed(1) + "%", color: rsColor, status: en ? "20 days" : "20 يوم" });
@@ -838,8 +882,32 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
       marginBottom: "10px",
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 18, fontWeight: 700, color: "#fff", fontFamily: "monospace" }}>{r.symbol}</span>
+          {/* 🆕 v19: التصنيف الجديد */}
+          <span style={{
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 12px",
+            borderRadius: 20,
+            background: `${getGradeColor(predictionGrade)}22`,
+            color: getGradeColor(predictionGrade),
+            border: `1px solid ${getGradeColor(predictionGrade)}55`,
+          }}>
+            {getGradeLabel(predictionGrade)}
+          </span>
+          {/* 🆕 v19: التوقيت */}
+          <span style={{
+            fontSize: 9,
+            fontWeight: 600,
+            padding: "2px 10px",
+            borderRadius: 12,
+            background: `${getTimingColor(timing)}22`,
+            color: getTimingColor(timing),
+            border: `1px solid ${getTimingColor(timing)}44`,
+          }}>
+            {getTimingLabel(timing)}
+          </span>
           {r.is_sniper && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(251,191,36,0.2)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>🎯</span>}
           {r.is_rebound && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(56,189,248,0.2)", color: "#38bdf8", border: "1px solid rgba(56,189,248,0.3)" }}>🔄</span>}
           {r.early_watch && !r.is_rebound && !r.is_sniper && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: "rgba(52,211,153,0.2)", color: "#34d399", border: "1px solid rgba(52,211,153,0.3)" }}>🔍</span>}
@@ -884,7 +952,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
       </div>
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 13, fontWeight: 600, alignItems: "center" }}>
-        {/* 🆕 v12: شارة حالة الدخول — أول شارة يشوفها المشترك */}
+        {/* شارة الدخول */}
         {entryBadge && (
           <span style={{ color: entryBadge.c, background: entryBadge.bg, padding: "2px 12px", borderRadius: 20, border: `1px solid ${entryBadge.c}55`, fontWeight: 700 }}>
             {entryBadge.txt}
@@ -900,6 +968,10 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
             💪 {en ? "Stronger than market" : "أقوى من السوق"}
           </span>
         )}
+        {/* 🆕 v19: عرض النقاط الجديدة */}
+        <span style={{ color: "#a5b4fc", background: "rgba(99,102,241,0.1)", padding: "2px 12px", borderRadius: 20 }}>
+          🎯 {predictionScore}
+        </span>
         <span style={{ color: strength.color, background: "rgba(255,255,255,0.05)", padding: "2px 12px", borderRadius: 20 }}>
           {strength.label}
         </span>
@@ -959,12 +1031,18 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
               {en ? " with " : " مع "}
               <span style={{ color: risk.color }}>{risk.label.toLowerCase()}</span> {en ? "risk." : "مخاطرة."}
             </p>
-            {/* 🆕 v12: توجيه الدخول في الشرح البسيط */}
             {entryBadge && (
               <p style={{ margin: "4px 0", fontSize: 13, color: entryBadge.c, fontWeight: 700 }}>
                 {entryBadge.txt}
               </p>
             )}
+            {/* 🆕 v19: عرض التصنيف والتوقيت في الشرح البسيط */}
+            <p style={{ margin: "4px 0", fontSize: 13, color: getGradeColor(predictionGrade) }}>
+              التصنيف: {getGradeLabel(predictionGrade)} · التوقيت: {getTimingLabel(timing)}
+            </p>
+            <p style={{ margin: "4px 0", fontSize: 13, color: "rgba(255,255,255,0.6)" }}>
+              النقاط: {predictionScore}
+            </p>
             {r.levels?.t1 && (
               <p style={{ margin: "4px 0", fontSize: 13, color: "rgba(255,255,255,0.8)" }}>
                 🎯 {en ? "First target at" : "الهدف الأول عند"} <strong>{formatPrice(r.levels.t1)}</strong> ({formatPct(r.levels.t1Pct)})
@@ -1050,7 +1128,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
         </div>
       )}
 
-      {/* ✅ تفاصيل الشركة المحسّنة مع درجات التحليل والأرقام مع فواصل */}
+      {/* تفاصيل الشركة */}
       {showCompanyDetails && (
         <div style={{
           marginTop: 12,
@@ -1073,7 +1151,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
               </div>
             ) : companyData ? (
               <div>
-                {/* اسم الشركة */}
                 {companyData.companyName && (
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>
@@ -1089,7 +1166,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   </div>
                 )}
 
-                {/* ✅ درجات التحليل الرباعية */}
                 {companyData.scores && (
                   <div style={{
                     background: "rgba(255,255,255,0.03)",
@@ -1124,7 +1200,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                         </span>
                       </div>
                     ))}
-                    {/* ✅ متوسط الدرجة الكلية */}
                     <div style={{
                       marginTop: 8,
                       paddingTop: 8,
@@ -1150,7 +1225,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   </div>
                 )}
 
-                {/* المعلومات الأساسية */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   {companyData.sector && (
                     <div>
@@ -1191,7 +1265,6 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   )}
                 </div>
 
-                {/* ✅ البيانات المالية - عرض مع فواصل */}
                 <div style={{
                   marginTop: 10,
                   paddingTop: 10,
@@ -1200,31 +1273,24 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
                   gridTemplateColumns: "1fr 1fr",
                   gap: 8,
                 }}>
-                  {/* القيمة السوقية */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.marketCap}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                       {companyData.marketCapFormatted || t.notAvailable}
                     </div>
                   </div>
-                  
-                  {/* الأسهم المتاحة */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.sharesOutstanding}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
                       {companyData.sharesFormatted || t.notAvailable}
                     </div>
                   </div>
-                  
-                  {/* البيع على المكشوف */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortable}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: companyData.shortable ? "#34d399" : "#f87171" }}>
                       {companyData.shortable ? t.shortableYes : t.shortableNo}
                     </div>
                   </div>
-                  
-                  {/* حجم الأقراض */}
                   <div>
                     <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{t.shortInterest}</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#fbbf24" }}>
@@ -1266,8 +1332,10 @@ export default function Radar() {
   const [opportunities, setOpportunities] = useState({ ready: [], watch: [], late: [], hidden: [] });
   const [counts, setCounts] = useState({ ready: 0, watch: 0, late: 0, hidden: 0, total: 0 });
   const [marketRegime, setMarketRegime] = useState(null);
-
   const [marketStatus, setMarketStatus] = useState(null);
+
+  // 🆕 v19: إحصائيات التصنيفات الجديدة
+  const [gradeCounts, setGradeCounts] = useState({ ELITE: 0, PRIME: 0, STRONG: 0, GOOD: 0, WATCH: 0, AVOID: 0 });
 
   useEffect(() => {
     const fetchMarketStatus = async () => {
@@ -1444,11 +1512,18 @@ export default function Radar() {
         is_smart_bounce: s.is_smart_bounce || false,
         smart_bounce_confidence: s.smart_bounce_confidence || 0,
         scores: s.scores || null,
-        // 🆕 v12: حقول حالة الدخول من scan v11 (مع قراءة احتياطية من structure للإشارات المحفوظة)
         entry_state: s.entry_state || (s.structure && s.structure.entry_state && s.structure.entry_state.code) || null,
         wait_price: s.wait_price ?? (s.structure && s.structure.entry_state && s.structure.entry_state.wait_price) ?? null,
         rs20: s.rs20 ?? (s.structure && s.structure.rs20) ?? null,
         in_cooldown: s.in_cooldown || (s.structure && s.structure.cooldown) || false,
+        // 🆕 v19: حقول التصنيف الجديدة
+        predictionGrade: s.predictionGrade || s.structure?.predictionGrade || 'WATCH',
+        predictionScore: s.predictionScore || s.score || 0,
+        timing: s.timing || s.structure?.timing || 'UNKNOWN',
+        confidence: s.confidence || s.structure?.confidence || s.score || 0,
+        probabilities: s.probabilities || s.structure?.probabilities || null,
+        earlyAccumulationScore: s.earlyAccumulation?.score || s.structure?.earlyAccumulationScore || 0,
+        breakoutProbabilityScore: s.breakoutProbability?.probability || s.structure?.breakoutProbabilityScore || 0,
       });
 
       const allCards = raw.map(toCard);
@@ -1461,7 +1536,14 @@ export default function Radar() {
       if (data.movers) setMovers(data.movers);
       if (data.market_regime) setMarketRegime(data.market_regime);
 
-      // 🆕 v12: التصنيف بحالة الدخول أولاً (الأدق) ثم منطقك القديم كاحتياط للإشارات بدونها
+      // حساب إحصائيات التصنيفات الجديدة
+      const grades = { ELITE: 0, PRIME: 0, STRONG: 0, GOOD: 0, WATCH: 0, AVOID: 0 };
+      for (const c of allCards) {
+        const g = c.predictionGrade || 'WATCH';
+        if (grades[g] !== undefined) grades[g]++;
+      }
+      setGradeCounts(grades);
+
       const tiers = { ready: [], watch: [], late: [], hidden: [] };
       for (const c of allCards) {
         const flag = (c.structure && c.structure.flag) || "";
@@ -1473,7 +1555,6 @@ export default function Radar() {
         else if (c.change_pct >= 12) tiers.late.push(c);
         else if ((c.score || 0) >= 70 && (c.volume || 0) < 1_000_000) tiers.hidden.push(c);
       }
-      // 🆕 v12: ترتيب كل قسم بالسكور تنازلياً — الأفضل دائماً بالأعلى
       for (const k of Object.keys(tiers)) tiers[k].sort((a, b) => (b.score || 0) - (a.score || 0));
       setOpportunities(tiers);
       setCounts({ ready: tiers.ready.length, watch: tiers.watch.length, late: tiers.late.length, hidden: tiers.hidden.length, total: allCards.length });
@@ -1505,10 +1586,6 @@ export default function Radar() {
     }
   }, []);
 
-  const loadCached = useCallback(async () => {
-    return;
-  }, []);
-
   useEffect(() => {
     if (!auth) return;
     scan({ background: false });
@@ -1519,6 +1596,31 @@ export default function Radar() {
     else { clearInterval(autoTimerRef.current); }
     return () => clearInterval(autoTimerRef.current);
   }, [autoRefresh, scan]);
+
+  // 🆕 v19: دالة عرض التصنيف بالعربي
+  const getGradeLabel = (grade) => {
+    const map = {
+      'ELITE': '🏆 نخبة',
+      'PRIME': '⭐ ممتاز',
+      'STRONG': '💪 قوي',
+      'GOOD': '📊 جيد',
+      'WATCH': '👀 مراقبة',
+      'AVOID': '❌ تجنب',
+    };
+    return map[grade] || grade || '—';
+  };
+
+  const getGradeColor = (grade) => {
+    const map = {
+      'ELITE': '#00d4aa',
+      'PRIME': '#34d399',
+      'STRONG': '#60a5fa',
+      'GOOD': '#fbbf24',
+      'WATCH': '#94a3b8',
+      'AVOID': '#ef4444',
+    };
+    return map[grade] || '#94a3b8';
+  };
 
   const filtered = useMemo(() => {
     if (filter === "favorites") {
@@ -1547,6 +1649,9 @@ export default function Radar() {
           vcp_contraction: live?.vcp_contraction || null,
           news_age_h: live?.news_age_h ?? null,
           scores: live?.scores || null,
+          predictionGrade: live?.predictionGrade || fav.predictionGrade || 'WATCH',
+          predictionScore: live?.predictionScore || fav.predictionScore || 0,
+          timing: live?.timing || fav.timing || 'UNKNOWN',
         };
       });
     }
@@ -1568,7 +1673,6 @@ export default function Radar() {
   const sniperCount = useMemo(() => sniper.length, [sniper]);
   const dotColor = (loading || refreshing) ? "#ffd700" : status === "ok" ? "#00d4aa" : status === "error" ? "#ff4757" : "#6366f1";
   const showSections = filter === "all" && (leaders.length > 0 || speculation.length > 0 || rebound.length > 0 || sniper.length > 0);
-  const earlySymbols = useMemo(() => new Set(earlyWatch.map(s => s.symbol)), [earlyWatch]);
 
   const totalOpportunities = counts.total || 0;
 
@@ -1663,14 +1767,15 @@ export default function Radar() {
           </div>
         )}
 
+        {/* 🆕 v19: إحصائيات التصنيفات الجديدة */}
         <div style={S.statsRow}>
           {[
             { label: t.scanRange, value: total || "—", color: "#6366f1", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.2)" },
-            // 🆕 v12: عداد الفرص داخل منطقة الدخول — أهم رقم للمشترك
             { label: lang === "en" ? "🟢 In Zone" : "🟢 بمنطقة الدخول", value: counts.ready, color: "#22c55e", bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.25)" },
-            { label: t.filterSniper, value: sniperCount, color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.25)" },
-            { label: t.filterRebound, value: reboundCount, color: "#38bdf8", bg: "rgba(56,189,248,0.1)", border: "rgba(56,189,248,0.25)" },
-            { label: "🚨 HOT", value: hotCount, color: "#f87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.2)" },
+            { label: "🏆 نخبة", value: gradeCounts.ELITE || 0, color: "#00d4aa", bg: "rgba(0,212,170,0.1)", border: "rgba(0,212,170,0.2)" },
+            { label: "⭐ ممتاز", value: gradeCounts.PRIME || 0, color: "#34d399", bg: "rgba(52,211,153,0.1)", border: "rgba(52,211,153,0.2)" },
+            { label: "💪 قوي", value: gradeCounts.STRONG || 0, color: "#60a5fa", bg: "rgba(96,165,250,0.1)", border: "rgba(96,165,250,0.2)" },
+            { label: "📊 جيد", value: gradeCounts.GOOD || 0, color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.2)" },
             { label: "📊 الإجمالي", value: totalOpportunities, color: "#22d3ee", bg: "rgba(34,211,238,0.1)", border: "rgba(34,211,238,0.2)" },
           ].map((s) => (
             <div key={s.label} style={S.statBox(s.bg, s.border)}>
