@@ -1,4 +1,4 @@
-// pages/api/scan.js — v19.2 (معدل بالكامل مع إصلاح r.filter)
+// pages/api/scan.js — v19.3 (مع إصلاح الحفظ وتحسين الأداء)
 export const config = { maxDuration: 15 };
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY || process.env.POLYGON_KEY;
@@ -7,15 +7,15 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_AN
 
 // ─── الإعدادات المحسّنة ──────────────────────────────────────────
 const CFG_DEFAULT = {
-  BUDGET: 9000,
+  BUDGET: 8000,           // ✅ تم التخفيض من 9000
   MIN_PRICE: 0.20,
   MIN_VOLUME: 1000,
   MIN_DOLLARVOL: 10000,
-  BATCH: 50,
-  AGGS_TIMEOUT: 2500,
+  BATCH: 100,             // ✅ تم الزيادة من 50
+  AGGS_TIMEOUT: 2000,     // ✅ تم التخفيض من 2500
   SAVE_MIN_EP: 35,
   MIN_RR: 0.5,
-  HEAVY_LIMIT: 200,
+  HEAVY_LIMIT: 150,       // ✅ تم التخفيض من 200
   CAPS: { t1: 8, t2: 20, t3: 35, sl: 8 },
   EARLY_FLOOR: 3,
   REBOUND: { RSI: 45, PRICE: 3, DVOL: 10e6, RET: 8 },
@@ -165,7 +165,6 @@ async function fetchAggs(symbol, timeoutMs, days = 130) {
   const from = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
   const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=${days}&apiKey=${POLYGON_KEY}`;
   const data = await fetchJson(url, timeoutMs);
-  // ✅ إصلاح: التأكد من أن النتيجة مصفوفة
   const bars = data && data.results && Array.isArray(data.results) ? data.results : null;
   if (bars) setCache(key, bars);
   return bars;
@@ -173,7 +172,6 @@ async function fetchAggs(symbol, timeoutMs, days = 130) {
 
 // ── حارس البيانات (معدل) ────────────────────────────────────────
 function cleanBars(bars) {
-  // ✅ إصلاح: التأكد من أن المدخلات مصفوفة
   if (!bars || !Array.isArray(bars)) return null;
   const out = bars.filter(b => b && b.c > 0 && b.h > 0 && b.l > 0 && b.h >= b.l && b.v >= 0);
   return out.length ? out : null;
@@ -458,10 +456,12 @@ function goldenCheck(a, ind, minsET, regime, G) {
   return { golden: passed === 6, passed, checks };
 }
 
+// ─── ✅ دالة الحفظ المحسّنة (مع تبسيط structure) ────────────────
 async function saveSignals(rows, left, debug, CFG) {
   if (!rows.length) return { saved: 0, status: 0 };
   const timeout = Math.max(600, Math.min(1500, left() - 400));
   if (timeout < 600) { debug.save_skipped = true; return { saved: 0, status: 0 }; }
+
   const payload = rows.map(s => ({
     symbol: s.symbol,
     signal_date: sigDate(),
@@ -489,13 +489,23 @@ async function saveSignals(rows, left, debug, CFG) {
     vcp_contraction: s.vcp_contraction,
     fresh_zone: s.fresh_zone || false,
     premarket_watch: s.premarket_watch || false,
+    // ✅ structure مبسط (بدون reasons و breakdown)
     structure: {
-      ...s.structure,
-      predictionScore: s.predictionScore,
-      predictionGrade: s.predictionGrade,
-      timing: s.timing,
-      earlyAccumulation: s.earlyAccumulation,
-      breakoutProbability: s.breakoutProbability,
+      rr: s.structure?.rr || 0,
+      t1: s.structure?.t1 || 0,
+      t2: s.structure?.t2 || 0,
+      t3: s.structure?.t3 || 0,
+      stop: s.structure?.stop || 0,
+      entry: s.structure?.entry || 0,
+      support: s.structure?.support || 0,
+      resistance: s.structure?.resistance || 0,
+      flag: s.structure?.flag || '',
+      trend: s.structure?.trend || '',
+      predictionScore: s.predictionScore || 0,
+      predictionGrade: s.predictionGrade || 'WATCH',
+      timing: s.timing?.timing || 'UNKNOWN',
+      earlyAccumulationScore: s.earlyAccumulation?.score || 0,
+      breakoutProbabilityScore: s.breakoutProbability?.probability || 0,
     },
     is_smart_bounce: false,
     smart_bounce_confidence: 0,
@@ -644,6 +654,12 @@ export default async function handler(req, res) {
       const minVol = isPreMarket ? 1000 : CFG.MIN_VOLUME;
       const minDollarVol = isPreMarket ? 10000 : CFG.MIN_DOLLARVOL;
 
+      // ✅ فلتر إضافي: تجاهل الأسهم ذات الاهتمام المنخفض جداً
+      if (Math.abs(chg) < 0.1 && vol < 50000) {
+        debug.dropped_low_interest = (debug.dropped_low_interest || 0) + 1;
+        continue;
+      }
+
       if (price < minPrice) { debug.dropped_penny_gate++; continue; }
       if (vol < minVol || price * vol < minDollarVol) { debug.dropped_liquidity++; continue; }
       if (chg > CFG.MAX_CHANGE) { debug.dropped_extreme_gain++; continue; }
@@ -684,14 +700,14 @@ export default async function handler(req, res) {
 
     // ── Stage 3: تحليل الأسهم ──
     const analyzed = [];
-    for (let i = 0; i < cand.length; i += CFG.BATCH) {
+    // ✅ مهلة أمان: توقف إذا بقي أقل من 2000ms
+    const timeLimit = left() - 2000;
+    for (let i = 0; i < cand.length && Date.now() - T0 < timeLimit; i += CFG.BATCH) {
       if (left() < 1800) { debug.dropped_timeout += cand.length - i; break; }
       const batch = cand.slice(i, i + CFG.BATCH);
 
-      // جلب البيانات بالتوازي
       const batchData = await Promise.all(batch.map(async (c) => {
         let bars = await fetchAggs(c.symbol, CFG.AGGS_TIMEOUT);
-        // ✅ إصلاح: التحقق من أن bars مصفوفة
         if (!bars || !Array.isArray(bars) || bars.length < 30) {
           debug.dropped_no_tech++;
           return null;
@@ -709,13 +725,11 @@ export default async function handler(req, res) {
       const validBatch = batchData.filter(c => c !== null);
       debug.dropped_no_tech += batch.length - validBatch.length;
 
-      // تحليل كل سهم بالتوازي
       const analysisResults = await Promise.all(validBatch.map(async (c) => {
         const bars = c.bars;
         const closes = bars.map(b => b.c);
         const vols = bars.map(b => b.v);
 
-        // المؤشرات الأساسية
         const ind = {
           ma21: sma(closes, 21),
           ma50: sma(closes, 50),
@@ -735,14 +749,9 @@ export default async function handler(req, res) {
           dollarVol: c.dollar_vol || 0,
         };
 
-        // Early Accumulation
         const earlyAcc = calculateEarlyAccumulation(bars, c.price);
-
-        // Structure
         const st = buildStructure(c.price, bars, ind, CFG);
         const levels = buildLevels(c.price, st);
-
-        // Breakout Probability
         const breakoutProb = calculateBreakoutProbability(c.price, bars, st);
 
         // Prediction Score (مبسط)
@@ -812,7 +821,6 @@ export default async function handler(req, res) {
           timing,
           earlyAccumulation: earlyAcc,
           breakoutProbability: breakoutProb,
-          predictionBreakdown: breakdown,
         } : st;
 
         return {
@@ -865,7 +873,6 @@ export default async function handler(req, res) {
         score: a.predictionScore,
         predictionScore: a.predictionScore,
         predictionGrade: a.predictionGrade,
-        predictionBreakdown: a.breakdown,
         timing: a.timing,
         earlyAccumulation: a.earlyAcc,
         breakoutProbability: a.breakoutProb,
