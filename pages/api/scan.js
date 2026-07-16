@@ -1,4 +1,4 @@
-// pages/api/scan.js — v19.3 (مع إصلاح الحفظ وتحسين الأداء)
+// pages/api/scan.js — v19.5 (مع عرض تفاصيل خطأ الحفظ)
 export const config = { maxDuration: 15 };
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY || process.env.POLYGON_KEY;
@@ -7,15 +7,15 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_AN
 
 // ─── الإعدادات المحسّنة ──────────────────────────────────────────
 const CFG_DEFAULT = {
-  BUDGET: 8000,           // ✅ تم التخفيض من 9000
+  BUDGET: 8000,
   MIN_PRICE: 0.20,
   MIN_VOLUME: 1000,
   MIN_DOLLARVOL: 10000,
-  BATCH: 100,             // ✅ تم الزيادة من 50
-  AGGS_TIMEOUT: 2000,     // ✅ تم التخفيض من 2500
+  BATCH: 100,
+  AGGS_TIMEOUT: 2000,
   SAVE_MIN_EP: 35,
   MIN_RR: 0.5,
-  HEAVY_LIMIT: 150,       // ✅ تم التخفيض من 200
+  HEAVY_LIMIT: 150,
   CAPS: { t1: 8, t2: 20, t3: 35, sl: 8 },
   EARLY_FLOOR: 3,
   REBOUND: { RSI: 45, PRICE: 3, DVOL: 10e6, RET: 8 },
@@ -43,7 +43,6 @@ const CFG_DEFAULT = {
   },
 };
 
-// ─── مفاتيح الميزات ──
 const FF_DEFAULT = {
   remote_config: true,
   entry_state: true,
@@ -170,7 +169,6 @@ async function fetchAggs(symbol, timeoutMs, days = 130) {
   return bars;
 }
 
-// ── حارس البيانات (معدل) ────────────────────────────────────────
 function cleanBars(bars) {
   if (!bars || !Array.isArray(bars)) return null;
   const out = bars.filter(b => b && b.c > 0 && b.h > 0 && b.l > 0 && b.h >= b.l && b.v >= 0);
@@ -269,87 +267,70 @@ function upStreak3(bars) {
 // ─── Early Accumulation ──────────────────────────────────────────
 function calculateEarlyAccumulation(bars, price) {
   if (!bars || !Array.isArray(bars) || bars.length < 30) return { score: 0, reasons: [] };
-
   const highs = bars.map(b => b.h);
   const lows = bars.map(b => b.l);
   const closes = bars.map(b => b.c);
   const vols = bars.map(b => b.v);
-
   let score = 0;
   const reasons = [];
-
   const atr = atr14(bars);
   const atrPct = (atr / price) * 100;
   if (atrPct < 2) { score += 15;
     reasons.push('ATR منخفض'); } else if (atrPct < 3) { score += 8;
     reasons.push('ATR متوسط'); }
-
   const last5Lows = lows.slice(-5);
   const higherLows = last5Lows.every((l, i) => i === 0 || l > last5Lows[i - 1]);
   if (higherLows) { score += 10;
     reasons.push('Higher Lows'); }
-
   const avgVol = sma(vols.slice(0, -1), 20);
   const lastVol = vols[vols.length - 1];
   if (avgVol && lastVol < avgVol * 0.7) { score += 10;
     reasons.push('Volume Dry Up'); }
-
   const range10 = ((Math.max(...highs.slice(-10)) - Math.min(...lows.slice(-10))) / price) * 100;
   if (range10 < 3) { score += 10;
     reasons.push('Tight Range'); }
-
   const ma21 = sma(closes, 21);
   const ma50 = sma(closes, 50);
   if (ma21 && price > ma21) { score += 8;
     reasons.push('فوق MA21'); }
   if (ma50 && price > ma50) { score += 5;
     reasons.push('فوق MA50'); }
-
   const last5Highs = highs.slice(-5);
   const higherHighs = last5Highs.every((h, i) => i === 0 || h > last5Highs[i - 1]);
   if (higherHighs) { score += 8;
     reasons.push('Higher Highs'); }
-
   return { score: Math.min(score, 100), reasons };
 }
 
 // ─── Breakout Probability ─────────────────────────────────────────
 function calculateBreakoutProbability(price, bars, structure) {
   if (!structure || !bars || !Array.isArray(bars) || bars.length < 30) return { probability: 50, reasons: [] };
-
   let prob = 50;
   const reasons = [];
-
   const resistanceDist = structure.resistanceDistance || 100;
   if (resistanceDist <= 2) { prob += 15;
     reasons.push('مقاومة قريبة جداً'); } else if (resistanceDist <= 5) { prob += 10;
     reasons.push('مقاومة قريبة'); }
-
   const atr = atr14(bars);
   const atrPct = (atr / price) * 100;
   if (atrPct < 2) { prob += 10;
     reasons.push('ATR منخفض'); }
-
   const lows = bars.map(b => b.l);
   const last5Lows = lows.slice(-5);
   const higherLows = last5Lows.every((l, i) => i === 0 || l > last5Lows[i - 1]);
   if (higherLows) { prob += 10;
     reasons.push('Higher Lows'); }
-
   const vols = bars.map(b => b.v);
   const avgVol = sma(vols.slice(0, -1), 20);
   const lastVol = vols[vols.length - 1];
   if (avgVol && lastVol > avgVol * 1.5) { prob += 10;
     reasons.push('حجم مرتفع'); }
-
   const vcp = vcpCheck(bars);
   if (vcp.vcp) { prob += 10;
     reasons.push('VCP مكتمل'); }
-
   if (structure.rr >= 2.5) { prob += 10;
     reasons.push('RR ممتاز'); } else if (structure.rr >= 1.5) { prob += 5;
     reasons.push('RR جيد'); }
-
   return { probability: Math.min(prob, 100), reasons };
 }
 
@@ -358,13 +339,11 @@ function buildStructure(price, bars, ind, CFG) {
   if (!bars || !Array.isArray(bars) || bars.length < 30 || !price) return null;
   const cap = (v, maxPct) => Math.min(v, price * (1 + maxPct / 100));
   const capDn = (v, maxPct) => Math.max(v, price * (1 - maxPct / 100));
-
   let hi20 = -Infinity,
     lo20 = Infinity;
   for (const b of bars.slice(-20)) { if (b.h > hi20) hi20 = b.h; if (b.l < lo20) lo20 = b.l; }
   const atr = ind.atr || (price * 0.03);
   const atrPct = r2((atr / price) * 100);
-
   const support = capDn(lo20, 12);
   const stop = capDn(Math.min(support * 0.995, price * (1 - CFG.CAPS.sl / 100)), CFG.CAPS.sl);
   const entry = r2(Math.min(price, (support + price) / 2));
@@ -373,12 +352,10 @@ function buildStructure(price, bars, ind, CFG) {
   const t1 = r2(cap(price * (1 + Math.min(CFG.CAPS.t1, Math.max(3, atrPct * 1.2)) / 100), CFG.CAPS.t1));
   const t2 = r2(cap(price * (1 + Math.min(CFG.CAPS.t2, Math.max(8, atrPct * 2.5)) / 100), CFG.CAPS.t2));
   const t3 = r2(cap(price * (1 + Math.min(CFG.CAPS.t3, Math.max(14, atrPct * 4)) / 100), CFG.CAPS.t3));
-
   const risk = price - stop;
   const reward = t2 - price;
   const rr = risk > 0 ? r2(reward / risk) : null;
   if (rr == null || rr < CFG.MIN_RR) return null;
-
   const aboveMA = ind.ma21 != null && price > ind.ma21;
   const trend = aboveMA && ind.ma21 > (ind.ma50 || 0) ? "صاعد مؤكد ✅" :
     aboveMA ? "ينتظر تأكيد ⏳" :
@@ -387,9 +364,7 @@ function buildStructure(price, bars, ind, CFG) {
   if (price > support && price <= confirm * 1.01 && rr >= CFG.MIN_RR) flag = "دخول صحيح ✅";
   else if (aboveMA && rr >= CFG.MIN_RR) flag = "مقبول";
   else flag = "ملاحقة/غير مؤكد ⚠️";
-
   const pctOf = (v) => r2(((v - price) / price) * 100);
-
   return {
     rr,
     t1,
@@ -456,7 +431,7 @@ function goldenCheck(a, ind, minsET, regime, G) {
   return { golden: passed === 6, passed, checks };
 }
 
-// ─── ✅ دالة الحفظ المحسّنة (مع تبسيط structure) ────────────────
+// ─── ✅ دالة الحفظ مع عرض تفاصيل الخطأ ──────────────────────────
 async function saveSignals(rows, left, debug, CFG) {
   if (!rows.length) return { saved: 0, status: 0 };
   const timeout = Math.max(600, Math.min(1500, left() - 400));
@@ -479,17 +454,16 @@ async function saveSignals(rows, left, debug, CFG) {
     rvol: s.rvol,
     rsi: s.rsi,
     atr14: s.atr14,
-    ma_signal: s.ma_signal,
-    news_age_h: s.news_age_h,
-    news_age_hours: s.news_age_h,
+    ma_signal: s.ma_signal || null,
+    news_age_h: s.news_age_h || null,
+    news_age_hours: s.news_age_h || null,
     is_hot: s.predictionGrade === 'ELITE' || s.predictionGrade === 'PRIME',
     early_watch: s.predictionGrade === 'ELITE' || false,
     is_target: s.predictionGrade === 'ELITE' || false,
-    vcp: s.vcp,
-    vcp_contraction: s.vcp_contraction,
+    vcp: s.vcp || false,
+    vcp_contraction: s.vcp_contraction || null,
     fresh_zone: s.fresh_zone || false,
     premarket_watch: s.premarket_watch || false,
-    // ✅ structure مبسط (بدون reasons و breakdown)
     structure: {
       rr: s.structure?.rr || 0,
       t1: s.structure?.t1 || 0,
@@ -527,11 +501,19 @@ async function saveSignals(rows, left, debug, CFG) {
       }
     );
     clearTimeout(id);
-    return { saved: res.ok ? payload.length : 0, status: res.status };
-  } catch {
+    let errorText = '';
+    if (!res.ok) {
+      try {
+        errorText = await res.text();
+      } catch {}
+      console.error('❌ Supabase save error:', res.status, errorText);
+    }
+    return { saved: res.ok ? payload.length : 0, status: res.status, error: errorText };
+  } catch (err) {
     clearTimeout(id);
     debug.save_timeout = true;
-    return { saved: 0, status: 0 };
+    console.error('❌ Save exception:', err.message);
+    return { saved: 0, status: 0, error: err.message };
   }
 }
 
@@ -543,7 +525,6 @@ function getMarketSession() {
   const minutes = h * 60 + m;
   const day = ny.getDay();
   const isWeekend = day === 0 || day === 6;
-
   if (isWeekend) return { session: 'closed', label: '🔴 السوق مغلق' };
   if (minutes >= 240 && minutes < 570) return { session: 'premarket', label: '🟡 Pre-Market' };
   if (minutes >= 570 && minutes < 600) return { session: 'open', label: '🟢 افتتاح' };
@@ -556,7 +537,6 @@ function getMarketSession() {
 // ═══════════════════════════════════════════════════════════════════
 export default async function handler(req, res) {
   const T0 = Date.now();
-
   let CFG = { ...CFG_DEFAULT, CAPS: { ...CFG_DEFAULT.CAPS }, REBOUND: { ...CFG_DEFAULT.REBOUND }, HOT: { ...CFG_DEFAULT.HOT }, GOLDEN: { ...CFG_DEFAULT.GOLDEN } };
   let FF = { ...FF_DEFAULT };
   const left = () => CFG.BUDGET - (Date.now() - T0);
@@ -593,6 +573,8 @@ export default async function handler(req, res) {
     weights_used: {},
     adaptive_model: 'unknown',
     parallel_execution: true,
+    dropped_low_interest: 0,
+    save_error: '',
   };
 
   try {
@@ -610,7 +592,6 @@ export default async function handler(req, res) {
     debug.config_source = merged.source;
     debug.cooldown_symbols = cooldownSet.size;
 
-    // ── SPY pulse ──
     const spy = tickers.find(t => t.ticker === "SPY");
     if (spy && spy.day) {
       const spyChg = spy.todaysChangePerc ?? 0;
@@ -654,9 +635,8 @@ export default async function handler(req, res) {
       const minVol = isPreMarket ? 1000 : CFG.MIN_VOLUME;
       const minDollarVol = isPreMarket ? 10000 : CFG.MIN_DOLLARVOL;
 
-      // ✅ فلتر إضافي: تجاهل الأسهم ذات الاهتمام المنخفض جداً
       if (Math.abs(chg) < 0.1 && vol < 50000) {
-        debug.dropped_low_interest = (debug.dropped_low_interest || 0) + 1;
+        debug.dropped_low_interest++;
         continue;
       }
 
@@ -676,7 +656,6 @@ export default async function handler(req, res) {
     debug.total_candidates = cand.length;
     debug.after_filter = cand.length;
 
-    // ── SPY Relative Strength ──
     let spyRet20 = null;
     if (FF.rel_strength && left() > 3000) {
       const spyBars = cleanBars(await fetchAggs("SPY", CFG.AGGS_TIMEOUT));
@@ -684,7 +663,6 @@ export default async function handler(req, res) {
       debug.spy_rs_ready = spyRet20 != null;
     }
 
-    // ── تحميل الأوزان المتعلمة ──
     let learnedWeights = {};
     try {
       const resW = await fetch(
@@ -700,7 +678,6 @@ export default async function handler(req, res) {
 
     // ── Stage 3: تحليل الأسهم ──
     const analyzed = [];
-    // ✅ مهلة أمان: توقف إذا بقي أقل من 2000ms
     const timeLimit = left() - 2000;
     for (let i = 0; i < cand.length && Date.now() - T0 < timeLimit; i += CFG.BATCH) {
       if (left() < 1800) { debug.dropped_timeout += cand.length - i; break; }
@@ -754,7 +731,6 @@ export default async function handler(req, res) {
         const levels = buildLevels(c.price, st);
         const breakoutProb = calculateBreakoutProbability(c.price, bars, st);
 
-        // Prediction Score (مبسط)
         let predictionScore = 50;
         let predictionGrade = 'WATCH';
         const breakdown = [];
@@ -790,7 +766,6 @@ export default async function handler(req, res) {
         else if (predictionScore >= 45) predictionGrade = 'WATCH';
         else predictionGrade = 'AVOID';
 
-        // Timing
         const timing = { timing: 'UNKNOWN', label: 'غير معروف' };
         if (st && st.resistanceDistance !== undefined) {
           if (st.resistanceDistance <= 3 && st.resistanceDistance > 0 && st.rr >= 2) {
@@ -920,8 +895,10 @@ export default async function handler(req, res) {
     debug.below_save_ep = signals.length - toSave.length;
     const saveResult = await saveSignals(toSave, left, debug, CFG);
     debug.saved = saveResult.saved;
+    if (saveResult.error) {
+      debug.save_error = saveResult.error.slice(0, 500);
+    }
 
-    // ── Response ──
     const base = {
       success: true,
       total: signals.length,
