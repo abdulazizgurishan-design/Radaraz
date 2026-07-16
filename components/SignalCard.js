@@ -1,13 +1,13 @@
-// components/SignalCard.js
+// components/SignalCard.js — النسخة العربية بالكامل
 import { useState } from 'react';
 
 const gradeConfig = {
-  ELITE: { color: '#00d4aa', bg: 'rgba(0,212,170,0.15)', label: '🏆 ELITE' },
-  PRIME: { color: '#34d399', bg: 'rgba(52,211,153,0.15)', label: '⭐ PRIME' },
-  STRONG: { color: '#60a5fa', bg: 'rgba(96,165,250,0.15)', label: '💪 STRONG' },
-  GOOD: { color: '#fbbf24', bg: 'rgba(251,191,36,0.15)', label: '📊 GOOD' },
-  WATCH: { color: '#94a3b8', bg: 'rgba(148,163,184,0.15)', label: '👀 WATCH' },
-  AVOID: { color: '#ef4444', bg: 'rgba(239,68,68,0.15)', label: '❌ AVOID' },
+  ELITE: { color: '#00d4aa', bg: 'rgba(0,212,170,0.15)', label: '🏆 نخبة' },
+  PRIME: { color: '#34d399', bg: 'rgba(52,211,153,0.15)', label: '⭐ ممتاز' },
+  STRONG: { color: '#60a5fa', bg: 'rgba(96,165,250,0.15)', label: '💪 قوي' },
+  GOOD: { color: '#fbbf24', bg: 'rgba(251,191,36,0.15)', label: '📊 جيد' },
+  WATCH: { color: '#94a3b8', bg: 'rgba(148,163,184,0.15)', label: '👀 مراقبة' },
+  AVOID: { color: '#ef4444', bg: 'rgba(239,68,68,0.15)', label: '❌ تجنب' },
 };
 
 const riskConfig = {
@@ -93,7 +93,7 @@ export default function SignalCard({ signal, onExpand }) {
         </div>
       </div>
 
-      {/* السطر الثاني: Confidence + Risk */}
+      {/* السطر الثاني: الثقة + المخاطرة */}
       <div
         style={{
           display: 'flex',
@@ -103,7 +103,7 @@ export default function SignalCard({ signal, onExpand }) {
           alignItems: 'center',
         }}
       >
-        {/* شريط Confidence */}
+        {/* شريط الثقة */}
         <div style={{ flex: 1, minWidth: '120px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
             <span>الثقة</span>
@@ -130,18 +130,18 @@ export default function SignalCard({ signal, onExpand }) {
           </div>
         </div>
 
-        {/* Risk */}
+        {/* المخاطرة */}
         <span style={{ fontSize: '12px', color: riskInfo.color }}>
-          {riskInfo.label}
+          المخاطرة: {riskInfo.label}
         </span>
 
-        {/* Score */}
+        {/* النقاط */}
         <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
-          السكور: {decision.score || 0}
+          النقاط: {decision.score || 0}
         </span>
       </div>
 
-      {/* السطر الثالث: ملخص القرار (Explain) */}
+      {/* السطر الثالث: ملخص القرار (شرح الرادار) */}
       {explanation?.summary && (
         <div
           style={{
@@ -155,11 +155,11 @@ export default function SignalCard({ signal, onExpand }) {
             border: '1px solid rgba(255,255,255,0.06)',
           }}
         >
-          {explanation.summary}
+          📋 {explanation.summary}
         </div>
       )}
 
-      {/* السطر الرابع: أهداف سريعة (T1, T2, T3) */}
+      {/* السطر الرابع: الأهداف */}
       {signal.targets && (
         <div
           style={{
@@ -168,13 +168,14 @@ export default function SignalCard({ signal, onExpand }) {
             marginTop: '10px',
             fontSize: '11px',
             color: 'rgba(255,255,255,0.4)',
+            flexWrap: 'wrap',
           }}
         >
-          <span>🎯 T1: ${signal.targets.t1?.toFixed(2)}</span>
-          <span>🎯 T2: ${signal.targets.t2?.toFixed(2)}</span>
-          <span>🎯 T3: ${signal.targets.t3?.toFixed(2)}</span>
-          <span>🛑 وقف: ${signal.targets.stop?.toFixed(2)}</span>
-          <span>📊 RR: {signal.targets.rr?.toFixed(1)}</span>
+          <span>🎯 الهدف 1: ${signal.targets.t1?.toFixed(2)}</span>
+          <span>🎯 الهدف 2: ${signal.targets.t2?.toFixed(2)}</span>
+          <span>🎯 الهدف 3: ${signal.targets.t3?.toFixed(2)}</span>
+          <span>🛑 وقف الخسارة: ${signal.targets.stop?.toFixed(2)}</span>
+          <span>📊 العائد/المخاطرة: {signal.targets.rr?.toFixed(1)}</span>
         </div>
       )}
 
