@@ -1,30 +1,21 @@
-// pages/api/scan.js — v19 Self-Learning Predictive Engine (النهائي)
-// ═══════════════════════════════════════════════════════════════════
-//  🧠 v19 — التحول إلى Self-Learning Predictive Engine
-//    ✅ إزالة EP اليدوي — PredictionScore هو المعيار النهائي
-//    ✅ Parallel Execution (Promise.all) لتقليل زمن التنفيذ
-//    ✅ تفعيل LearningEngine و FeedbackEngine فعليًا
-//    ✅ Feature Vector كمدخل لنموذج تعلم آلي
-//    ✅ إضافة OBV, CMF, AD Line, Float, Institutional Ownership
-//    ✅ استخدام البيانات التاريخية لحساب الاحتمالات
-// ═══════════════════════════════════════════════════════════════════
-
+// pages/api/scan.js — v19.2 (معدل بالكامل مع إصلاح r.filter)
 export const config = { maxDuration: 15 };
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY || process.env.POLYGON_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.RADARAZ_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.RADARAZ_SUPABASE_KEY;
 
-// ─── الإعدادات الأساسية ──────────────────────────────────────────
+// ─── الإعدادات المحسّنة ──────────────────────────────────────────
 const CFG_DEFAULT = {
   BUDGET: 9000,
-  MIN_PRICE: 0.50,
-  MIN_VOLUME: 10000,
-  MIN_DOLLARVOL: 100000,
-  BATCH: 30,
+  MIN_PRICE: 0.20,
+  MIN_VOLUME: 1000,
+  MIN_DOLLARVOL: 10000,
+  BATCH: 50,
   AGGS_TIMEOUT: 2500,
-  SAVE_MIN_EP: 45,
-  MIN_RR: 0.8,
+  SAVE_MIN_EP: 35,
+  MIN_RR: 0.5,
+  HEAVY_LIMIT: 200,
   CAPS: { t1: 8, t2: 20, t3: 35, sl: 8 },
   EARLY_FLOOR: 3,
   REBOUND: { RSI: 45, PRICE: 3, DVOL: 10e6, RET: 8 },
@@ -174,20 +165,22 @@ async function fetchAggs(symbol, timeoutMs, days = 130) {
   const from = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
   const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=${days}&apiKey=${POLYGON_KEY}`;
   const data = await fetchJson(url, timeoutMs);
-  const bars = data && data.results ? data.results : null;
+  // ✅ إصلاح: التأكد من أن النتيجة مصفوفة
+  const bars = data && data.results && Array.isArray(data.results) ? data.results : null;
   if (bars) setCache(key, bars);
   return bars;
 }
 
-// ── حارس البيانات ──
+// ── حارس البيانات (معدل) ────────────────────────────────────────
 function cleanBars(bars) {
-  if (!bars) return null;
+  // ✅ إصلاح: التأكد من أن المدخلات مصفوفة
+  if (!bars || !Array.isArray(bars)) return null;
   const out = bars.filter(b => b && b.c > 0 && b.h > 0 && b.l > 0 && b.h >= b.l && b.v >= 0);
   return out.length ? out : null;
 }
 
 function splitSuspect(bars) {
-  if (!bars || bars.length < 10) return false;
+  if (!bars || !Array.isArray(bars) || bars.length < 10) return false;
   const scan = bars.slice(-63, -3);
   for (let i = 1; i < scan.length; i++) {
     const prev = scan[i - 1].c,
@@ -199,14 +192,14 @@ function splitSuspect(bars) {
 
 // ── Indicators ────────────────────────────────────────────────────
 function sma(arr, p) {
-  if (!arr || arr.length < p) return null;
+  if (!arr || !Array.isArray(arr) || arr.length < p) return null;
   let s = 0;
   for (let i = arr.length - p; i < arr.length; i++) s += arr[i];
   return s / p;
 }
 
 function rsi14(closes) {
-  if (!closes || closes.length < 15) return null;
+  if (!closes || !Array.isArray(closes) || closes.length < 15) return null;
   let g = 0,
     l = 0;
   for (let i = closes.length - 14; i < closes.length; i++) {
@@ -220,7 +213,7 @@ function rsi14(closes) {
 }
 
 function atr14(bars) {
-  if (!bars || bars.length < 15) return null;
+  if (!bars || !Array.isArray(bars) || bars.length < 15) return null;
   let s = 0;
   for (let i = bars.length - 14; i < bars.length; i++) {
     const tr = Math.max(
@@ -234,7 +227,7 @@ function atr14(bars) {
 }
 
 function ret3m(bars) {
-  if (!bars || bars.length < 40) return null;
+  if (!bars || !Array.isArray(bars) || bars.length < 40) return null;
   const oldC = bars[0].c,
     nowC = bars[bars.length - 1].c;
   if (!oldC || oldC <= 0) return null;
@@ -244,7 +237,7 @@ function ret3m(bars) {
 }
 
 function ret20(bars) {
-  if (!bars || bars.length < 21) return null;
+  if (!bars || !Array.isArray(bars) || bars.length < 21) return null;
   const oldC = bars[bars.length - 21].c,
     nowC = bars[bars.length - 1].c;
   if (!oldC || oldC <= 0) return null;
@@ -252,7 +245,7 @@ function ret20(bars) {
 }
 
 function vcpCheck(bars) {
-  if (!bars || bars.length < 30) return { vcp: false, contraction: null };
+  if (!bars || !Array.isArray(bars) || bars.length < 30) return { vcp: false, contraction: null };
   const seg = (a) => {
     let hi = -Infinity,
       lo = Infinity;
@@ -267,7 +260,7 @@ function vcpCheck(bars) {
 }
 
 function upStreak3(bars) {
-  if (!bars || bars.length < 5) return false;
+  if (!bars || !Array.isArray(bars) || bars.length < 5) return false;
   const b = bars.slice(-4, -1);
   if (b.length < 3) return false;
   return b.every((bar, i) => i === 0 ?
@@ -275,239 +268,96 @@ function upStreak3(bars) {
     bar.c > b[i - 1].c);
 }
 
-// ─── 🧠 v19: OBV (On-Balance Volume) ──────────────────────────────
-function calculateOBV(bars) {
-  if (!bars || bars.length < 20) return { obv: 0, trend: 'neutral', score: 0 };
-  let obv = 0;
+// ─── Early Accumulation ──────────────────────────────────────────
+function calculateEarlyAccumulation(bars, price) {
+  if (!bars || !Array.isArray(bars) || bars.length < 30) return { score: 0, reasons: [] };
+
+  const highs = bars.map(b => b.h);
+  const lows = bars.map(b => b.l);
   const closes = bars.map(b => b.c);
   const vols = bars.map(b => b.v);
-  for (let i = 1; i < closes.length; i++) {
-    if (closes[i] > closes[i - 1]) obv += vols[i];
-    else if (closes[i] < closes[i - 1]) obv -= vols[i];
-  }
-  const avgOBV = obv / bars.length;
-  const trend = obv > 0 ? 'صاعد' : obv < 0 ? 'هابط' : 'neutral';
-  const score = Math.min(Math.max((obv / (avgOBV || 1)) * 10, 0), 100);
-  return { obv, trend, score };
-}
 
-// ─── 🧠 v19: CMF (Chaikin Money Flow) ─────────────────────────────
-function calculateCMF(bars, period = 20) {
-  if (!bars || bars.length < period) return { cmf: 0, score: 0 };
-  let mfSum = 0,
-    volSum = 0;
-  const start = bars.length - period;
-  for (let i = start; i < bars.length; i++) {
-    const b = bars[i];
-    const mfMultiplier = ((b.c - b.l) - (b.h - b.c)) / (b.h - b.l);
-    mfSum += mfMultiplier * b.v;
-    volSum += b.v;
-  }
-  const cmf = volSum > 0 ? mfSum / volSum : 0;
-  const score = Math.min(Math.max((cmf + 0.5) * 100, 0), 100);
-  return { cmf, score };
-}
-
-// ─── 🧠 v19: Accumulation Distribution Line ──────────────────────
-function calculateADLine(bars) {
-  if (!bars || bars.length < 20) return { ad: 0, score: 0 };
-  let ad = 0;
-  for (let i = 0; i < bars.length; i++) {
-    const b = bars[i];
-    const mfm = ((b.c - b.l) - (b.h - b.c)) / (b.h - b.l);
-    const mfv = mfm * b.v;
-    ad += mfv;
-  }
-  const avgAD = ad / bars.length;
-  const score = Math.min(Math.max((ad / (avgAD || 1)) * 10, 0), 100);
-  return { ad, score };
-}
-
-// ─── 🧠 v19: Float and Institutional Ownership ──────────────────
-function calculateFloatMetrics(symbolData) {
-  const float = symbolData.float || 0;
-  const institutionalOwnership = symbolData.institutionalOwnership || 0;
-  const shortInterest = symbolData.shortInterest || 0;
-  let score = 50;
+  let score = 0;
   const reasons = [];
-  if (float > 0 && float < 20_000_000) {
-    score += 15;
-    reasons.push('✅ Float صغير (أقل من 20M)');
-  } else if (float > 0 && float < 50_000_000) {
-    score += 8;
-    reasons.push('📊 Float متوسط (20-50M)');
-  }
-  if (institutionalOwnership > 0.5) {
-    score += 10;
-    reasons.push('✅ مؤسسات تملك أكثر من 50%');
-  }
-  if (shortInterest > 0.15) {
-    score += 8;
-    reasons.push('✅ نسبة Short Interest مرتفعة');
-  }
+
+  const atr = atr14(bars);
+  const atrPct = (atr / price) * 100;
+  if (atrPct < 2) { score += 15;
+    reasons.push('ATR منخفض'); } else if (atrPct < 3) { score += 8;
+    reasons.push('ATR متوسط'); }
+
+  const last5Lows = lows.slice(-5);
+  const higherLows = last5Lows.every((l, i) => i === 0 || l > last5Lows[i - 1]);
+  if (higherLows) { score += 10;
+    reasons.push('Higher Lows'); }
+
+  const avgVol = sma(vols.slice(0, -1), 20);
+  const lastVol = vols[vols.length - 1];
+  if (avgVol && lastVol < avgVol * 0.7) { score += 10;
+    reasons.push('Volume Dry Up'); }
+
+  const range10 = ((Math.max(...highs.slice(-10)) - Math.min(...lows.slice(-10))) / price) * 100;
+  if (range10 < 3) { score += 10;
+    reasons.push('Tight Range'); }
+
+  const ma21 = sma(closes, 21);
+  const ma50 = sma(closes, 50);
+  if (ma21 && price > ma21) { score += 8;
+    reasons.push('فوق MA21'); }
+  if (ma50 && price > ma50) { score += 5;
+    reasons.push('فوق MA50'); }
+
+  const last5Highs = highs.slice(-5);
+  const higherHighs = last5Highs.every((h, i) => i === 0 || h > last5Highs[i - 1]);
+  if (higherHighs) { score += 8;
+    reasons.push('Higher Highs'); }
+
   return { score: Math.min(score, 100), reasons };
 }
 
-// ─── 🧠 v19: بناء Feature Vector ────────────────────────────────
-function buildFeatureVector(symbol, price, bars, ind, marketData, sectorData, news) {
-  const obv = calculateOBV(bars);
-  const cmf = calculateCMF(bars);
-  const ad = calculateADLine(bars);
-  const floatMetrics = calculateFloatMetrics(symbol);
+// ─── Breakout Probability ─────────────────────────────────────────
+function calculateBreakoutProbability(price, bars, structure) {
+  if (!structure || !bars || !Array.isArray(bars) || bars.length < 30) return { probability: 50, reasons: [] };
 
-  const features = {
-    // Price & Volume
-    price,
-    volume: ind.volume || 0,
-    dollarVol: ind.dollarVol || 0,
-    changePct: ind.changePct || 0,
-    // Technical
-    rsi: ind.rsi || 50,
-    atr: ind.atr || 0,
-    rvol: ind.rvol || 1,
-    ma21: ind.ma21 || 0,
-    ma50: ind.ma50 || 0,
-    maDistance: ind.ma21 && price ? ((price - ind.ma21) / ind.ma21) * 100 : 0,
-    vwapDistance: ind.vwapDistance || 0,
-    // Patterns
-    vcp: ind.vcp ? 1 : 0,
-    higherLows: ind.higherLows ? 1 : 0,
-    higherHighs: ind.higherHighs ? 1 : 0,
-    tightRange: ind.tightRange ? 1 : 0,
-    // Market & Sector
-    marketRegime: marketData?.regime === 'strong' ? 1 : 0,
-    sectorStrength: sectorData?.strength || 0.5,
-    // OBV, CMF, AD
-    obv: obv.score,
-    cmf: cmf.score,
-    ad: ad.score,
-    // Float & Institutional
-    floatScore: floatMetrics.score,
-    // News
-    newsCount: news?.length || 0,
-    recentNews: news?.filter(n => n.ageHours < 2).length || 0,
-    // DNA & Pattern
-    patternScore: ind.patternScore || 0,
-    catalystScore: ind.catalystScore || 0,
-    // Risk
-    riskScore: ind.riskScore || 50,
-    // Structure
-    rr: ind.rr || 0,
-    resistanceDistance: ind.resistanceDistance || 100,
-  };
+  let prob = 50;
+  const reasons = [];
 
-  return features;
+  const resistanceDist = structure.resistanceDistance || 100;
+  if (resistanceDist <= 2) { prob += 15;
+    reasons.push('مقاومة قريبة جداً'); } else if (resistanceDist <= 5) { prob += 10;
+    reasons.push('مقاومة قريبة'); }
+
+  const atr = atr14(bars);
+  const atrPct = (atr / price) * 100;
+  if (atrPct < 2) { prob += 10;
+    reasons.push('ATR منخفض'); }
+
+  const lows = bars.map(b => b.l);
+  const last5Lows = lows.slice(-5);
+  const higherLows = last5Lows.every((l, i) => i === 0 || l > last5Lows[i - 1]);
+  if (higherLows) { prob += 10;
+    reasons.push('Higher Lows'); }
+
+  const vols = bars.map(b => b.v);
+  const avgVol = sma(vols.slice(0, -1), 20);
+  const lastVol = vols[vols.length - 1];
+  if (avgVol && lastVol > avgVol * 1.5) { prob += 10;
+    reasons.push('حجم مرتفع'); }
+
+  const vcp = vcpCheck(bars);
+  if (vcp.vcp) { prob += 10;
+    reasons.push('VCP مكتمل'); }
+
+  if (structure.rr >= 2.5) { prob += 10;
+    reasons.push('RR ممتاز'); } else if (structure.rr >= 1.5) { prob += 5;
+    reasons.push('RR جيد'); }
+
+  return { probability: Math.min(prob, 100), reasons };
 }
 
-// ─── 🧠 v19: Prediction Model (بدلاً من القواعد اليدوية) ──────
-function predictWithModel(features, learnedWeights) {
-  // استخدام الأوزان المتعلمة أو الأوزان الافتراضية
-  const weights = learnedWeights || {
-    rsi: 0.08,
-    rvol: 0.10,
-    atr: 0.05,
-    maDistance: 0.08,
-    vwapDistance: 0.06,
-    vcp: 0.08,
-    higherLows: 0.06,
-    higherHighs: 0.04,
-    tightRange: 0.04,
-    marketRegime: 0.07,
-    sectorStrength: 0.06,
-    obv: 0.07,
-    cmf: 0.07,
-    ad: 0.05,
-    floatScore: 0.06,
-    newsCount: 0.04,
-    patternScore: 0.08,
-    catalystScore: 0.06,
-    riskScore: -0.08,
-    rr: 0.10,
-    resistanceDistance: -0.05,
-  };
-
-  let score = 0;
-  const breakdown = [];
-  for (const [key, weight] of Object.entries(weights)) {
-    if (features[key] !== undefined) {
-      const value = typeof features[key] === 'number' ? features[key] : 0;
-      // تطبيع القيم لتكون بين 0-1
-      let normalized = value / 100;
-      if (key === 'rr') normalized = Math.min(value / 5, 1);
-      if (key === 'resistanceDistance') normalized = Math.max(0, 1 - value / 20);
-      if (key === 'maDistance') normalized = Math.max(0, Math.min((value + 20) / 40, 1));
-      if (key === 'vwapDistance') normalized = Math.max(0, Math.min((value + 10) / 20, 1));
-      const contribution = normalized * weight * 100;
-      score += contribution;
-      breakdown.push({
-        factor: key,
-        raw: value,
-        normalized: Math.round(normalized * 100),
-        weight: Math.round(weight * 100),
-        contribution: Math.round(contribution),
-      });
-    }
-  }
-
-  const finalScore = Math.min(Math.max(score, 0), 100);
-  let grade;
-  if (finalScore >= 85) grade = 'ELITE';
-  else if (finalScore >= 75) grade = 'PRIME';
-  else if (finalScore >= 65) grade = 'STRONG';
-  else if (finalScore >= 55) grade = 'GOOD';
-  else if (finalScore >= 45) grade = 'WATCH';
-  else grade = 'AVOID';
-
-  return { score: Math.round(finalScore), grade, breakdown };
-}
-
-// ─── 🧠 v19: Probability based on Historical Data ──────────────
-function calculateHistoricalProbability(grade, features, historicalData) {
-  // التحقق من البيانات التاريخية
-  if (!historicalData || historicalData.length < 50) {
-    // استخدام قواعد افتراضية
-    const gradeProbs = { ELITE: 82, PRIME: 72, STRONG: 62, GOOD: 52, WATCH: 42, AVOID: 25 };
-    const baseProb = gradeProbs[grade] || 50;
-    // تعديل حسب العوامل
-    let adjustment = 0;
-    if (features.rvol > 2.5) adjustment += 5;
-    if (features.marketRegime === 1) adjustment += 5;
-    if (features.vcp === 1) adjustment += 3;
-    if (features.newsCount > 0) adjustment += 3;
-    if (features.rr > 2) adjustment += 4;
-    const prob = Math.min(Math.max(baseProb + adjustment, 0), 100);
-    return {
-      t1: Math.round(prob),
-      t2: Math.round(prob * 0.75),
-      t3: Math.round(prob * 0.5),
-      confidence: Math.round(prob * 0.85 + 10),
-    };
-  }
-
-  // استخدام البيانات التاريخية
-  const similar = historicalData.filter(h =>
-    Math.abs(h.predictionScore - features.predictionScore) < 5 &&
-    h.grade === grade
-  );
-  if (similar.length > 20) {
-    const reachedT1 = similar.filter(h => h.reachedT1).length / similar.length;
-    const reachedT2 = similar.filter(h => h.reachedT2).length / similar.length;
-    const reachedT3 = similar.filter(h => h.reachedT3).length / similar.length;
-    return {
-      t1: Math.round(reachedT1 * 100),
-      t2: Math.round(reachedT2 * 100),
-      t3: Math.round(reachedT3 * 100),
-      confidence: Math.round((reachedT1 * 0.8 + 0.2) * 100),
-    };
-  }
-
-  // بيانات غير كافية
-  return { t1: 50, t2: 38, t3: 25, confidence: 45 };
-}
-
-// ─── AI-Az structure ──────────────────────────────────────────────
+// ─── Structure ────────────────────────────────────────────────────
 function buildStructure(price, bars, ind, CFG) {
-  if (!bars || bars.length < 30 || !price) return null;
+  if (!bars || !Array.isArray(bars) || bars.length < 30 || !price) return null;
   const cap = (v, maxPct) => Math.min(v, price * (1 + maxPct / 100));
   const capDn = (v, maxPct) => Math.max(v, price * (1 - maxPct / 100));
 
@@ -620,8 +470,8 @@ async function saveSignals(rows, left, debug, CFG) {
     target2: s.levels.t2,
     target3: s.levels.t3,
     stop_loss: s.levels.sl,
-    score: s.predictionScore,
-    ep: s.predictionScore,
+    score: s.predictionScore || s.score || 0,
+    ep: s.predictionScore || s.score || 0,
     volume: s.volume,
     change_pct: s.change_pct,
     type: s.type || 'مضاربة',
@@ -644,8 +494,8 @@ async function saveSignals(rows, left, debug, CFG) {
       predictionScore: s.predictionScore,
       predictionGrade: s.predictionGrade,
       timing: s.timing,
-      featureVector: s.featureVector,
-      probabilities: s.probabilities,
+      earlyAccumulation: s.earlyAccumulation,
+      breakoutProbability: s.breakoutProbability,
     },
     is_smart_bounce: false,
     smart_bounce_confidence: 0,
@@ -692,40 +542,6 @@ function getMarketSession() {
   if (minutes >= 960 && minutes < 1020) return { session: 'afterhours', label: '🔵 After-Hours' };
   return { session: 'closed', label: '🔴 السوق مغلق' };
 }
-
-// ─── استيراد المكونات الأساسية ────────────────────────────────────
-import { DataProvider } from '../../lib/radar/core/DataProvider.js';
-import { FeatureStore } from '../../lib/radar/core/FeatureStore.js';
-import { BrainManager } from '../../lib/radar/core/BrainManager.js';
-import { DecisionContext } from '../../lib/radar/core/DecisionContext.js';
-import { DecisionAudit } from '../../lib/radar/core/DecisionAudit.js';
-import { ExplainEngine } from '../../lib/radar/core/ExplainEngine.js';
-import { OpportunityRanking } from '../../lib/radar/core/OpportunityRanking.js';
-import { EventBus } from '../../lib/radar/core/EventBus.js';
-import { HealthMonitor } from '../../lib/radar/core/HealthMonitor.js';
-import { getStrategyProfile } from '../../lib/radar/core/StrategyProfiles.js';
-import { LearningEngine } from '../../lib/radar/core/LearningEngine.js';
-import { ProbabilityEngine } from '../../lib/radar/core/ProbabilityEngine.js';
-import { AdaptiveModels } from '../../lib/radar/core/AdaptiveModels.js';
-import { FeedbackEngine } from '../../lib/radar/core/FeedbackEngine.js';
-import { CONFIG } from '../../lib/radar/core/config.js';
-
-// ─── استيراد جميع الـ Brains ──────────────────────────────────────
-import { QualityControlBrain } from '../../lib/radar/brains/QualityControlBrain.js';
-import { MarketIntelligenceBrain } from '../../lib/radar/brains/MarketIntelligenceBrain.js';
-import { SectorIntelligenceBrain } from '../../lib/radar/brains/SectorIntelligenceBrain.js';
-import { LiquidityBrain } from '../../lib/radar/brains/LiquidityBrain.js';
-import { MomentumBrain } from '../../lib/radar/brains/MomentumBrain.js';
-import { TrendBrain } from '../../lib/radar/brains/TrendBrain.js';
-import { StructureBrain } from '../../lib/radar/brains/StructureBrain.js';
-import { PatternBrain } from '../../lib/radar/brains/PatternBrain.js';
-import { CatalystBrain } from '../../lib/radar/brains/CatalystBrain.js';
-import { DNABrain } from '../../lib/radar/brains/DNABrain.js';
-import { RelativeStrengthBrain } from '../../lib/radar/brains/RelativeStrengthBrain.js';
-import { RiskBrain } from '../../lib/radar/brains/RiskBrain.js';
-import { PortfolioBrain } from '../../lib/radar/brains/PortfolioBrain.js';
-import { ContradictionBrain } from '../../lib/radar/brains/ContradictionBrain.js';
-import { ConsensusBrain } from '../../lib/radar/brains/ConsensusBrain.js';
 
 // ═══════════════════════════════════════════════════════════════════
 export default async function handler(req, res) {
@@ -816,9 +632,6 @@ export default async function handler(req, res) {
         high: d.h || 0,
         low: d.l || 0,
         marketCap: d.marketCap || 0,
-        float: d.float || 0,
-        institutionalOwnership: d.institutionalOwnership || 0,
-        shortInterest: d.shortInterest || 0,
       };
 
       movers.gainers.push(row);
@@ -855,75 +668,54 @@ export default async function handler(req, res) {
       debug.spy_rs_ready = spyRet20 != null;
     }
 
-    // ── 🧠 v17: تحميل الأوزان المتعلمة ──
-    const learningEngine = new LearningEngine();
-    const learnedWeights = await learningEngine.loadWeights();
-    debug.weights_used = learnedWeights || {};
-
-    // ── 🧠 v17: Adaptive Models ──
-    const adaptiveModels = new AdaptiveModels();
-
-    // ── 🧠 v18: Feedback Engine ──
-    const feedbackEngine = new FeedbackEngine();
-
-    // ── 🧠 v19: تحميل البيانات التاريخية ──
-    let historicalData = [];
+    // ── تحميل الأوزان المتعلمة ──
+    let learnedWeights = {};
     try {
-      const histRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/trade_history?limit=500&order=timestamp.desc`,
-        {
-          headers: {
-            apikey: SUPABASE_KEY,
-            Authorization: `Bearer ${SUPABASE_KEY}`,
-          },
-        }
+      const resW = await fetch(
+        `${SUPABASE_URL}/rest/v1/radar_weights?id=eq.1&select=weights`,
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
       );
-      historicalData = await histRes.json();
+      const dataW = await resW.json();
+      if (dataW && dataW[0] && dataW[0].weights) {
+        learnedWeights = dataW[0].weights;
+        debug.weights_used = learnedWeights;
+      }
     } catch {}
 
-    // ── Stage 3: تحليل جميع الأسهم (Parallel Execution) ──
-    const brainManager = new BrainManager();
-    brainManager
-      .register(new QualityControlBrain())
-      .register(new MarketIntelligenceBrain())
-      .register(new SectorIntelligenceBrain())
-      .register(new LiquidityBrain())
-      .register(new MomentumBrain())
-      .register(new TrendBrain())
-      .register(new StructureBrain())
-      .register(new PatternBrain())
-      .register(new CatalystBrain())
-      .register(new DNABrain())
-      .register(new RelativeStrengthBrain())
-      .register(new RiskBrain())
-      .register(new PortfolioBrain())
-      .register(new ContradictionBrain())
-      .register(new ConsensusBrain());
-
-    // ── Parallel Processing: تحليل جميع الأسهم ──
+    // ── Stage 3: تحليل الأسهم ──
     const analyzed = [];
     for (let i = 0; i < cand.length; i += CFG.BATCH) {
       if (left() < 1800) { debug.dropped_timeout += cand.length - i; break; }
       const batch = cand.slice(i, i + CFG.BATCH);
 
-      // 🔥 Parallel Execution: جلب البيانات بالتوازي
+      // جلب البيانات بالتوازي
       const batchData = await Promise.all(batch.map(async (c) => {
-        const bars = await fetchAggs(c.symbol, CFG.AGGS_TIMEOUT);
-        if (FF.data_guard && bars) return { ...c, bars: cleanBars(bars) };
+        let bars = await fetchAggs(c.symbol, CFG.AGGS_TIMEOUT);
+        // ✅ إصلاح: التحقق من أن bars مصفوفة
+        if (!bars || !Array.isArray(bars) || bars.length < 30) {
+          debug.dropped_no_tech++;
+          return null;
+        }
+        if (FF.data_guard) {
+          bars = cleanBars(bars);
+          if (!bars || !Array.isArray(bars) || bars.length < 30) {
+            debug.dropped_no_tech++;
+            return null;
+          }
+        }
         return { ...c, bars };
       }));
 
-      // تصفية الأسهم التي ليس لديها بيانات كافية
-      const validBatch = batchData.filter(c => c.bars && c.bars.length >= 30);
+      const validBatch = batchData.filter(c => c !== null);
       debug.dropped_no_tech += batch.length - validBatch.length;
 
-      // 🔥 Parallel Execution: تحليل كل سهم بالتوازي
+      // تحليل كل سهم بالتوازي
       const analysisResults = await Promise.all(validBatch.map(async (c) => {
         const bars = c.bars;
         const closes = bars.map(b => b.c);
         const vols = bars.map(b => b.v);
 
-        // حساب المؤشرات الأساسية
+        // المؤشرات الأساسية
         const ind = {
           ma21: sma(closes, 21),
           ma50: sma(closes, 50),
@@ -943,82 +735,101 @@ export default async function handler(req, res) {
           dollarVol: c.dollar_vol || 0,
         };
 
-        // المؤشرات المتقدمة (v19)
-        const obv = calculateOBV(bars);
-        const cmf = calculateCMF(bars);
-        const ad = calculateADLine(bars);
-        const floatMetrics = calculateFloatMetrics(c);
+        // Early Accumulation
+        const earlyAcc = calculateEarlyAccumulation(bars, c.price);
 
-        // الهيكل
+        // Structure
         const st = buildStructure(c.price, bars, ind, CFG);
         const levels = buildLevels(c.price, st);
 
-        // بناء Feature Vector
-        const featureVector = buildFeatureVector(c, c.price, bars, {
-          ...ind,
-          obv: obv.score,
-          cmf: cmf.score,
-          ad: ad.score,
-          floatScore: floatMetrics.score,
-          patternScore: 0,
-          catalystScore: 0,
-          riskScore: 50,
-          rr: st?.rr || 0,
-          resistanceDistance: st?.resistanceDistance || 100,
-          higherLows: 0,
-          higherHighs: 0,
-          tightRange: 0,
-        }, {}, {}, []);
+        // Breakout Probability
+        const breakoutProb = calculateBreakoutProbability(c.price, bars, st);
 
-        // ✅ v19: Prediction Model (بدون EP يدوي)
-        const prediction = predictWithModel(featureVector, learnedWeights);
+        // Prediction Score (مبسط)
+        let predictionScore = 50;
+        let predictionGrade = 'WATCH';
+        const breakdown = [];
+
+        if (earlyAcc.score > 0) {
+          predictionScore += earlyAcc.score * 0.30;
+          breakdown.push({ factor: 'Early Accumulation', score: earlyAcc.score });
+        }
+        if (breakoutProb.probability > 0) {
+          predictionScore += breakoutProb.probability * 0.25;
+          breakdown.push({ factor: 'Breakout Probability', score: breakoutProb.probability });
+        }
+        if (st && st.rr) {
+          const rrScore = Math.min(st.rr * 20, 100);
+          predictionScore += rrScore * 0.20;
+          breakdown.push({ factor: 'Structure', score: rrScore });
+        }
+        if (ind.rvol) {
+          const rvolScore = Math.min(ind.rvol * 20, 100);
+          predictionScore += rvolScore * 0.15;
+          breakdown.push({ factor: 'Liquidity', score: rvolScore });
+        }
+        if (debug.market_regime === 'قوي') {
+          predictionScore += 10;
+          breakdown.push({ factor: 'Market Regime', score: 10 });
+        }
+
+        predictionScore = Math.min(Math.max(predictionScore, 0), 100);
+        if (predictionScore >= 85) predictionGrade = 'ELITE';
+        else if (predictionScore >= 75) predictionGrade = 'PRIME';
+        else if (predictionScore >= 65) predictionGrade = 'STRONG';
+        else if (predictionScore >= 55) predictionGrade = 'GOOD';
+        else if (predictionScore >= 45) predictionGrade = 'WATCH';
+        else predictionGrade = 'AVOID';
 
         // Timing
-        const timing = detectTiming(st, { score: 0 }, { probability: 0 });
+        const timing = { timing: 'UNKNOWN', label: 'غير معروف' };
+        if (st && st.resistanceDistance !== undefined) {
+          if (st.resistanceDistance <= 3 && st.resistanceDistance > 0 && st.rr >= 2) {
+            timing.timing = 'PRE_BREAKOUT';
+            timing.label = 'قبل الاختراق - مثالي';
+          } else if (st.resistanceDistance <= 0 && st.rr >= 1.5) {
+            timing.timing = 'BREAKOUT';
+            timing.label = 'اختراق - جيد';
+          } else if (earlyAcc.score >= 60 && breakoutProb.probability >= 50) {
+            timing.timing = 'EARLY_MOMENTUM';
+            timing.label = 'بداية زخم - جيد';
+          } else if (earlyAcc.score >= 40 && breakoutProb.probability >= 40) {
+            timing.timing = 'WAIT';
+            timing.label = 'مراقبة - ينتظر تأكيد';
+          } else {
+            timing.timing = 'LATE';
+            timing.label = 'متأخر - تجنب';
+          }
+        }
 
-        // ✅ v19: Probability based on Historical Data
-        const probabilities = calculateHistoricalProbability(prediction.grade, featureVector, historicalData);
+        const isHot = predictionGrade === 'ELITE' || predictionGrade === 'PRIME';
+        const isTarget = predictionGrade === 'ELITE';
 
-        // Consensus Score
-        const consensusScore = prediction.score;
-
-        // بناء النتيجة النهائية
         const stOut = st ? {
           ...st,
-          predictionScore: prediction.score,
-          predictionGrade: prediction.grade,
-          predictionBreakdown: prediction.breakdown,
+          predictionScore,
+          predictionGrade,
           timing,
-          featureVector,
-          probabilities,
-          obv: obv.obv,
-          cmf: cmf.cmf,
-          ad: ad.ad,
-          floatScore: floatMetrics.score,
+          earlyAccumulation: earlyAcc,
+          breakoutProbability: breakoutProb,
+          predictionBreakdown: breakdown,
         } : st;
 
-        const isHot = prediction.grade === 'ELITE' || prediction.grade === 'PRIME';
-        const isTarget = prediction.grade === 'ELITE';
-
-        // v19: Return with all data
         return {
           ...c,
           bars,
           ind,
           st,
           levels,
-          obv,
-          cmf,
-          ad,
-          floatMetrics,
-          featureVector,
-          prediction,
+          earlyAcc,
+          breakoutProb,
+          predictionScore,
+          predictionGrade,
           timing,
-          probabilities,
-          consensusScore,
-          stOut,
           isHot,
           isTarget,
+          stOut,
+          breakdown,
         };
       }));
 
@@ -1040,10 +851,10 @@ export default async function handler(req, res) {
         (ind.ret3m ?? 0) >= CFG.REBOUND.RET;
 
       const type = isRebound ? 'ارتداد' :
-        (a.dollar_vol >= 50e6 && a.prediction.score >= 60 ? 'استثمار' : 'مضاربة');
+        (a.dollar_vol >= 50e6 && a.predictionScore >= 60 ? 'استثمار' : 'مضاربة');
 
-      const signalLabel = a.prediction.grade === 'ELITE' ? '💥 انفجاري' :
-        a.prediction.grade === 'PRIME' ? '🔥 عالي' : '📊 متوسط';
+      const signalLabel = a.predictionGrade === 'ELITE' ? '💥 انفجاري' :
+        a.predictionGrade === 'PRIME' ? '🔥 عالي' : '📊 متوسط';
 
       signals.push({
         symbol: a.symbol,
@@ -1051,17 +862,13 @@ export default async function handler(req, res) {
         change_pct: a.change_pct,
         volume: a.volume,
         dollar_vol: a.dollar_vol,
-        score: a.prediction.score,
-        predictionScore: a.prediction.score,
-        predictionGrade: a.prediction.grade,
-        predictionBreakdown: a.prediction.breakdown,
+        score: a.predictionScore,
+        predictionScore: a.predictionScore,
+        predictionGrade: a.predictionGrade,
+        predictionBreakdown: a.breakdown,
         timing: a.timing,
-        probabilities: a.probabilities,
-        featureVector: a.featureVector,
-        obv: a.obv,
-        cmf: a.cmf,
-        ad: a.ad,
-        floatScore: a.floatMetrics.score,
+        earlyAccumulation: a.earlyAcc,
+        breakoutProbability: a.breakoutProb,
         rvol: ind.rvol,
         rsi: ind.rsi,
         atr14: ind.atr != null ? r2(ind.atr) : null,
@@ -1095,7 +902,6 @@ export default async function handler(req, res) {
             title: a.title || '',
             published: a.published_utc || '',
             ageHours: a.published_utc ? Math.round((Date.now() - new Date(a.published_utc)) / 3600000) : null,
-            sentiment: a.title?.includes('up') || a.title?.includes('rise') ? 'إيجابي' : 'محايد',
           }));
           debug.news_fetched += articles.length;
         }
@@ -1117,7 +923,7 @@ export default async function handler(req, res) {
       sessionLabel: sessionInfo.label,
       hot: signals.filter(s => s.is_hot).length,
       target: signals.filter(s => s.is_target).length,
-      early: signals.filter(s => s.featureVector?.patternScore >= 60).length,
+      early: signals.filter(s => s.earlyAccumulation?.score >= 60).length,
       golden: signals.filter(s => s.is_golden).length,
       saved: saveResult.saved,
       saveResult,
@@ -1131,6 +937,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ ...base, results: signals, movers });
 
   } catch (err) {
+    console.error('❌ Scan Error:', err.message, err.stack);
     return res.status(200).json({
       success: false,
       error: err.message,
@@ -1139,32 +946,4 @@ export default async function handler(req, res) {
       debug,
     });
   }
-}
-
-// ─── 🧠 v15: Timing Detection ──────────────────────────────────
-function detectTiming(structure, earlyAcc, breakoutProb) {
-  if (!structure) return { timing: 'UNKNOWN', label: 'غير معروف' };
-
-  const rr = structure.rr || 0;
-  const resDist = structure.resistanceDistance || 100;
-  const accScore = earlyAcc?.score || 0;
-  const bProb = breakoutProb?.probability || 0;
-
-  if (resDist <= 3 && resDist > 0 && rr >= 2 && bProb >= 70) {
-    return { timing: 'PRE_BREAKOUT', label: 'قبل الاختراق - مثالي' };
-  }
-
-  if (resDist <= 0 && rr >= 1.5 && bProb >= 60) {
-    return { timing: 'BREAKOUT', label: 'اختراق - جيد' };
-  }
-
-  if (accScore >= 60 && bProb >= 50) {
-    return { timing: 'EARLY_MOMENTUM', label: 'بداية زخم - جيد' };
-  }
-
-  if (accScore >= 40 && bProb >= 40) {
-    return { timing: 'WAIT', label: 'مراقبة - ينتظر تأكيد' };
-  }
-
-  return { timing: 'LATE', label: 'متأخر - تجنب' };
 }
