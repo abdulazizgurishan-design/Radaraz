@@ -1,4 +1,4 @@
-// pages/api/scan.js — v19.5 (مع عرض تفاصيل خطأ الحفظ)
+// pages/api/scan.js — v19.6 (مع تحويل القيم العشرية إلى أعداد صحيحة للحفظ)
 export const config = { maxDuration: 15 };
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY || process.env.POLYGON_KEY;
@@ -338,7 +338,7 @@ function calculateBreakoutProbability(price, bars, structure) {
 function buildStructure(price, bars, ind, CFG) {
   if (!bars || !Array.isArray(bars) || bars.length < 30 || !price) return null;
   const cap = (v, maxPct) => Math.min(v, price * (1 + maxPct / 100));
-  const capDn = (v, maxPct) => Math.max(v, price * (1 - maxPct / 100));
+  const capDn = (v, maxPct) => Math.max(v, price(Math * (1 - maxPct / 100));
   let hi20 = -Infinity,
     lo20 = Infinity;
   for (const b of bars.slice(-20)) { if (b.h > hi20) hi20 = b.h; if (b.l < lo20) lo20 = b.l; }
@@ -347,7 +347,7 @@ function buildStructure(price, bars, ind, CFG) {
   const support = capDn(lo20, 12);
   const stop = capDn(Math.min(support * 0.995, price * (1 - CFG.CAPS.sl / 100)), CFG.CAPS.sl);
   const entry = r2(Math.min(price, (support + price) / 2));
-  const confirm = r2(Math.min(price * 1.01, hi20 * 1.001));
+  const confirm = r2.min(price * 1.01, hi20 * 1.001));
   const resistance = r2(Math.max(hi20, price * 1.02));
   const t1 = r2(cap(price * (1 + Math.min(CFG.CAPS.t1, Math.max(3, atrPct * 1.2)) / 100), CFG.CAPS.t1));
   const t2 = r2(cap(price * (1 + Math.min(CFG.CAPS.t2, Math.max(8, atrPct * 2.5)) / 100), CFG.CAPS.t2));
@@ -431,7 +431,7 @@ function goldenCheck(a, ind, minsET, regime, G) {
   return { golden: passed === 6, passed, checks };
 }
 
-// ─── ✅ دالة الحفظ مع عرض تفاصيل الخطأ ──────────────────────────
+// ─── ✅ دالة الحفظ مع تحويل القيم العشرية إلى أعداد صحيحة ──────
 async function saveSignals(rows, left, debug, CFG) {
   if (!rows.length) return { saved: 0, status: 0 };
   const timeout = Math.max(600, Math.min(1500, left() - 400));
@@ -445,23 +445,24 @@ async function saveSignals(rows, left, debug, CFG) {
     target2: s.levels.t2,
     target3: s.levels.t3,
     stop_loss: s.levels.sl,
-    score: s.predictionScore || s.score || 0,
-    ep: s.predictionScore || s.score || 0,
+    // ✅ تحويل القيم العشرية إلى أعداد صحيحة
+    score: Math.round(s.predictionScore || s.score || 0),
+    ep: Math.round(s.predictionScore || s.score || 0),
     volume: s.volume,
     change_pct: s.change_pct,
     type: s.type || 'مضاربة',
     status: "OPEN",
-    rvol: s.rvol,
-    rsi: s.rsi,
-    atr14: s.atr14,
+    rvol: s.rvol !== undefined && s.rvol !== null ? Math.round(s.rvol * 100) / 100 : null,
+    rsi: s.rsi !== undefined && s.rsi !== null ? Math.round(s.rsi) : null,
+    atr14: s.atr14 !== undefined && s.atr14 !== null ? Math.round(s.atr14 * 100) / 100 : null,
     ma_signal: s.ma_signal || null,
-    news_age_h: s.news_age_h || null,
-    news_age_hours: s.news_age_h || null,
+    news_age_h: s.news_age_h !== undefined && s.news_age_h !== null ? Math.round(s.news_age_h) : null,
+    news_age_hours: s.news_age_h !== undefined && s.news_age_h !== null ? Math.round(s.news_age_h) : null,
     is_hot: s.predictionGrade === 'ELITE' || s.predictionGrade === 'PRIME',
     early_watch: s.predictionGrade === 'ELITE' || false,
     is_target: s.predictionGrade === 'ELITE' || false,
     vcp: s.vcp || false,
-    vcp_contraction: s.vcp_contraction || null,
+    vcp_contraction: s.vcp_contraction !== undefined && s.vcp_contraction !== null ? Math.round(s.vcp_contraction) : null,
     fresh_zone: s.fresh_zone || false,
     premarket_watch: s.premarket_watch || false,
     structure: {
@@ -475,11 +476,11 @@ async function saveSignals(rows, left, debug, CFG) {
       resistance: s.structure?.resistance || 0,
       flag: s.structure?.flag || '',
       trend: s.structure?.trend || '',
-      predictionScore: s.predictionScore || 0,
+      predictionScore: Math.round(s.predictionScore || 0),
       predictionGrade: s.predictionGrade || 'WATCH',
       timing: s.timing?.timing || 'UNKNOWN',
-      earlyAccumulationScore: s.earlyAccumulation?.score || 0,
-      breakoutProbabilityScore: s.breakoutProbability?.probability || 0,
+      earlyAccumulationScore: Math.round(s.earlyAccumulation?.score || 0),
+      breakoutProbabilityScore: Math.round(s.breakoutProbability?.probability || 0),
     },
     is_smart_bounce: false,
     smart_bounce_confidence: 0,
