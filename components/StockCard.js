@@ -1,198 +1,195 @@
-// components/StockCard.js
-// ─────────────────────────────────────────────
-//  بطاقة السهم مع زر إضافة للمفضلة
-// ─────────────────────────────────────────────
+// components/SignalCard.js — النسخة العربية بالكامل
+import { useState } from 'react';
 
-import { useState, useEffect } from 'react';
+const gradeConfig = {
+  ELITE: { color: '#00d4aa', bg: 'rgba(0,212,170,0.15)', label: '🏆 نخبة' },
+  PRIME: { color: '#34d399', bg: 'rgba(52,211,153,0.15)', label: '⭐ ممتاز' },
+  STRONG: { color: '#60a5fa', bg: 'rgba(96,165,250,0.15)', label: '💪 قوي' },
+  GOOD: { color: '#fbbf24', bg: 'rgba(251,191,36,0.15)', label: '📊 جيد' },
+  WATCH: { color: '#94a3b8', bg: 'rgba(148,163,184,0.15)', label: '👀 مراقبة' },
+  AVOID: { color: '#ef4444', bg: 'rgba(239,68,68,0.15)', label: '❌ تجنب' },
+};
 
-export default function StockCard({ stock }) {
-  const [isFavorite, setIsFavorite] = useState(false);
-  const [loading, setLoading] = useState(false);
+const riskConfig = {
+  low: { color: '#22c55e', label: '🟢 منخفضة' },
+  medium: { color: '#fbbf24', label: '🟡 متوسطة' },
+  high: { color: '#ef4444', label: '🔴 مرتفعة' },
+};
 
-  // 🔍 التحقق من وجود السهم في المفضلة عند تحميل البطاقة
-  useEffect(() => {
-    checkIfFavorite();
-  }, [stock.symbol]);
+export default function SignalCard({ signal, onExpand }) {
+  const [expanded, setExpanded] = useState(false);
 
-  const checkIfFavorite = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
+  const {
+    symbol,
+    price,
+    change_pct,
+    decision = {},
+    features = {},
+    explanation = {},
+    brains = {},
+  } = signal;
 
-      const response = await fetch('/api/favorites/get', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+  const grade = decision.grade || 'WATCH';
+  const gradeInfo = gradeConfig[grade] || gradeConfig.WATCH;
+  const confidence = decision.confidence || 0;
+  const riskScore = decision.riskScore || 50;
+  const riskLevel = riskScore >= 70 ? 'low' : riskScore >= 50 ? 'medium' : 'high';
+  const riskInfo = riskConfig[riskLevel];
 
-      const data = await response.json();
-      if (data.success) {
-        const exists = data.data.some(f => f.symbol === stock.symbol);
-        setIsFavorite(exists);
-      }
-    } catch (error) {
-      console.error('❌ خطأ في التحقق من المفضلة:', error);
-    }
+  const toggleExpand = () => {
+    setExpanded(!expanded);
+    if (onExpand) onExpand(signal);
   };
 
-  // ➕ إضافة للمفضلة
-  const addToFavorites = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        alert('⚠️ يرجى تسجيل الدخول أولاً');
-        return;
-      }
-
-      const response = await fetch('/api/favorites/add', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          symbol: stock.symbol,
-          price: stock.price,
-          targets: {
-            t1: stock.levels?.t1,
-            t2: stock.levels?.t2,
-            t3: stock.levels?.t3,
-          },
-          stopLoss: stock.levels?.sl,
-        }),
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setIsFavorite(true);
-        alert(`✅ تم إضافة ${stock.symbol} للمفضلة`);
-      } else {
-        if (data.exists) {
-          alert(`⚠️ ${stock.symbol} موجود بالفعل في مفضلتك`);
-        } else {
-          alert(`❌ ${data.error || 'فشل الإضافة'}`);
-        }
-      }
-    } catch (error) {
-      console.error('❌ خطأ:', error);
-      alert('❌ حدث خطأ، حاول مرة أخرى');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ➖ حذف من المفضلة
-  const removeFromFavorites = async () => {
-    if (!confirm(`هل تريد حذف ${stock.symbol} من المفضلة؟`)) return;
-    
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        alert('⚠️ يرجى تسجيل الدخول أولاً');
-        return;
-      }
-
-      const response = await fetch('/api/favorites/delete', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ symbol: stock.symbol }),
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setIsFavorite(false);
-        alert(`✅ تم حذف ${stock.symbol} من المفضلة`);
-      } else {
-        alert(`❌ ${data.error || 'فشل الحذف'}`);
-      }
-    } catch (error) {
-      console.error('❌ خطأ:', error);
-      alert('❌ حدث خطأ، حاول مرة أخرى');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 🎯 حدث الضغط على زر المفضلة
-  const handleFavoriteClick = () => {
-    if (isFavorite) {
-      removeFromFavorites();
-    } else {
-      addToFavorites();
-    }
-  };
-
-  // ─── واجهة البطاقة ───
   return (
-    <div className="stock-card">
-      {/* رأس البطاقة: رمز السهم + السعر + التغيير */}
-      <div className="stock-header">
-        <span className="symbol">{stock.symbol}</span>
-        <span className="price">${stock.price}</span>
-        <span className={`change ${stock.change_pct >= 0 ? 'positive' : 'negative'}`}>
-          {stock.change_pct >= 0 ? '+' : ''}{stock.change_pct}%
+    <div
+      style={{
+        background: 'linear-gradient(135deg, rgba(15,20,35,0.95), rgba(20,28,48,0.95))',
+        border: `1px solid ${gradeInfo.color}44`,
+        borderRadius: '16px',
+        padding: '16px 18px',
+        marginBottom: '10px',
+        transition: 'all 0.2s ease',
+        cursor: 'pointer',
+      }}
+      onClick={toggleExpand}
+    >
+      {/* السطر الأول: الرمز والسعر */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontSize: '18px', fontWeight: 700, color: '#fff', fontFamily: 'monospace' }}>
+            {symbol}
+          </span>
+          <span
+            style={{
+              fontSize: '11px',
+              fontWeight: 700,
+              padding: '2px 12px',
+              borderRadius: '20px',
+              background: gradeInfo.bg,
+              color: gradeInfo.color,
+              border: `1px solid ${gradeInfo.color}55`,
+            }}
+          >
+            {gradeInfo.label}
+          </span>
+          <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
+            {decision.regime === 'strong' ? '📈 سوق قوي' : '📉 سوق ضعيف'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontSize: '18px', fontWeight: 700, color: '#fff', fontFamily: 'monospace' }}>
+            ${price?.toFixed(2)}
+          </span>
+          <span
+            style={{
+              fontSize: '14px',
+              fontWeight: 600,
+              color: change_pct >= 0 ? '#22c55e' : '#ef4444',
+            }}
+          >
+            {change_pct >= 0 ? '▲' : '▼'} {Math.abs(change_pct)}%
+          </span>
+        </div>
+      </div>
+
+      {/* السطر الثاني: الثقة + المخاطرة */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '20px',
+          marginTop: '10px',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+        }}
+      >
+        {/* شريط الثقة */}
+        <div style={{ flex: 1, minWidth: '120px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
+            <span>الثقة</span>
+            <span>{Math.round(confidence)}%</span>
+          </div>
+          <div
+            style={{
+              height: '4px',
+              background: 'rgba(255,255,255,0.08)',
+              borderRadius: '4px',
+              overflow: 'hidden',
+              marginTop: '2px',
+            }}
+          >
+            <div
+              style={{
+                height: '100%',
+                width: `${confidence}%`,
+                background: confidence >= 80 ? '#34d399' : confidence >= 60 ? '#fbbf24' : '#ef4444',
+                borderRadius: '4px',
+                transition: 'width 0.6s ease',
+              }}
+            />
+          </div>
+        </div>
+
+        {/* المخاطرة */}
+        <span style={{ fontSize: '12px', color: riskInfo.color }}>
+          المخاطرة: {riskInfo.label}
+        </span>
+
+        {/* النقاط */}
+        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+          النقاط: {decision.score || 0}
         </span>
       </div>
 
-      {/* معلومات إضافية: EP, RSI, RVOL */}
-      <div className="stock-info">
-        <div className="info-item">
-          <span className="label">EP</span>
-          <span className="value">{stock.score || stock.ep || '—'}</span>
-        </div>
-        <div className="info-item">
-          <span className="label">RSI</span>
-          <span className="value">{stock.rsi || '—'}</span>
-        </div>
-        <div className="info-item">
-          <span className="label">RVOL</span>
-          <span className="value">{stock.rvol || '—'}</span>
-        </div>
-      </div>
-
-      {/* الأهداف والوقف */}
-      {stock.levels && (
-        <div className="stock-levels">
-          {stock.levels.t1 && (
-            <div className="level target1">
-              <span>🎯 TP1</span>
-              <span>${stock.levels.t1}</span>
-            </div>
-          )}
-          {stock.levels.t2 && (
-            <div className="level target2">
-              <span>🎯 TP2</span>
-              <span>${stock.levels.t2}</span>
-            </div>
-          )}
-          {stock.levels.t3 && (
-            <div className="level target3">
-              <span>🎯 TP3</span>
-              <span>${stock.levels.t3}</span>
-            </div>
-          )}
-          {stock.levels.sl && (
-            <div className="level stop-loss">
-              <span>🛑 وقف</span>
-              <span>${stock.levels.sl}</span>
-            </div>
-          )}
+      {/* السطر الثالث: ملخص القرار (شرح الرادار) */}
+      {explanation?.summary && (
+        <div
+          style={{
+            marginTop: '10px',
+            fontSize: '12px',
+            color: 'rgba(255,255,255,0.6)',
+            lineHeight: '1.5',
+            padding: '8px 12px',
+            background: 'rgba(255,255,255,0.04)',
+            borderRadius: '8px',
+            border: '1px solid rgba(255,255,255,0.06)',
+          }}
+        >
+          📋 {explanation.summary}
         </div>
       )}
 
-      {/* 🔴⭐ زر المفضلة */}
-      <button
-        onClick={handleFavoriteClick}
-        disabled={loading}
-        className={`favorite-btn ${isFavorite ? 'active' : ''}`}
+      {/* السطر الرابع: الأهداف */}
+      {signal.targets && (
+        <div
+          style={{
+            display: 'flex',
+            gap: '16px',
+            marginTop: '10px',
+            fontSize: '11px',
+            color: 'rgba(255,255,255,0.4)',
+            flexWrap: 'wrap',
+          }}
+        >
+          <span>🎯 الهدف 1: ${signal.targets.t1?.toFixed(2)}</span>
+          <span>🎯 الهدف 2: ${signal.targets.t2?.toFixed(2)}</span>
+          <span>🎯 الهدف 3: ${signal.targets.t3?.toFixed(2)}</span>
+          <span>🛑 وقف الخسارة: ${signal.targets.stop?.toFixed(2)}</span>
+          <span>📊 العائد/المخاطرة: {signal.targets.rr?.toFixed(1)}</span>
+        </div>
+      )}
+
+      {/* السطر الخامس: زر التوسيع */}
+      <div
+        style={{
+          marginTop: '10px',
+          fontSize: '11px',
+          color: 'rgba(255,255,255,0.25)',
+          textAlign: 'center',
+        }}
       >
-        {loading ? '⏳ جاري...' : (isFavorite ? '⭐ في المفضلة' : '⭐ أضف للمفضلة')}
-      </button>
+        {expanded ? '▲ إخفاء التفاصيل' : '▼ اضغط لعرض التفاصيل'}
+      </div>
     </div>
   );
 }
