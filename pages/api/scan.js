@@ -1,4 +1,4 @@
-// pages/api/scan.js — الإصدار الجديد مع Decision Intelligence
+// pages/api/scan.js — v14 Orchestrator (Predictive Scanner)
 import { DataProvider } from '../../lib/radar/core/DataProvider.js';
 import { FeatureStore } from '../../lib/radar/core/FeatureStore.js';
 import { BrainManager } from '../../lib/radar/core/BrainManager.js';
@@ -11,8 +11,9 @@ import { EventBus } from '../../lib/radar/core/EventBus.js';
 import { HealthMonitor } from '../../lib/radar/core/HealthMonitor.js';
 import { LearningCollector } from '../../lib/radar/core/LearningCollector.js';
 import { getStrategyProfile } from '../../lib/radar/core/StrategyProfiles.js';
+import { CONFIG } from '../../lib/radar/core/config.js';
 
-// استيراد جميع الـ Brains
+// استيراد جميع الـ Brains (v14)
 import { QualityControlBrain } from '../../lib/radar/brains/QualityControlBrain.js';
 import { MarketBrain } from '../../lib/radar/brains/MarketBrain.js';
 import { LiquidityBrain } from '../../lib/radar/brains/LiquidityBrain.js';
@@ -26,6 +27,7 @@ import { RiskBrain } from '../../lib/radar/brains/RiskBrain.js';
 import { PortfolioBrain } from '../../lib/radar/brains/PortfolioBrain.js';
 import { ContradictionBrain } from '../../lib/radar/brains/ContradictionBrain.js';
 import { ConsensusBrain } from '../../lib/radar/brains/ConsensusBrain.js';
+import { CatalystBrain } from '../../lib/radar/brains/CatalystBrain.js';
 
 export const config = { maxDuration: 15 };
 
@@ -46,21 +48,22 @@ export default async function handler(req, res) {
     // ─── 2. إنشاء BrainManager وتسجيل الـ Brains ───
     const brainManager = new BrainManager();
 
-    // ترتيب التسجيل مهم (يتم حل التبعيات تلقائياً)
+    // تسجيل جميع الـ Brains (بما في ذلك CatalystBrain الجديد)
     brainManager
       .register(new QualityControlBrain())
       .register(new MarketBrain())
-      .register(new LiquidityBrain())
+      .register(new LiquidityBrain())      // ✅ v14: Early Accumulation
       .register(new MomentumBrain())
       .register(new TrendBrain())
-      .register(new StructureBrain())
+      .register(new StructureBrain())      // ✅ v14: Price Compression
       .register(new DNABrain())
       .register(new SectorBrain())
       .register(new RelativeStrengthBrain())
       .register(new RiskBrain())
       .register(new PortfolioBrain())
       .register(new ContradictionBrain())
-      .register(new ConsensusBrain());
+      .register(new ConsensusBrain())
+      .register(new CatalystBrain());      // ✅ جديد
 
     // ─── 3. جلب البيانات ───
     const marketData = await dataProvider.getMarketData();
@@ -74,6 +77,7 @@ export default async function handler(req, res) {
       // جلب البيانات
       const bars = await dataProvider.getBars(symbolData.symbol, 50);
       const sectorData = await dataProvider.getSectorData(symbolData.symbol);
+      const news = await dataProvider.getNews(symbolData.symbol);
 
       // استخراج الميزات
       const features = featureStore.getFeatures(
@@ -91,6 +95,7 @@ export default async function handler(req, res) {
         marketData,
         sectorData,
         features,
+        news,
         executionContext: { scanId, strategy: strategyProfile.id },
       });
 
@@ -134,6 +139,7 @@ export default async function handler(req, res) {
           confidence: decision.confidence,
           grade: decision.grade,
           gradeLabel: decision.gradeLabel,
+          timing: decision.timing || 'UNKNOWN',
           regime: decision.regime,
         },
         explanation: explanation,
@@ -227,6 +233,7 @@ async function saveResults(results) {
     structure: {
       grade: s.decision.grade,
       confidence: s.decision.confidence,
+      timing: s.decision.timing,
       regime: s.decision.regime,
       explanation: s.explanation,
     },
