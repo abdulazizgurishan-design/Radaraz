@@ -1,31 +1,31 @@
 // pages/api/scan.js — الإصدار الجديد مع Decision Intelligence
-import { DataProvider } from '../../lib/radar/core/DataProvider';
-import { FeatureStore } from '../../lib/radar/core/FeatureStore';
-import { BrainManager } from '../../lib/radar/core/BrainManager';
-import { DecisionContext } from '../../lib/radar/core/DecisionContext';
-import { DecisionEngine } from '../../lib/radar/core/DecisionEngine';
-import { DecisionAudit } from '../../lib/radar/core/DecisionAudit';
-import { ExplainEngine } from '../../lib/radar/core/ExplainEngine';
-import { OpportunityRanking } from '../../lib/radar/core/OpportunityRanking';
-import { EventBus } from '../../lib/radar/core/EventBus';
-import { HealthMonitor } from '../../lib/radar/core/HealthMonitor';
-import { LearningCollector } from '../../lib/radar/core/LearningCollector';
-import { getStrategyProfile } from '../../lib/radar/core/StrategyProfiles';
+import { DataProvider } from '../../lib/radar/core/DataProvider.js';
+import { FeatureStore } from '../../lib/radar/core/FeatureStore.js';
+import { BrainManager } from '../../lib/radar/core/BrainManager.js';
+import { DecisionContext } from '../../lib/radar/core/DecisionContext.js';
+import { DecisionEngine } from '../../lib/radar/core/DecisionEngine.js';
+import { DecisionAudit } from '../../lib/radar/core/DecisionAudit.js';
+import { ExplainEngine } from '../../lib/radar/core/ExplainEngine.js';
+import { OpportunityRanking } from '../../lib/radar/core/OpportunityRanking.js';
+import { EventBus } from '../../lib/radar/core/EventBus.js';
+import { HealthMonitor } from '../../lib/radar/core/HealthMonitor.js';
+import { LearningCollector } from '../../lib/radar/core/LearningCollector.js';
+import { getStrategyProfile } from '../../lib/radar/core/StrategyProfiles.js';
 
 // استيراد جميع الـ Brains
-import { QualityControlBrain } from '../../lib/radar/brains/QualityControlBrain';
-import { MarketBrain } from '../../lib/radar/brains/MarketBrain';
-import { LiquidityBrain } from '../../lib/radar/brains/LiquidityBrain';
-import { MomentumBrain } from '../../lib/radar/brains/MomentumBrain';
-import { TrendBrain } from '../../lib/radar/brains/TrendBrain';
-import { StructureBrain } from '../../lib/radar/brains/StructureBrain';
-import { DNABrain } from '../../lib/radar/brains/DNABrain';
-import { SectorBrain } from '../../lib/radar/brains/SectorBrain';
-import { RelativeStrengthBrain } from '../../lib/radar/brains/RelativeStrengthBrain';
-import { RiskBrain } from '../../lib/radar/brains/RiskBrain';
-import { PortfolioBrain } from '../../lib/radar/brains/PortfolioBrain';
-import { ContradictionBrain } from '../../lib/radar/brains/ContradictionBrain';
-import { ConsensusBrain } from '../../lib/radar/brains/ConsensusBrain';
+import { QualityControlBrain } from '../../lib/radar/brains/QualityControlBrain.js';
+import { MarketBrain } from '../../lib/radar/brains/MarketBrain.js';
+import { LiquidityBrain } from '../../lib/radar/brains/LiquidityBrain.js';
+import { MomentumBrain } from '../../lib/radar/brains/MomentumBrain.js';
+import { TrendBrain } from '../../lib/radar/brains/TrendBrain.js';
+import { StructureBrain } from '../../lib/radar/brains/StructureBrain.js';
+import { DNABrain } from '../../lib/radar/brains/DNABrain.js';
+import { SectorBrain } from '../../lib/radar/brains/SectorBrain.js';
+import { RelativeStrengthBrain } from '../../lib/radar/brains/RelativeStrengthBrain.js';
+import { RiskBrain } from '../../lib/radar/brains/RiskBrain.js';
+import { PortfolioBrain } from '../../lib/radar/brains/PortfolioBrain.js';
+import { ContradictionBrain } from '../../lib/radar/brains/ContradictionBrain.js';
+import { ConsensusBrain } from '../../lib/radar/brains/ConsensusBrain.js';
 
 export const config = { maxDuration: 15 };
 
