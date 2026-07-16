@@ -1,11 +1,11 @@
-// components/RadarFilters.js
+// components/RadarFilters.js — النسخة العربية بالكامل
 export default function RadarFilters({ filters, setFilters, counts }) {
   const filterOptions = [
     { id: 'all', label: `الكل (${counts.total || 0})` },
-    { id: 'elite', label: `🏆 ELITE (${counts.elite || 0})` },
-    { id: 'prime', label: `⭐ PRIME (${counts.prime || 0})` },
-    { id: 'strong', label: `💪 STRONG (${counts.strong || 0})` },
-    { id: 'good', label: `📊 GOOD (${counts.good || 0})` },
+    { id: 'elite', label: `🏆 نخبة (${counts.elite || 0})` },
+    { id: 'prime', label: `⭐ ممتاز (${counts.prime || 0})` },
+    { id: 'strong', label: `💪 قوي (${counts.strong || 0})` },
+    { id: 'good', label: `📊 جيد (${counts.good || 0})` },
   ];
 
   const confidenceOptions = [
