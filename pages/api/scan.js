@@ -1,4 +1,11 @@
-// pages/api/scan.js — v19.7 (إصلاح خطأ نحوي في buildStructure)
+// pages/api/scan.js — v19.8 (تفعيل learnedWeights + Confidence Score)
+// ═══════════════════════════════════════════════════════════════════
+//  🆕 v19.8:
+//    ✅ تفعيل learnedWeights في حساب predictionScore
+//    ✅ إضافة Confidence Score (0-100%)
+//    ✅ الاحتفاظ بالأوزان الثابتة كقيمة افتراضية
+// ═══════════════════════════════════════════════════════════════════
+
 export const config = { maxDuration: 15 };
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY || process.env.POLYGON_KEY;
@@ -334,11 +341,11 @@ function calculateBreakoutProbability(price, bars, structure) {
   return { probability: Math.min(prob, 100), reasons };
 }
 
-// ─── Structure (تم إصلاح الخطأ النحوي) ───────────────────────────
+// ─── Structure ────────────────────────────────────────────────────
 function buildStructure(price, bars, ind, CFG) {
   if (!bars || !Array.isArray(bars) || bars.length < 30 || !price) return null;
   const cap = (v, maxPct) => Math.min(v, price * (1 + maxPct / 100));
-  const capDn = (v, maxPct) => Math.max(v, price * (1 - maxPct / 100)); // ✅ إصلاح: كان price(Math * ...) خطأ
+  const capDn = (v, maxPct) => Math.max(v, price * (1 - maxPct / 100));
   let hi20 = -Infinity,
     lo20 = Infinity;
   for (const b of bars.slice(-20)) { if (b.h > hi20) hi20 = b.h; if (b.l < lo20) lo20 = b.l; }
@@ -431,7 +438,7 @@ function goldenCheck(a, ind, minsET, regime, G) {
   return { golden: passed === 6, passed, checks };
 }
 
-// ─── دالة الحفظ مع تحويل القيم العشرية إلى أعداد صحيحة ──────
+// ─── ✅ دالة الحفظ المحسّنة ──────────────────────────────────────
 async function saveSignals(rows, left, debug, CFG) {
   if (!rows.length) return { saved: 0, status: 0 };
   const timeout = Math.max(600, Math.min(1500, left() - 400));
@@ -478,8 +485,10 @@ async function saveSignals(rows, left, debug, CFG) {
       predictionScore: Math.round(s.predictionScore || 0),
       predictionGrade: s.predictionGrade || 'WATCH',
       timing: s.timing?.timing || 'UNKNOWN',
+      confidence: Math.round(s.confidence || 0),
       earlyAccumulationScore: Math.round(s.earlyAccumulation?.score || 0),
       breakoutProbabilityScore: Math.round(s.breakoutProbability?.probability || 0),
+      weights: s.weightsUsed,
     },
     is_smart_bounce: false,
     smart_bounce_confidence: 0,
@@ -663,6 +672,7 @@ export default async function handler(req, res) {
       debug.spy_rs_ready = spyRet20 != null;
     }
 
+    // ── تحميل الأوزان المتعلمة ──
     let learnedWeights = {};
     try {
       const resW = await fetch(
@@ -675,6 +685,25 @@ export default async function handler(req, res) {
         debug.weights_used = learnedWeights;
       }
     } catch {}
+
+    // ── الأوزان الافتراضية (تستخدم إذا لم تكن الأوزان المتعلمة متاحة) ──
+    const defaultWeights = {
+      earlyAccumulation: 0.30,
+      breakoutProbability: 0.25,
+      structure: 0.20,
+      liquidity: 0.15,
+      marketRegime: 0.10,
+    };
+
+    // دمج الأوزان المتعلمة مع الافتراضية (إذا وجدت)
+    const weights = { ...defaultWeights };
+    if (learnedWeights && Object.keys(learnedWeights).length > 0) {
+      for (const key of Object.keys(defaultWeights)) {
+        if (learnedWeights[key] !== undefined) {
+          weights[key] = learnedWeights[key];
+        }
+      }
+    }
 
     // ── Stage 3: تحليل الأسهم ──
     const analyzed = [];
@@ -731,34 +760,57 @@ export default async function handler(req, res) {
         const levels = buildLevels(c.price, st);
         const breakoutProb = calculateBreakoutProbability(c.price, bars, st);
 
-        let predictionScore = 50;
-        let predictionGrade = 'WATCH';
+        // ─── ✅ v19.8: حساب predictionScore باستخدام الأوزان المتعلمة ───
+        let predictionScore = 0;
         const breakdown = [];
 
-        if (earlyAcc.score > 0) {
-          predictionScore += earlyAcc.score * 0.30;
-          breakdown.push({ factor: 'Early Accumulation', score: earlyAcc.score });
-        }
-        if (breakoutProb.probability > 0) {
-          predictionScore += breakoutProb.probability * 0.25;
-          breakdown.push({ factor: 'Breakout Probability', score: breakoutProb.probability });
-        }
-        if (st && st.rr) {
-          const rrScore = Math.min(st.rr * 20, 100);
-          predictionScore += rrScore * 0.20;
-          breakdown.push({ factor: 'Structure', score: rrScore });
-        }
-        if (ind.rvol) {
-          const rvolScore = Math.min(ind.rvol * 20, 100);
-          predictionScore += rvolScore * 0.15;
-          breakdown.push({ factor: 'Liquidity', score: rvolScore });
-        }
-        if (debug.market_regime === 'قوي') {
-          predictionScore += 10;
-          breakdown.push({ factor: 'Market Regime', score: 10 });
-        }
+        // 1. Early Accumulation
+        const accScore = earlyAcc.score || 0;
+        const accWeight = weights.earlyAccumulation || 0.30;
+        predictionScore += accScore * accWeight;
+        breakdown.push({ factor: 'Early Accumulation', score: Math.round(accScore), weight: Math.round(accWeight * 100) });
 
+        // 2. Breakout Probability
+        const bProb = breakoutProb.probability || 0;
+        const bWeight = weights.breakoutProbability || 0.25;
+        predictionScore += bProb * bWeight;
+        breakdown.push({ factor: 'Breakout Probability', score: Math.round(bProb), weight: Math.round(bWeight * 100) });
+
+        // 3. Structure (RR)
+        const rrScore = st && st.rr ? Math.min(st.rr * 20, 100) : 50;
+        const sWeight = weights.structure || 0.20;
+        predictionScore += rrScore * sWeight;
+        breakdown.push({ factor: 'Structure (RR)', score: Math.round(rrScore), weight: Math.round(sWeight * 100) });
+
+        // 4. Liquidity (RVOL)
+        const rvolScore = ind.rvol ? Math.min(ind.rvol * 20, 100) : 50;
+        const lWeight = weights.liquidity || 0.15;
+        predictionScore += rvolScore * lWeight;
+        breakdown.push({ factor: 'Liquidity (RVOL)', score: Math.round(rvolScore), weight: Math.round(lWeight * 100) });
+
+        // 5. Market Regime
+        const marketScore = debug.market_regime === 'قوي' ? 80 : 50;
+        const mWeight = weights.marketRegime || 0.10;
+        predictionScore += marketScore * mWeight;
+        breakdown.push({ factor: 'Market Regime', score: Math.round(marketScore), weight: Math.round(mWeight * 100) });
+
+        // تطبيع النتيجة
         predictionScore = Math.min(Math.max(predictionScore, 0), 100);
+
+        // ─── ✅ v19.8: Confidence Score ──────────────────────────────
+        // حساب الثقة بناءً على:
+        // 1. predictionScore (الوزن الأكبر)
+        // 2. عدد العوامل المتاحة (اكتمال البيانات)
+        // 3. جودة البيانات (عدد الشموع)
+        const dataQuality = bars.length > 50 ? 1.0 : 0.7;
+        const factorCount = breakdown.filter(b => b.score > 0).length;
+        const factorCompleteness = Math.min(factorCount / 5, 1.0);
+        const confidence = Math.round(
+          predictionScore * (0.6 + 0.2 * factorCompleteness + 0.2 * dataQuality)
+        );
+
+        // التصنيف
+        let predictionGrade = 'WATCH';
         if (predictionScore >= 85) predictionGrade = 'ELITE';
         else if (predictionScore >= 75) predictionGrade = 'PRIME';
         else if (predictionScore >= 65) predictionGrade = 'STRONG';
@@ -766,6 +818,7 @@ export default async function handler(req, res) {
         else if (predictionScore >= 45) predictionGrade = 'WATCH';
         else predictionGrade = 'AVOID';
 
+        // Timing
         const timing = { timing: 'UNKNOWN', label: 'غير معروف' };
         if (st && st.resistanceDistance !== undefined) {
           if (st.resistanceDistance <= 3 && st.resistanceDistance > 0 && st.rr >= 2) {
@@ -793,9 +846,11 @@ export default async function handler(req, res) {
           ...st,
           predictionScore,
           predictionGrade,
+          confidence,
           timing,
           earlyAccumulation: earlyAcc,
           breakoutProbability: breakoutProb,
+          weights: weights,
         } : st;
 
         return {
@@ -808,11 +863,13 @@ export default async function handler(req, res) {
           breakoutProb,
           predictionScore,
           predictionGrade,
+          confidence,
           timing,
           isHot,
           isTarget,
           stOut,
           breakdown,
+          weightsUsed: weights,
         };
       }));
 
@@ -848,6 +905,7 @@ export default async function handler(req, res) {
         score: a.predictionScore,
         predictionScore: a.predictionScore,
         predictionGrade: a.predictionGrade,
+        confidence: a.confidence,
         timing: a.timing,
         earlyAccumulation: a.earlyAcc,
         breakoutProbability: a.breakoutProb,
@@ -865,6 +923,8 @@ export default async function handler(req, res) {
         levels: a.levels,
         structure: a.stOut,
         session: sessionInfo.session,
+        breakdown: a.breakdown,
+        weightsUsed: a.weightsUsed,
       });
     }
 
