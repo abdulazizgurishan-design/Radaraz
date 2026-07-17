@@ -74,7 +74,6 @@ export default async function handler(req, res) {
             if (bars && bars.length > 0) {
               high = Math.max(...bars.map(b => parseFloat(b.high)));
               low = Math.min(...bars.map(b => parseFloat(b.low)));
-              // ✅ آخر سعر من نفس البيانات (بدون طلب إضافي)
               lastClose = parseFloat(bars[bars.length - 1].close);
             }
           }
