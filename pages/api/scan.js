@@ -1,12 +1,11 @@
 // pages/api/scan.js
-import { DataProvider } from '../../../lib/radar/core/DataProvider';
-import { FeatureBuilder } from '../../../lib/radar/core/FeatureBuilder';
-import { PredictionEngine } from '../../../lib/radar/services/PredictionEngine';
-import { ConfidenceEngine } from '../../../lib/radar/services/ConfidenceEngine';
-import { StorageEngine } from '../../../lib/radar/services/StorageEngine';
-import { cache } from '../../../lib/radar/core/CacheManager';
+import { DataProvider } from '../../lib/radar/core/DataProvider';
+import { FeatureBuilder } from '../../lib/radar/core/FeatureBuilder';
+import { PredictionEngine } from '../../lib/radar/services/PredictionEngine';
+import { ConfidenceEngine } from '../../lib/radar/services/ConfidenceEngine';
+import { StorageEngine } from '../../lib/radar/services/StorageEngine';
+import { cache } from '../../lib/radar/core/CacheManager';
 import { createClient } from '@supabase/supabase-js';
-import crypto from 'crypto';
 
 // ✅ استخدام SERVICE_ROLE_KEY إلزامي
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -99,7 +98,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 4. المعالجة والتجميع
+    // 4. المعالجة والتجميع (بدون temp_id)
     const finalSignals = [];
     const snapshotsBatch = [];
     const predictionsBatch = [];
@@ -119,11 +118,7 @@ export default async function handler(req, res) {
         const confidence = ConfidenceEngine.calculateBreakdown(featureVector);
         const symbol = stock.symbol || stock.Symbol || 'UNKNOWN';
 
-        // ✅ إنشاء معرف مؤقت للربط
-        const tempId = crypto.randomUUID();
-
         snapshotsBatch.push({
-          temp_id: tempId,
           symbol,
           price: featureVector.price,
           feature_vector: featureVector,
@@ -131,7 +126,6 @@ export default async function handler(req, res) {
         });
 
         predictionsBatch.push({
-          temp_id: tempId,
           model_version: model.version,
           predicted_score: score,
           confidence_dist: confidence.breakdown,
@@ -153,35 +147,20 @@ export default async function handler(req, res) {
       }
     }
 
-    // 5. حفظ البيانات (Bulk Insert مع await)
+    // 5. حفظ البيانات (Bulk Insert مع ترتيب مضمون)
     if (snapshotsBatch.length > 0) {
       const savedSnapshots = await StorageEngine.saveSnapshotsBulk(snapshotsBatch);
 
       if (savedSnapshots.length > 0 && predictionsBatch.length > 0) {
-        // ✅ ربط التوقعات باستخدام Map (temp_id -> feature_id)
-        const snapshotMap = new Map();
-        savedSnapshots.forEach(item => {
-          if (item.temp_id && item.id) {
-            snapshotMap.set(item.temp_id, item.id);
-          }
-        });
+        // ✅ الربط بالترتيب (مضمون في Supabase)
+        const finalPredictions = savedSnapshots.map((row, index) => ({
+          feature_id: row.id,
+          model_version: predictionsBatch[index]?.model_version || model.version,
+          predicted_score: predictionsBatch[index]?.predicted_score || 0,
+          confidence_dist: predictionsBatch[index]?.confidence_dist || {},
+        }));
 
-        const finalPredictions = predictionsBatch
-          .map(p => {
-            const featureId = snapshotMap.get(p.temp_id);
-            if (!featureId) return null;
-            return {
-              feature_id: featureId,
-              model_version: p.model_version,
-              predicted_score: p.predicted_score,
-              confidence_dist: p.confidence_dist || {},
-            };
-          })
-          .filter(p => p !== null);
-
-        if (finalPredictions.length > 0) {
-          await StorageEngine.savePredictionsBulk(finalPredictions);
-        }
+        await StorageEngine.savePredictionsBulk(finalPredictions);
       }
     }
 
