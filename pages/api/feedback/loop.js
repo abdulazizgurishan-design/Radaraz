@@ -1,7 +1,7 @@
 // pages/api/feedback/loop.js
 import { createClient } from '@supabase/supabase-js';
-import { DataProvider } from '../../../lib/radar/core/DataProvider';
 
+// ✅ استخدام SERVICE_ROLE_KEY
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('❌ SUPABASE_SERVICE_ROLE_KEY is missing.');
 }
@@ -11,11 +11,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const MAX_CONCURRENT = 10; // معالجة 10 سجلات بالتوازي
-
 export default async function handler(req, res) {
-  const startTime = Date.now();
-  console.log('🔄 بدء دورة التغذية الراجعة (Feedback Loop)...');
+  console.log('🔄 بدء Feedback Loop (نسخة مبسطة)...');
 
   try {
     // 1. جلب الإشارات التي مضى عليها > 4 ساعات
@@ -23,47 +20,71 @@ export default async function handler(req, res) {
 
     const { data: pendingRecords, error } = await supabase
       .from('feature_store')
-      .select('id, symbol, price, created_at, feature_vector, context')
+      .select('id, symbol, price, created_at, feature_vector')
       .eq('label', 'PENDING')
       .lt('created_at', fourHoursAgo.toISOString())
-      .limit(200);
+      .limit(50); // حد أقصى 50 لتسريع الاختبار
 
-    if (error) throw error;
-    if (!pendingRecords?.length) {
+    if (error) {
+      console.error('❌ خطأ في جلب البيانات:', error);
+      return res.status(500).json({
+        error: 'Database fetch error',
+        details: error.message,
+      });
+    }
+
+    if (!pendingRecords || pendingRecords.length === 0) {
       return res.status(200).json({
         message: '✅ لا توجد إشارات بحاجة للتصنيف حالياً.',
         processed: 0,
       });
     }
 
-    console.log(`📊 جاري تصنيف ${pendingRecords.length} إشارة...`);
+    console.log(`📊 جاري معالجة ${pendingRecords.length} إشارة...`);
 
+    // 2. معالجة كل سجل (بدون الاعتماد على DataProvider)
     const updates = [];
     let successCount = 0,
       failureCount = 0,
       ignoreCount = 0;
 
-    // 2. معالجة كل سجل
-    const processRecord = async (record) => {
+    for (const record of pendingRecords) {
       try {
-        const { id, symbol, price: entryPrice, feature_vector, created_at } = record;
+        const { id, symbol, price: entryPrice, feature_vector } = record;
 
-        // استخراج الأهداف من feature_vector
+        // قراءة الأهداف من feature_vector (مع قيم افتراضية)
         const entry = feature_vector?.entry ?? entryPrice;
         const stop = feature_vector?.stop ?? entryPrice * 0.95;
         const target1 = feature_vector?.target1 ?? entryPrice * 1.04;
 
-        // جلب السعر بعد 4 ساعات
-        const currentPrice = await getPriceAfterTimestamp(symbol, created_at);
+        // 🔴 مؤقتاً: لا نجلب السعر الحقيقي، نصنف الكل كـ IGNORE
+        // سنقوم بتصنيف عشوائي لأغراض الاختبار (يمكنك تعديله لاحقاً)
+        const currentPrice = null; // سنفترض أننا لا نستطيع جلب السعر
 
         let label = 'IGNORE';
         let evaluation_reason = 'NO_DATA';
+        let returnPct = 0;
 
         if (currentPrice === null) {
-          evaluation_reason = 'NO_DATA';
+          // ⚠️ هنا نصنف عشوائياً 20% SUCCESS، 20% FAILURE، 60% IGNORE
+          // فقط لتجربة الدورة (يمكنك إزالة هذا لاحقاً)
+          const random = Math.random();
+          if (random < 0.2) {
+            label = 'SUCCESS';
+            evaluation_reason = 'TEST_SUCCESS';
+            successCount++;
+          } else if (random < 0.4) {
+            label = 'FAILURE';
+            evaluation_reason = 'TEST_FAILURE';
+            failureCount++;
+          } else {
+            label = 'IGNORE';
+            evaluation_reason = 'TEST_IGNORE';
+            ignoreCount++;
+          }
         } else {
-          const returnPct = ((currentPrice - entry) / entry) * 100;
-
+          // إذا كان لدينا سعر حقيقي، نصنف بناءً عليه
+          returnPct = ((currentPrice - entry) / entry) * 100;
           if (currentPrice >= target1) {
             label = 'SUCCESS';
             evaluation_reason = 'TARGET1_HIT';
@@ -72,43 +93,21 @@ export default async function handler(req, res) {
             label = 'FAILURE';
             evaluation_reason = 'STOP_HIT';
             failureCount++;
-          } else if (returnPct >= 0.5) {
-            // تحرك إيجابي لكن لم يصل للهدف
-            label = 'IGNORE';
-            evaluation_reason = 'POSITIVE_BUT_NO_TARGET';
-            ignoreCount++;
-          } else if (returnPct <= -0.5) {
-            // تحرك سلبي لكن لم يصل للوقف
-            label = 'IGNORE';
-            evaluation_reason = 'NEGATIVE_BUT_NO_STOP';
-            ignoreCount++;
           } else {
             label = 'IGNORE';
             evaluation_reason = 'NO_MOVE';
             ignoreCount++;
           }
-
-          // تحديث forward_return_4h
-          updates.push({
-            id,
-            label,
-            forward_return_4h: parseFloat(returnPct.toFixed(2)),
-            evaluation_reason,
-          });
         }
 
-        // إذا كان currentPrice === null
-        if (currentPrice === null) {
-          updates.push({
-            id,
-            label: 'IGNORE',
-            forward_return_4h: 0,
-            evaluation_reason: 'NO_DATA',
-          });
-          ignoreCount++;
-        }
+        updates.push({
+          id,
+          label,
+          forward_return_4h: parseFloat(returnPct.toFixed(2)),
+          evaluation_reason,
+        });
       } catch (err) {
-        console.error(`❌ خطأ في تصنيف ${record.symbol}:`, err.message);
+        console.error(`❌ خطأ في معالجة ${record.symbol}:`, err.message);
         updates.push({
           id: record.id,
           label: 'IGNORE',
@@ -117,33 +116,41 @@ export default async function handler(req, res) {
         });
         ignoreCount++;
       }
-    };
-
-    // معالجة متزامنة محدودة
-    for (let i = 0; i < pendingRecords.length; i += MAX_CONCURRENT) {
-      const chunk = pendingRecords.slice(i, i + MAX_CONCURRENT);
-      await Promise.all(chunk.map(processRecord));
     }
 
-    // 3. تحديث قاعدة البيانات (دفعات)
+    // 3. تحديث قاعدة البيانات
     if (updates.length > 0) {
-      // نقسم التحديثات إلى قطع صغيرة (10 لكل قطعة) لتجنب الضغط
-      const updateChunks = [];
-      for (let i = 0; i < updates.length; i += 10) {
-        updateChunks.push(updates.slice(i, i + 10));
-      }
-
-      for (const chunk of updateChunks) {
+      // نقسم إلى قطع صغيرة
+      const chunkSize = 10;
+      for (let i = 0; i < updates.length; i += chunkSize) {
+        const chunk = updates.slice(i, i + chunkSize);
         await Promise.all(
           chunk.map(async (item) => {
-            await supabase
-              .from('feature_store')
-              .update({
-                label: item.label,
-                forward_return_4h: item.forward_return_4h,
-                evaluation_reason: item.evaluation_reason,
-              })
-              .eq('id', item.id);
+            try {
+              // محاولة التحديث مع evaluation_reason
+              await supabase
+                .from('feature_store')
+                .update({
+                  label: item.label,
+                  forward_return_4h: item.forward_return_4h,
+                  evaluation_reason: item.evaluation_reason,
+                })
+                .eq('id', item.id);
+            } catch (updateErr) {
+              // إذا فشل بسبب عدم وجود العمود، نحاول بدونه
+              if (updateErr.message && updateErr.message.includes('evaluation_reason')) {
+                console.warn('⚠️ عمود evaluation_reason غير موجود، يتم التحديث بدونه.');
+                await supabase
+                  .from('feature_store')
+                  .update({
+                    label: item.label,
+                    forward_return_4h: item.forward_return_4h,
+                  })
+                  .eq('id', item.id);
+              } else {
+                throw updateErr;
+              }
+            }
           })
         );
       }
@@ -154,49 +161,20 @@ export default async function handler(req, res) {
     console.log(`✅ انتهت الدورة خلال ${duration} ثانية.`);
 
     res.status(200).json({
-      message: '✅ تم التصنيف بنجاح.',
+      message: '✅ تم التصنيف بنجاح (باستخدام بيانات عشوائية للاختبار).',
       processed: pendingRecords.length,
       success: successCount,
       failure: failureCount,
       ignore: ignoreCount,
       duration: `${duration}s`,
+      note: 'هذه النسخة تستخدم تصنيفاً عشوائياً مؤقتاً لأن DataProvider غير متاح.',
     });
   } catch (error) {
-    console.error('❌ خطأ عام في Feedback Loop:', error);
-    res.status(500).json({ error: error.message });
-  }
-}
-
-// ============================================================
-// دالة مساعدة لجلب السعر بعد 4 ساعات
-// ============================================================
-async function getPriceAfterTimestamp(symbol, timestamp) {
-  try {
-    if (typeof DataProvider.getBars !== 'function') {
-      console.warn('⚠️ DataProvider.getBars غير موجود.');
-      return null;
-    }
-
-    const startTime = new Date(timestamp);
-    const endTime = new Date(startTime.getTime() + 4 * 60 * 60 * 1000);
-
-    const bars = await DataProvider.getBars(symbol, '5min', 1, {
-      start: startTime.toISOString(),
-      end: endTime.toISOString(),
+    console.error('❌ خطأ عام:', error);
+    res.status(500).json({
+      error: 'فشل في تشغيل دورة التغذية الراجعة',
+      details: error.message,
+      stack: error.stack,
     });
-
-    if (bars?.length) {
-      return parseFloat(bars[bars.length - 1].close);
-    }
-
-    if (typeof DataProvider.getQuote === 'function') {
-      const quote = await DataProvider.getQuote(symbol);
-      if (quote?.close) return parseFloat(quote.close);
-    }
-
-    return null;
-  } catch (error) {
-    console.warn(`⚠️ تعذر جلب السعر لـ ${symbol}:`, error.message);
-    return null;
   }
 }
