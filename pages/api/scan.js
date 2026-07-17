@@ -1,10 +1,4 @@
 // pages/api/scan.js
-// ============================================================
-// الإصدار: v20.0 (Beta)
-// الهندسة: Bulk Insert + Cache + Service Role
-// التوافق: Vercel Serverless (مع await لضمان عدم فقدان البيانات)
-// ============================================================
-
 import { DataProvider } from '../../../lib/radar/core/DataProvider';
 import { FeatureBuilder } from '../../../lib/radar/core/FeatureBuilder';
 import { PredictionEngine } from '../../../lib/radar/services/PredictionEngine';
@@ -12,13 +6,16 @@ import { ConfidenceEngine } from '../../../lib/radar/services/ConfidenceEngine';
 import { StorageEngine } from '../../../lib/radar/services/StorageEngine';
 import { cache } from '../../../lib/radar/core/CacheManager';
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 
-// ============================================================
-// 🔐 التعديل 1: استخدام SERVICE_ROLE_KEY داخل API فقط
-// ============================================================
+// ✅ استخدام SERVICE_ROLE_KEY إلزامي
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('❌ SUPABASE_SERVICE_ROLE_KEY is missing in environment variables.');
+}
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 const DEFAULT_MODEL = {
@@ -34,16 +31,11 @@ const DEFAULT_MODEL = {
   ai_weight: 0.4,
 };
 
-// ============================================================
-// الدالة الرئيسية
-// ============================================================
 export default async function handler(req, res) {
   const startTime = Date.now();
 
   try {
-    // ----------------------------------------------------------
-    // 1. جلب سياق السوق (World Model)
-    // ----------------------------------------------------------
+    // 1. سياق السوق
     let marketContext = {
       spy_change: 0,
       vix: 18,
@@ -59,16 +51,12 @@ export default async function handler(req, res) {
 
     try {
       if (typeof DataProvider.fetchMarketContext === 'function') {
-        const realContext = await DataProvider.fetchMarketContext();
-        marketContext = { ...marketContext, ...realContext };
+        const real = await DataProvider.fetchMarketContext();
+        marketContext = { ...marketContext, ...real };
       }
-    } catch (err) {
-      console.warn('⚠️ فشل في جلب سياق السوق، استخدام القيم الافتراضية:', err.message);
-    }
+    } catch (e) { /* تجاهل */ }
 
-    // ----------------------------------------------------------
-    // 2. جلب النموذج النشط (مع Caching لمدة 60 ثانية)
-    // ----------------------------------------------------------
+    // 2. جلب النموذج النشط (مع Cache)
     const getChampion = async () => {
       const cached = cache.get('champion_model');
       if (cached) return cached;
@@ -80,28 +68,21 @@ export default async function handler(req, res) {
         .single();
 
       const model = data || DEFAULT_MODEL;
-      cache.set('champion_model', model, 60); // ينتهي بعد 60 ثانية
+      cache.set('champion_model', model, 60);
       return model;
     };
 
     const model = await getChampion();
 
-    // ----------------------------------------------------------
-    // 3. مسح الأسهم (مع Fallback لبيانات وهمية للتجربة)
-    // ----------------------------------------------------------
+    // 3. مسح الأسهم (مع بيانات وهمية للاختبار)
     let rawStocks = [];
-
     if (typeof DataProvider.scanStocks === 'function') {
       try {
         rawStocks = await DataProvider.scanStocks();
-      } catch (err) {
-        console.error('❌ فشل في scanStocks:', err.message);
-      }
+      } catch (e) { /* */ }
     }
 
-    // بيانات وهمية للاختبار (للتأكد من عمل الدوال الجديدة حتى في غياب الـ API)
     if (rawStocks.length === 0) {
-      console.warn('⚠️ استخدام بيانات وهمية للاختبار (بدون API)');
       rawStocks = [
         { symbol: 'AAPL', close: 150, volume: 1000000, rvol: 5, atr: 0.5, ema9: 148, ema21: 147, vwap: 149, rsi: 60, sectorRank: 2 },
         { symbol: 'TSLA', close: 200, volume: 2000000, rvol: 7, atr: 1.2, ema9: 198, ema21: 195, vwap: 197, rsi: 65, sectorRank: 1 },
@@ -118,9 +99,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // ----------------------------------------------------------
-    // 4. المعالجة وتجميع البيانات (Bulk Arrays)
-    // ----------------------------------------------------------
+    // 4. المعالجة والتجميع
     const finalSignals = [];
     const snapshotsBatch = [];
     const predictionsBatch = [];
@@ -129,24 +108,22 @@ export default async function handler(req, res) {
     for (let i = 0; i < MAX_STOCKS; i++) {
       const stock = rawStocks[i];
       try {
-        // 4.1 بناء Feature Vector (بدون full_snapshot)
         const featureVector = FeatureBuilder.build(stock, marketContext);
         const context = FeatureBuilder.buildContext(marketContext);
-
-        // 4.2 حساب التوقع والثقة
-        const predictionScore = PredictionEngine.calculate(
+        const score = PredictionEngine.calculate(
           featureVector,
           model.weights,
           model.rule_weight,
           model.ai_weight
         );
         const confidence = ConfidenceEngine.calculateBreakdown(featureVector);
-
         const symbol = stock.symbol || stock.Symbol || 'UNKNOWN';
 
-        // 4.3 تجهيز البيانات للحفظ (Feature Store + Predictions)
-        // ✅ التعديل 2: نحفظ فقط feature_vector وليس الـ full_snapshot
+        // ✅ إنشاء معرف مؤقت للربط
+        const tempId = crypto.randomUUID();
+
         snapshotsBatch.push({
+          temp_id: tempId,
           symbol,
           price: featureVector.price,
           feature_vector: featureVector,
@@ -154,55 +131,61 @@ export default async function handler(req, res) {
         });
 
         predictionsBatch.push({
+          temp_id: tempId,
           model_version: model.version,
-          predicted_score: predictionScore,
+          predicted_score: score,
           confidence_dist: confidence.breakdown,
         });
 
-        // 4.4 تجهيز الإشارات القوية للعرض
-        if (predictionScore >= 50) {
+        if (score >= 50) {
           finalSignals.push({
             symbol,
             price: featureVector.price,
-            predictionScore: parseFloat(predictionScore.toFixed(1)),
+            predictionScore: parseFloat(score.toFixed(1)),
             confidence: confidence.total,
-            confidenceBreakdown: confidence.breakdown,
-            grade: getGrade(predictionScore),
+            grade: getGrade(score),
             brainVersion: model.version,
             timing: stock.timing || 'BREAKOUT',
           });
         }
       } catch (err) {
-        console.error(`❌ خطأ في معالجة السهم ${stock.symbol || 'unknown'}:`, err.message);
+        console.error(`❌ خطأ في السهم ${stock.symbol || 'unknown'}:`, err.message);
       }
     }
 
-    // ----------------------------------------------------------
-    // 5. 💾 الحفظ في Supabase (Bulk Insert + Await لضمان Serverless)
-    // ----------------------------------------------------------
-    // ✅ التعديل 3: استخدام await بدلاً من .catch() لضمان اكتمال الحفظ
-    // في بيئة Vercel Serverless، بدون await قد تُقتل الـ Function قبل انتهاء الكتابة.
-    // وبما أنها Bulk Insert (عملية واحدة)، فإن الوقت الإضافي لا يتجاوز 300ms.
+    // 5. حفظ البيانات (Bulk Insert مع await)
     if (snapshotsBatch.length > 0) {
       const savedSnapshots = await StorageEngine.saveSnapshotsBulk(snapshotsBatch);
 
       if (savedSnapshots.length > 0 && predictionsBatch.length > 0) {
-        // ربط التوقعات بالـ feature_ids
-        const finalPredictions = savedSnapshots.map((snap, index) => ({
-          feature_id: snap.id,
-          model_version: model.version,
-          predicted_score: predictionsBatch[index]?.predicted_score || 0,
-          confidence_dist: predictionsBatch[index]?.confidence_dist || {},
-        }));
+        // ✅ ربط التوقعات باستخدام Map (temp_id -> feature_id)
+        const snapshotMap = new Map();
+        savedSnapshots.forEach(item => {
+          if (item.temp_id && item.id) {
+            snapshotMap.set(item.temp_id, item.id);
+          }
+        });
 
-        // حفظ التوقعات (أيضاً Bulk)
-        await StorageEngine.savePredictionsBulk(finalPredictions);
+        const finalPredictions = predictionsBatch
+          .map(p => {
+            const featureId = snapshotMap.get(p.temp_id);
+            if (!featureId) return null;
+            return {
+              feature_id: featureId,
+              model_version: p.model_version,
+              predicted_score: p.predicted_score,
+              confidence_dist: p.confidence_dist || {},
+            };
+          })
+          .filter(p => p !== null);
+
+        if (finalPredictions.length > 0) {
+          await StorageEngine.savePredictionsBulk(finalPredictions);
+        }
       }
     }
 
-    // ----------------------------------------------------------
-    // 6. الإخراج النهائي للمستخدم
-    // ----------------------------------------------------------
+    // 6. الإخراج
     res.status(200).json({
       signals: finalSignals.sort((a, b) => b.predictionScore - a.predictionScore),
       meta: {
@@ -210,12 +193,12 @@ export default async function handler(req, res) {
         totalSignals: finalSignals.length,
         executionTime: `${((Date.now() - startTime) / 1000).toFixed(2)}s`,
         brainVersion: model.version,
-        marketRegime: marketContext.regime,
         savedSnapshots: snapshotsBatch.length,
       },
     });
+
   } catch (error) {
-    console.error('❌ خطأ عام في /api/scan:', error);
+    console.error('❌ خطأ عام:', error);
     res.status(500).json({
       error: 'فشل في تشغيل المسح',
       details: error.message,
@@ -223,9 +206,6 @@ export default async function handler(req, res) {
   }
 }
 
-// ============================================================
-// دوال مساعدة
-// ============================================================
 function getGrade(score) {
   if (score >= 85) return 'ELITE';
   if (score >= 75) return 'PRIME';
