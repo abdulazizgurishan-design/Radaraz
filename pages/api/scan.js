@@ -1,4 +1,4 @@
-// pages/api/scan.js - v20.1 (محسن)
+// pages/api/scan.js
 import { dataProvider } from '../../lib/radar/core/DataProvider';
 import { FilterEngine } from '../../lib/radar/core/FilterEngine';
 import { SmartTimeframeEngine } from '../../lib/radar/core/SmartTimeframeEngine';
@@ -7,6 +7,7 @@ import { FeatureBuilder } from '../../lib/radar/core/FeatureBuilder';
 import { PredictionEngine } from '../../lib/radar/services/PredictionEngine';
 import { ConfidenceEngine } from '../../lib/radar/services/ConfidenceEngine';
 import { StorageEngine } from '../../lib/radar/services/StorageEngine';
+import { SCAN_CONFIG } from '../../lib/radar/core/config.js';
 import { createClient } from '@supabase/supabase-js';
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -31,7 +32,6 @@ const DEFAULT_MODEL = {
   ai_weight: 0.4,
 };
 
-// ─── Adaptive Batch ──────────────────────────────────────
 let currentBatchSize = 20;
 let consecutiveRateLimits = 0;
 
@@ -44,7 +44,6 @@ const getAdaptiveBatchSize = () => {
   return currentBatchSize;
 };
 
-// ─── Process Batch ───────────────────────────────────────
 async function processBatch(stocks, marketContext, model) {
   const BATCH_SIZE = getAdaptiveBatchSize();
   const results = [];
@@ -59,10 +58,14 @@ async function processBatch(stocks, marketContext, model) {
           timeframe: 'day',
           limit: 30,
           adjusted: true,
+          minRequired: 15,
         });
 
-        const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
-        const atrPercent = stock.price > 0 ? (atr / stock.price) * 100 : 0;
+        let atrPercent = 0;
+        if (dailyBars && dailyBars.length >= 14) {
+          const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
+          atrPercent = stock.price > 0 ? (atr / stock.price) * 100 : 0;
+        }
 
         const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
 
@@ -70,13 +73,15 @@ async function processBatch(stocks, marketContext, model) {
           timeframe,
           limit: 50,
           adjusted: true,
+          minRequired: 10,
         });
 
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
-          bars,
+          bars || [],
           marketContext,
-          timeframe
+          timeframe,
+          dailyBars || []
         );
 
         const score = PredictionEngine.calculate(
@@ -120,7 +125,6 @@ async function processBatch(stocks, marketContext, model) {
   return results;
 }
 
-// ─── Main Handler ────────────────────────────────────────
 export default async function handler(req, res) {
   const startTime = Date.now();
 
@@ -174,29 +178,31 @@ export default async function handler(req, res) {
       });
     }
 
-    // ─── Filtering ────────────────────────────────────────
     const filtered = FilterEngine.filter(universe, {
-      limit: 300,
+      limit: SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300,
       minPrice: 2,
       minVolume: 200000,
       minDollarVol: 1000000,
       maxChangePct: 15,
-    }).slice(0, 100);
+    });
 
-    console.log(`📊 بعد الفلاتر: ${filtered.length} سهم من أصل ${universe.length}`);
+    const analysisLimit = SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300;
+    const analysisStocks = filtered.slice(0, analysisLimit);
 
-    if (filtered.length === 0) {
+    console.log(`📊 بعد الفلاتر: ${filtered.length} سهم، سيتم تحليل: ${analysisStocks.length}`);
+
+    if (analysisStocks.length === 0) {
       return res.status(200).json({
         signals: [],
         meta: {
           totalScanned: universe.length,
-          totalFiltered: 0,
-          message: 'لا توجد أسهم تطابق الفلاتر',
+          totalFiltered: filtered.length,
+          message: 'لا توجد أسهم للتحليل',
         },
       });
     }
 
-    const processed = await processBatch(filtered, marketContext, model);
+    const processed = await processBatch(analysisStocks, marketContext, model);
 
     const finalSignals = [];
     const snapshotsBatch = [];
@@ -269,6 +275,7 @@ export default async function handler(req, res) {
         brainVersion: model.version,
         timeframeBreakdown: totalTimeframes,
         batchSizeUsed: currentBatchSize,
+        analysisLimit: analysisLimit,
       },
     });
   } catch (error) {
