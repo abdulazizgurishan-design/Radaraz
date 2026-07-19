@@ -1,15 +1,16 @@
-// pages/api/scan.js
-import { DataProvider } from '../../lib/radar/core/DataProvider';
+// pages/api/scan.js - v20.1 (محسن)
+import { dataProvider } from '../../lib/radar/core/DataProvider';
+import { FilterEngine } from '../../lib/radar/core/FilterEngine';
+import { SmartTimeframeEngine } from '../../lib/radar/core/SmartTimeframeEngine';
+import { IndicatorEngine } from '../../lib/radar/core/IndicatorEngine';
 import { FeatureBuilder } from '../../lib/radar/core/FeatureBuilder';
 import { PredictionEngine } from '../../lib/radar/services/PredictionEngine';
 import { ConfidenceEngine } from '../../lib/radar/services/ConfidenceEngine';
 import { StorageEngine } from '../../lib/radar/services/StorageEngine';
-import { cache } from '../../lib/radar/core/CacheManager';
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ استخدام SERVICE_ROLE_KEY إلزامي
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error('❌ SUPABASE_SERVICE_ROLE_KEY is missing in environment variables.');
+  throw new Error('❌ SUPABASE_SERVICE_ROLE_KEY is missing.');
 }
 
 const supabase = createClient(
@@ -18,7 +19,7 @@ const supabase = createClient(
 );
 
 const DEFAULT_MODEL = {
-  version: 'v19.8',
+  version: 'v20.1',
   weights: {
     earlyAccumulation: 0.30,
     breakoutProbability: 0.25,
@@ -30,11 +31,100 @@ const DEFAULT_MODEL = {
   ai_weight: 0.4,
 };
 
+// ─── Adaptive Batch ──────────────────────────────────────
+let currentBatchSize = 20;
+let consecutiveRateLimits = 0;
+
+const getAdaptiveBatchSize = () => {
+  if (consecutiveRateLimits > 3) {
+    currentBatchSize = Math.max(3, currentBatchSize - 2);
+  } else if (consecutiveRateLimits === 0 && currentBatchSize < 20) {
+    currentBatchSize = Math.min(20, currentBatchSize + 1);
+  }
+  return currentBatchSize;
+};
+
+// ─── Process Batch ───────────────────────────────────────
+async function processBatch(stocks, marketContext, model) {
+  const BATCH_SIZE = getAdaptiveBatchSize();
+  const results = [];
+  let batchRateLimits = 0;
+
+  for (let i = 0; i < stocks.length; i += BATCH_SIZE) {
+    const batch = stocks.slice(i, i + BATCH_SIZE);
+
+    const batchPromises = batch.map(async (stock) => {
+      try {
+        const dailyBars = await dataProvider.getBars(stock.symbol, {
+          timeframe: 'day',
+          limit: 30,
+          adjusted: true,
+        });
+
+        const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
+        const atrPercent = stock.price > 0 ? (atr / stock.price) * 100 : 0;
+
+        const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
+
+        const bars = await dataProvider.getBars(stock.symbol, {
+          timeframe,
+          limit: 50,
+          adjusted: true,
+        });
+
+        const featureVector = FeatureBuilder.buildFromBars(
+          stock,
+          bars,
+          marketContext,
+          timeframe
+        );
+
+        const score = PredictionEngine.calculate(
+          featureVector,
+          model.weights,
+          model.rule_weight,
+          model.ai_weight
+        );
+
+        return {
+          stock,
+          featureVector,
+          score,
+          bars,
+          timeframe,
+          dailyBars,
+          atrPercent,
+        };
+      } catch (err) {
+        if (err.message?.includes('429')) batchRateLimits++;
+        console.error(`❌ خطأ في ${stock.symbol}:`, err.message);
+        return null;
+      }
+    });
+
+    const batchResults = await Promise.allSettled(batchPromises);
+
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled' && result.value) {
+        results.push(result.value);
+      }
+    }
+  }
+
+  if (batchRateLimits > 0) {
+    consecutiveRateLimits += batchRateLimits;
+  } else {
+    consecutiveRateLimits = Math.max(0, consecutiveRateLimits - 1);
+  }
+
+  return results;
+}
+
+// ─── Main Handler ────────────────────────────────────────
 export default async function handler(req, res) {
   const startTime = Date.now();
 
   try {
-    // 1. سياق السوق
     let marketContext = {
       spy_change: 0,
       vix: 18,
@@ -49,133 +139,138 @@ export default async function handler(req, res) {
     };
 
     try {
-      if (typeof DataProvider.fetchMarketContext === 'function') {
-        const real = await DataProvider.fetchMarketContext();
-        marketContext = { ...marketContext, ...real };
+      const real = await dataProvider.getMarketData();
+      if (real) {
+        marketContext = {
+          ...marketContext,
+          spy_change: real.spy?.change || 0,
+          vix: real.vix?.price || 18,
+          regime: real.regime || 'Neutral',
+        };
       }
-    } catch (e) { /* تجاهل */ }
-
-    // 2. جلب النموذج النشط (مع Cache)
-    const getChampion = async () => {
-      const cached = cache.get('champion_model');
-      if (cached) return cached;
-
-      const { data } = await supabase
-        .from('model_registry')
-        .select('version, weights, rule_weight, ai_weight')
-        .eq('status', 'CHAMPION')
-        .single();
-
-      const model = data || DEFAULT_MODEL;
-      cache.set('champion_model', model, 60);
-      return model;
-    };
-
-    const model = await getChampion();
-
-    // 3. مسح الأسهم (مع بيانات وهمية للاختبار)
-    let rawStocks = [];
-    if (typeof DataProvider.scanStocks === 'function') {
-      try {
-        rawStocks = await DataProvider.scanStocks();
-      } catch (e) { /* */ }
+    } catch (e) {
+      console.warn('⚠️ Using default market context:', e.message);
     }
 
-    if (rawStocks.length === 0) {
-      rawStocks = [
-        { symbol: 'AAPL', close: 150, volume: 1000000, rvol: 5, atr: 0.5, ema9: 148, ema21: 147, vwap: 149, rsi: 60, sectorRank: 2 },
-        { symbol: 'TSLA', close: 200, volume: 2000000, rvol: 7, atr: 1.2, ema9: 198, ema21: 195, vwap: 197, rsi: 65, sectorRank: 1 },
-        { symbol: 'NVDA', close: 800, volume: 1500000, rvol: 6, atr: 2.5, ema9: 790, ema21: 780, vwap: 785, rsi: 70, sectorRank: 3 },
-        { symbol: 'AMD', close: 120, volume: 800000, rvol: 4, atr: 0.8, ema9: 118, ema21: 117, vwap: 119, rsi: 55, sectorRank: 4 },
-        { symbol: 'MSFT', close: 350, volume: 1200000, rvol: 5.5, atr: 1.0, ema9: 345, ema21: 340, vwap: 342, rsi: 62, sectorRank: 2 },
-      ];
+    const { data: modelData } = await supabase
+      .from('model_registry')
+      .select('version, weights, rule_weight, ai_weight')
+      .eq('status', 'CHAMPION')
+      .single();
+
+    const model = modelData || DEFAULT_MODEL;
+
+    let universe = [];
+    try {
+      universe = await dataProvider.getUniverse();
+    } catch (error) {
+      console.error('❌ Failed to fetch universe:', error.message);
     }
 
-    if (rawStocks.length === 0) {
+    if (universe.length === 0) {
       return res.status(200).json({
         signals: [],
-        meta: { message: 'لا توجد بيانات أسهم متاحة حالياً' },
+        meta: { message: 'لا توجد بيانات من Polygon', totalScanned: 0 },
       });
     }
 
-    // 4. المعالجة والتجميع (بدون temp_id)
+    // ─── Filtering ────────────────────────────────────────
+    const filtered = FilterEngine.filter(universe, {
+      limit: 300,
+      minPrice: 2,
+      minVolume: 200000,
+      minDollarVol: 1000000,
+      maxChangePct: 15,
+    }).slice(0, 100);
+
+    console.log(`📊 بعد الفلاتر: ${filtered.length} سهم من أصل ${universe.length}`);
+
+    if (filtered.length === 0) {
+      return res.status(200).json({
+        signals: [],
+        meta: {
+          totalScanned: universe.length,
+          totalFiltered: 0,
+          message: 'لا توجد أسهم تطابق الفلاتر',
+        },
+      });
+    }
+
+    const processed = await processBatch(filtered, marketContext, model);
+
     const finalSignals = [];
     const snapshotsBatch = [];
     const predictionsBatch = [];
-    const MAX_STOCKS = Math.min(rawStocks.length, 100);
+    let totalTimeframes = {};
 
-    for (let i = 0; i < MAX_STOCKS; i++) {
-      const stock = rawStocks[i];
-      try {
-        const featureVector = FeatureBuilder.build(stock, marketContext);
-        const context = FeatureBuilder.buildContext(marketContext);
-        const score = PredictionEngine.calculate(
-          featureVector,
-          model.weights,
-          model.rule_weight,
-          model.ai_weight
-        );
-        const confidence = ConfidenceEngine.calculateBreakdown(featureVector);
-        const symbol = stock.symbol || stock.Symbol || 'UNKNOWN';
+    for (const item of processed) {
+      if (!item) continue;
 
-        snapshotsBatch.push({
+      const { stock, featureVector, score, timeframe } = item;
+      const confidence = ConfidenceEngine.calculateBreakdown(featureVector);
+      const symbol = stock.symbol;
+
+      totalTimeframes[timeframe] = (totalTimeframes[timeframe] || 0) + 1;
+
+      snapshotsBatch.push({
+        symbol,
+        price: featureVector.price,
+        feature_vector: featureVector,
+        context: FeatureBuilder.buildContext(marketContext),
+      });
+
+      predictionsBatch.push({
+        model_version: model.version,
+        predicted_score: score,
+        confidence_dist: confidence.breakdown,
+      });
+
+      if (score >= 50) {
+        finalSignals.push({
           symbol,
           price: featureVector.price,
-          feature_vector: featureVector,
-          context,
+          predictionScore: parseFloat(score.toFixed(1)),
+          confidence: confidence.total,
+          grade: getGrade(score),
+          brainVersion: model.version,
+          timing: featureVector.timing || 'BREAKOUT',
+          timeframe,
         });
-
-        predictionsBatch.push({
-          model_version: model.version,
-          predicted_score: score,
-          confidence_dist: confidence.breakdown,
-        });
-
-        if (score >= 50) {
-          finalSignals.push({
-            symbol,
-            price: featureVector.price,
-            predictionScore: parseFloat(score.toFixed(1)),
-            confidence: confidence.total,
-            grade: getGrade(score),
-            brainVersion: model.version,
-            timing: stock.timing || 'BREAKOUT',
-          });
-        }
-      } catch (err) {
-        console.error(`❌ خطأ في السهم ${stock.symbol || 'unknown'}:`, err.message);
       }
     }
 
-    // 5. حفظ البيانات (Bulk Insert مع ترتيب مضمون)
     if (snapshotsBatch.length > 0) {
-      const savedSnapshots = await StorageEngine.saveSnapshotsBulk(snapshotsBatch);
+      try {
+        const savedSnapshots = await StorageEngine.saveSnapshotsBulk(snapshotsBatch);
 
-      if (savedSnapshots.length > 0 && predictionsBatch.length > 0) {
-        // ✅ الربط بالترتيب (مضمون في Supabase)
-        const finalPredictions = savedSnapshots.map((row, index) => ({
-          feature_id: row.id,
-          model_version: predictionsBatch[index]?.model_version || model.version,
-          predicted_score: predictionsBatch[index]?.predicted_score || 0,
-          confidence_dist: predictionsBatch[index]?.confidence_dist || {},
-        }));
+        if (savedSnapshots.length > 0 && predictionsBatch.length > 0) {
+          const finalPredictions = savedSnapshots.map((row, index) => ({
+            feature_id: row.id,
+            model_version: predictionsBatch[index]?.model_version || model.version,
+            predicted_score: predictionsBatch[index]?.predicted_score || 0,
+            confidence_dist: predictionsBatch[index]?.confidence_dist || {},
+          }));
 
-        await StorageEngine.savePredictionsBulk(finalPredictions);
+          await StorageEngine.savePredictionsBulk(finalPredictions);
+        }
+      } catch (storageError) {
+        console.error('❌ فشل في حفظ البيانات:', storageError);
       }
     }
 
-    // 6. الإخراج
     res.status(200).json({
       signals: finalSignals.sort((a, b) => b.predictionScore - a.predictionScore),
       meta: {
-        totalScanned: rawStocks.length,
+        totalScanned: universe.length,
+        totalFiltered: filtered.length,
         totalSignals: finalSignals.length,
+        savedSnapshots: snapshotsBatch.length,
         executionTime: `${((Date.now() - startTime) / 1000).toFixed(2)}s`,
         brainVersion: model.version,
-        savedSnapshots: snapshotsBatch.length,
+        timeframeBreakdown: totalTimeframes,
+        batchSizeUsed: currentBatchSize,
       },
     });
-
   } catch (error) {
     console.error('❌ خطأ عام:', error);
     res.status(500).json({
