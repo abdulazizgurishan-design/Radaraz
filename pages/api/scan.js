@@ -44,7 +44,6 @@ const getAdaptiveBatchSize = () => {
   return currentBatchSize;
 };
 
-// ─── processBatch (معدل مع سجلات تشخيصية محسنة) ──────────────
 async function processBatch(stocks, marketContext, model) {
   const BATCH_SIZE = getAdaptiveBatchSize();
   const results = [];
@@ -54,38 +53,29 @@ async function processBatch(stocks, marketContext, model) {
     const batch = stocks.slice(i, i + BATCH_SIZE);
 
     const batchPromises = batch.map(async (stock) => {
-      console.log(`🔍 [DEBUG] START ${stock.symbol}`);
-
       try {
-        // 1. جلب Daily Bars
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
           limit: 30,
           adjusted: true,
           minRequired: 15,
         });
-        console.log(`🔍 [DEBUG] ${stock.symbol} daily: ${dailyBars?.length || 0}`);
 
-        // 2. حساب ATR%
         let atrPercent = 0;
         if (dailyBars && dailyBars.length >= 14) {
           const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
           atrPercent = stock.price > 0 ? (atr / stock.price) * 100 : 0;
         }
 
-        // 3. اختيار الفريم
         const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
 
-        // 4. جلب Intraday Bars
         const bars = await dataProvider.getBars(stock.symbol, {
           timeframe,
           limit: 50,
           adjusted: true,
           minRequired: 10,
         });
-        console.log(`🔍 [DEBUG] ${stock.symbol} intraday (${timeframe}): ${bars?.length || 0}`);
 
-        // 5. بناء Feature Vector
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
           bars || [],
@@ -93,16 +83,13 @@ async function processBatch(stocks, marketContext, model) {
           timeframe,
           dailyBars || []
         );
-        console.log(`🔍 [DEBUG] ${stock.symbol} feature OK`);
 
-        // 6. حساب التوقع
         const score = PredictionEngine.calculate(
           featureVector,
           model.weights,
           model.rule_weight,
           model.ai_weight
         );
-        console.log(`🔍 [DEBUG] ${stock.symbol} score: ${score}`);
 
         return {
           stock,
@@ -114,10 +101,6 @@ async function processBatch(stocks, marketContext, model) {
           atrPercent,
         };
       } catch (err) {
-        // ✅ طباعة الخطأ مع الـ Stack كامل
-        console.error(`❌ [DEBUG] ${stock.symbol} ERROR`);
-        console.error(err);
-        console.error(err.stack);
         if (err.message?.includes('429')) batchRateLimits++;
         return null;
       }
@@ -132,13 +115,6 @@ async function processBatch(stocks, marketContext, model) {
     }
   }
 
-  // ✅ إحصاءات نهائية
-  console.log("========== PROCESS SUMMARY ==========");
-  console.log("Stocks input:", stocks.length);
-  console.log("Processed OK:", results.length);
-  console.log("Rate limits:", batchRateLimits);
-  console.log("====================================");
-
   if (batchRateLimits > 0) {
     consecutiveRateLimits += batchRateLimits;
   } else {
@@ -148,12 +124,10 @@ async function processBatch(stocks, marketContext, model) {
   return results;
 }
 
-// ─── Main Handler ──────────────────────────────────────────────
 export default async function handler(req, res) {
   const startTime = Date.now();
 
   try {
-    // 1. سياق السوق
     let marketContext = {
       spy_change: 0,
       vix: 18,
@@ -181,7 +155,6 @@ export default async function handler(req, res) {
       console.warn('⚠️ Using default market context:', e.message);
     }
 
-    // 2. جلب النموذج النشط
     const { data: modelData } = await supabase
       .from('model_registry')
       .select('version, weights, rule_weight, ai_weight')
@@ -190,11 +163,9 @@ export default async function handler(req, res) {
 
     const model = modelData || DEFAULT_MODEL;
 
-    // 3. جلب القائمة الكاملة من Polygon
     let universe = [];
     try {
       universe = await dataProvider.getUniverse();
-
       console.log('🔍 [scan.js] Universe length:', universe.length);
       if (universe.length > 0) {
         console.log('🔍 [scan.js] First stock sample:', JSON.stringify(universe[0], null, 2));
@@ -203,8 +174,6 @@ export default async function handler(req, res) {
           volume_gt_zero: universe.filter(s => Number(s.volume) > 0).length,
           dollar_gt_zero: universe.filter(s => Number(s.dollar_vol) > 0).length,
         });
-      } else {
-        console.warn('⚠️ [scan.js] Universe is empty!');
       }
     } catch (error) {
       console.error('❌ Failed to fetch universe:', error.message);
@@ -217,7 +186,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // 4. إعداد خيارات الفلترة
     const filterOptions = {
       limit: SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300,
       minPrice: SCAN_CONFIG.MIN_PRICE || 2,
@@ -230,8 +198,6 @@ export default async function handler(req, res) {
 
     console.log('🔍 [scan.js] Filter options:', filterOptions);
 
-    // 5. استدعاء FilterEngine
-    console.log('🔍 [scan.js] About to call FilterEngine.filter with universe length:', universe.length);
     let filtered = [];
     try {
       filtered = FilterEngine.filter(universe, filterOptions);
@@ -260,14 +226,27 @@ export default async function handler(req, res) {
     // 6. معالجة الدفعات
     const processed = await processBatch(analysisStocks, marketContext, model);
 
-    // 7. بناء الإشارات والحفظ
+    // ✅ السجلات الثلاثة المطلوبة
+    console.log("🔍 [DEBUG] processed =", processed.length);
+    if (processed.length > 0) {
+      console.log("🔍 [DEBUG] first score =", processed[0].score);
+      console.log("🔍 [DEBUG] first symbol =", processed[0].stock.symbol);
+    }
+
     const finalSignals = [];
     const snapshotsBatch = [];
     const predictionsBatch = [];
     let totalTimeframes = {};
 
     for (const item of processed) {
-      if (!item) continue;
+      // ✅ سجل إضافي داخل الحلقة
+      console.log(
+        "🔍 [DEBUG]",
+        item.stock.symbol,
+        "score =",
+        item.score,
+        item.featureVector ? "FV_OK" : "FV_NULL"
+      );
 
       const { stock, featureVector, score, timeframe } = item;
       const confidence = ConfidenceEngine.calculateBreakdown(featureVector);
