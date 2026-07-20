@@ -44,8 +44,9 @@ const getAdaptiveBatchSize = () => {
   return currentBatchSize;
 };
 
+// ─── processBatch مع سجلات تشخيصية كاملة ──────────────────────
 async function processBatch(stocks, marketContext, model) {
-  console.log("🚀 processBatch started", stocks.length);
+  console.log(`🚀 processBatch started with ${stocks.length} stocks`);
 
   const BATCH_SIZE = getAdaptiveBatchSize();
   const results = [];
@@ -56,6 +57,7 @@ async function processBatch(stocks, marketContext, model) {
 
     const batchPromises = batch.map(async (stock) => {
       try {
+        // 1. جلب Daily Bars
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
           limit: 30,
@@ -63,14 +65,17 @@ async function processBatch(stocks, marketContext, model) {
           minRequired: 15,
         });
 
+        // 2. حساب ATR%
         let atrPercent = 0;
         if (dailyBars && dailyBars.length >= 14) {
           const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
           atrPercent = stock.price > 0 ? (atr / stock.price) * 100 : 0;
         }
 
+        // 3. اختيار الفريم
         const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
 
+        // 4. جلب Intraday Bars
         const bars = await dataProvider.getBars(stock.symbol, {
           timeframe,
           limit: 50,
@@ -78,6 +83,12 @@ async function processBatch(stocks, marketContext, model) {
           minRequired: 10,
         });
 
+        // ✅ سجل تفصيلي لكل سهم
+        console.log(
+          `📊 ${stock.symbol}: daily=${dailyBars?.length || 0}, intraday=${bars?.length || 0}, timeframe=${timeframe}, atr%=${atrPercent.toFixed(2)}`
+        );
+
+        // 5. بناء Feature Vector
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
           bars || [],
@@ -86,12 +97,15 @@ async function processBatch(stocks, marketContext, model) {
           dailyBars || []
         );
 
+        // 6. حساب التوقع
         const score = PredictionEngine.calculate(
           featureVector,
           model.weights,
           model.rule_weight,
           model.ai_weight
         );
+
+        console.log(`🎯 ${stock.symbol}: score=${score.toFixed(1)}, featureVector=${featureVector ? 'OK' : 'NULL'}`);
 
         return {
           stock,
@@ -103,6 +117,9 @@ async function processBatch(stocks, marketContext, model) {
           atrPercent,
         };
       } catch (err) {
+        // ✅ سجل الخطأ مع الـ Stack كامل
+        console.error(`❌ ERROR ${stock.symbol}:`, err.message);
+        console.error(err.stack);
         if (err.message?.includes('429')) batchRateLimits++;
         return null;
       }
@@ -117,7 +134,8 @@ async function processBatch(stocks, marketContext, model) {
     }
   }
 
-  console.log("✅ processBatch finished", results.length);
+  // ✅ ملخص نهائي
+  console.log(`✅ processBatch finished with ${results.length} results out of ${stocks.length}`);
 
   if (batchRateLimits > 0) {
     consecutiveRateLimits += batchRateLimits;
@@ -128,10 +146,12 @@ async function processBatch(stocks, marketContext, model) {
   return results;
 }
 
+// ─── Main Handler ──────────────────────────────────────────────
 export default async function handler(req, res) {
   const startTime = Date.now();
 
   try {
+    // 1. سياق السوق
     let marketContext = {
       spy_change: 0,
       vix: 18,
@@ -159,6 +179,7 @@ export default async function handler(req, res) {
       console.warn('⚠️ Using default market context:', e.message);
     }
 
+    // 2. جلب النموذج النشط
     const { data: modelData } = await supabase
       .from('model_registry')
       .select('version, weights, rule_weight, ai_weight')
@@ -167,6 +188,7 @@ export default async function handler(req, res) {
 
     const model = modelData || DEFAULT_MODEL;
 
+    // 3. جلب القائمة الكاملة من Polygon
     let universe = [];
     try {
       universe = await dataProvider.getUniverse();
@@ -190,6 +212,7 @@ export default async function handler(req, res) {
       });
     }
 
+    // 4. إعداد خيارات الفلترة
     const filterOptions = {
       limit: SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300,
       minPrice: SCAN_CONFIG.MIN_PRICE || 2,
@@ -202,6 +225,7 @@ export default async function handler(req, res) {
 
     console.log('🔍 [scan.js] Filter options:', filterOptions);
 
+    // 5. استدعاء FilterEngine
     let filtered = [];
     try {
       filtered = FilterEngine.filter(universe, filterOptions);
@@ -227,16 +251,20 @@ export default async function handler(req, res) {
       });
     }
 
+    // 6. معالجة الدفعات
     const processed = await processBatch(analysisStocks, marketContext, model);
 
     console.log("🔍 processed.length =", processed.length);
 
+    // 7. بناء الإشارات والحفظ
     const finalSignals = [];
     const snapshotsBatch = [];
     const predictionsBatch = [];
     let totalTimeframes = {};
 
     for (const item of processed) {
+      if (!item) continue;
+
       const { stock, featureVector, score, timeframe } = item;
       const confidence = ConfidenceEngine.calculateBreakdown(featureVector);
       const symbol = stock.symbol;
@@ -270,6 +298,7 @@ export default async function handler(req, res) {
       }
     }
 
+    // 8. حفظ البيانات
     if (snapshotsBatch.length > 0) {
       try {
         const savedSnapshots = await StorageEngine.saveSnapshotsBulk(snapshotsBatch);
@@ -289,6 +318,7 @@ export default async function handler(req, res) {
       }
     }
 
+    // 9. الإخراج
     res.status(200).json({
       signals: finalSignals.sort((a, b) => b.predictionScore - a.predictionScore),
       meta: {
