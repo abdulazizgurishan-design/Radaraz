@@ -129,6 +129,7 @@ export default async function handler(req, res) {
   const startTime = Date.now();
 
   try {
+    // 1. سياق السوق
     let marketContext = {
       spy_change: 0,
       vix: 18,
@@ -156,6 +157,7 @@ export default async function handler(req, res) {
       console.warn('⚠️ Using default market context:', e.message);
     }
 
+    // 2. جلب النموذج النشط
     const { data: modelData } = await supabase
       .from('model_registry')
       .select('version, weights, rule_weight, ai_weight')
@@ -164,6 +166,7 @@ export default async function handler(req, res) {
 
     const model = modelData || DEFAULT_MODEL;
 
+    // 3. جلب القائمة الكاملة من Polygon
     let universe = [];
     try {
       universe = await dataProvider.getUniverse();
@@ -190,6 +193,7 @@ export default async function handler(req, res) {
       });
     }
 
+    // 4. إعداد خيارات الفلترة
     const filterOptions = {
       limit: SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300,
       minPrice: SCAN_CONFIG.MIN_PRICE || 2,
@@ -202,7 +206,16 @@ export default async function handler(req, res) {
 
     console.log('🔍 [scan.js] Filter options:', filterOptions);
 
-    const filtered = FilterEngine.filter(universe, filterOptions);
+    // 5. استدعاء FilterEngine مع سجلات
+    console.log('🔍 [scan.js] About to call FilterEngine.filter with universe length:', universe.length);
+    let filtered = [];
+    try {
+      filtered = FilterEngine.filter(universe, filterOptions);
+      console.log('🔍 [scan.js] FilterEngine.filter returned:', filtered.length);
+    } catch (error) {
+      console.error('❌ [scan.js] FilterEngine.filter threw an error:', error.message);
+      filtered = [];
+    }
 
     const analysisLimit = SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300;
     const analysisStocks = filtered.slice(0, analysisLimit);
@@ -220,6 +233,7 @@ export default async function handler(req, res) {
       });
     }
 
+    // 6. معالجة الدفعات
     const processed = await processBatch(analysisStocks, marketContext, model);
 
     const finalSignals = [];
@@ -263,6 +277,7 @@ export default async function handler(req, res) {
       }
     }
 
+    // 7. حفظ البيانات
     if (snapshotsBatch.length > 0) {
       try {
         const savedSnapshots = await StorageEngine.saveSnapshotsBulk(snapshotsBatch);
@@ -282,6 +297,7 @@ export default async function handler(req, res) {
       }
     }
 
+    // 8. الإخراج
     res.status(200).json({
       signals: finalSignals.sort((a, b) => b.predictionScore - a.predictionScore),
       meta: {
