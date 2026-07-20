@@ -129,6 +129,7 @@ export default async function handler(req, res) {
   const startTime = Date.now();
 
   try {
+    // 1. سياق السوق
     let marketContext = {
       spy_change: 0,
       vix: 18,
@@ -156,6 +157,7 @@ export default async function handler(req, res) {
       console.warn('⚠️ Using default market context:', e.message);
     }
 
+    // 2. جلب النموذج النشط
     const { data: modelData } = await supabase
       .from('model_registry')
       .select('version, weights, rule_weight, ai_weight')
@@ -164,9 +166,23 @@ export default async function handler(req, res) {
 
     const model = modelData || DEFAULT_MODEL;
 
+    // 3. جلب القائمة الكاملة من Polygon
     let universe = [];
     try {
       universe = await dataProvider.getUniverse();
+
+      // ✅ سجلات التشخيص
+      console.log('🔍 [scan.js] Universe length:', universe.length);
+      if (universe.length > 0) {
+        console.log('🔍 [scan.js] First stock sample:', JSON.stringify(universe[0], null, 2));
+        console.log('🔍 [scan.js] Data quality:', {
+          price_gt_zero: universe.filter(s => Number(s.price) > 0).length,
+          volume_gt_zero: universe.filter(s => Number(s.volume) > 0).length,
+          dollar_gt_zero: universe.filter(s => Number(s.dollar_vol) > 0).length,
+        });
+      } else {
+        console.warn('⚠️ [scan.js] Universe is empty!');
+      }
     } catch (error) {
       console.error('❌ Failed to fetch universe:', error.message);
     }
@@ -178,14 +194,22 @@ export default async function handler(req, res) {
       });
     }
 
-    const filtered = FilterEngine.filter(universe, {
+    // 4. تطبيق الفلاتر مع القيم الصحيحة
+    const filterOptions = {
       limit: SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300,
-      minPrice: 2,
-      minVolume: 200000,
-      minDollarVol: 1000000,
+      minPrice: SCAN_CONFIG.MIN_PRICE || 2,
+      minVolume: SCAN_CONFIG.MIN_VOLUME || 200000,
+      minDollarVol: SCAN_CONFIG.MIN_DOLLAR_VOL || 500000,
       maxChangePct: 15,
-    });
+      minRvol: 1.5,
+      maxGapPct: 5,
+    };
 
+    console.log('🔍 [scan.js] Filter options:', filterOptions);
+
+    const filtered = FilterEngine.filter(universe, filterOptions);
+
+    // 5. استخدام limit المحدد للتحليل
     const analysisLimit = SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300;
     const analysisStocks = filtered.slice(0, analysisLimit);
 
@@ -202,6 +226,7 @@ export default async function handler(req, res) {
       });
     }
 
+    // 6. معالجة الدفعات
     const processed = await processBatch(analysisStocks, marketContext, model);
 
     const finalSignals = [];
@@ -245,6 +270,7 @@ export default async function handler(req, res) {
       }
     }
 
+    // 7. حفظ البيانات
     if (snapshotsBatch.length > 0) {
       try {
         const savedSnapshots = await StorageEngine.saveSnapshotsBulk(snapshotsBatch);
@@ -264,6 +290,7 @@ export default async function handler(req, res) {
       }
     }
 
+    // 8. الإخراج
     res.status(200).json({
       signals: finalSignals.sort((a, b) => b.predictionScore - a.predictionScore),
       meta: {
