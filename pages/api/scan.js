@@ -45,6 +45,8 @@ const getAdaptiveBatchSize = () => {
 };
 
 async function processBatch(stocks, marketContext, model) {
+  console.log("🚀 processBatch started", stocks.length);
+
   const BATCH_SIZE = getAdaptiveBatchSize();
   const results = [];
   let batchRateLimits = 0;
@@ -114,6 +116,8 @@ async function processBatch(stocks, marketContext, model) {
       }
     }
   }
+
+  console.log("✅ processBatch finished", results.length);
 
   if (batchRateLimits > 0) {
     consecutiveRateLimits += batchRateLimits;
@@ -223,15 +227,9 @@ export default async function handler(req, res) {
       });
     }
 
-    // 6. معالجة الدفعات
     const processed = await processBatch(analysisStocks, marketContext, model);
 
-    // ✅ السجلات الثلاثة المطلوبة
-    console.log("🔍 [DEBUG] processed =", processed.length);
-    if (processed.length > 0) {
-      console.log("🔍 [DEBUG] first score =", processed[0].score);
-      console.log("🔍 [DEBUG] first symbol =", processed[0].stock.symbol);
-    }
+    console.log("🔍 processed.length =", processed.length);
 
     const finalSignals = [];
     const snapshotsBatch = [];
@@ -239,15 +237,6 @@ export default async function handler(req, res) {
     let totalTimeframes = {};
 
     for (const item of processed) {
-      // ✅ سجل إضافي داخل الحلقة
-      console.log(
-        "🔍 [DEBUG]",
-        item.stock.symbol,
-        "score =",
-        item.score,
-        item.featureVector ? "FV_OK" : "FV_NULL"
-      );
-
       const { stock, featureVector, score, timeframe } = item;
       const confidence = ConfidenceEngine.calculateBreakdown(featureVector);
       const symbol = stock.symbol;
@@ -281,7 +270,6 @@ export default async function handler(req, res) {
       }
     }
 
-    // 8. حفظ البيانات
     if (snapshotsBatch.length > 0) {
       try {
         const savedSnapshots = await StorageEngine.saveSnapshotsBulk(snapshotsBatch);
@@ -301,7 +289,6 @@ export default async function handler(req, res) {
       }
     }
 
-    // 9. الإخراج
     res.status(200).json({
       signals: finalSignals.sort((a, b) => b.predictionScore - a.predictionScore),
       meta: {
