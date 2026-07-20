@@ -44,6 +44,7 @@ const getAdaptiveBatchSize = () => {
   return currentBatchSize;
 };
 
+// ─── processBatch (معدل مع سجلات تشخيصية محسنة) ──────────────
 async function processBatch(stocks, marketContext, model) {
   const BATCH_SIZE = getAdaptiveBatchSize();
   const results = [];
@@ -53,29 +54,38 @@ async function processBatch(stocks, marketContext, model) {
     const batch = stocks.slice(i, i + BATCH_SIZE);
 
     const batchPromises = batch.map(async (stock) => {
+      console.log(`🔍 [DEBUG] START ${stock.symbol}`);
+
       try {
+        // 1. جلب Daily Bars
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
           limit: 30,
           adjusted: true,
           minRequired: 15,
         });
+        console.log(`🔍 [DEBUG] ${stock.symbol} daily: ${dailyBars?.length || 0}`);
 
+        // 2. حساب ATR%
         let atrPercent = 0;
         if (dailyBars && dailyBars.length >= 14) {
           const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
           atrPercent = stock.price > 0 ? (atr / stock.price) * 100 : 0;
         }
 
+        // 3. اختيار الفريم
         const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
 
+        // 4. جلب Intraday Bars
         const bars = await dataProvider.getBars(stock.symbol, {
           timeframe,
           limit: 50,
           adjusted: true,
           minRequired: 10,
         });
+        console.log(`🔍 [DEBUG] ${stock.symbol} intraday (${timeframe}): ${bars?.length || 0}`);
 
+        // 5. بناء Feature Vector
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
           bars || [],
@@ -83,13 +93,16 @@ async function processBatch(stocks, marketContext, model) {
           timeframe,
           dailyBars || []
         );
+        console.log(`🔍 [DEBUG] ${stock.symbol} feature OK`);
 
+        // 6. حساب التوقع
         const score = PredictionEngine.calculate(
           featureVector,
           model.weights,
           model.rule_weight,
           model.ai_weight
         );
+        console.log(`🔍 [DEBUG] ${stock.symbol} score: ${score}`);
 
         return {
           stock,
@@ -101,8 +114,11 @@ async function processBatch(stocks, marketContext, model) {
           atrPercent,
         };
       } catch (err) {
+        // ✅ طباعة الخطأ مع الـ Stack كامل
+        console.error(`❌ [DEBUG] ${stock.symbol} ERROR`);
+        console.error(err);
+        console.error(err.stack);
         if (err.message?.includes('429')) batchRateLimits++;
-        console.error(`❌ خطأ في ${stock.symbol}:`, err.message);
         return null;
       }
     });
@@ -116,6 +132,13 @@ async function processBatch(stocks, marketContext, model) {
     }
   }
 
+  // ✅ إحصاءات نهائية
+  console.log("========== PROCESS SUMMARY ==========");
+  console.log("Stocks input:", stocks.length);
+  console.log("Processed OK:", results.length);
+  console.log("Rate limits:", batchRateLimits);
+  console.log("====================================");
+
   if (batchRateLimits > 0) {
     consecutiveRateLimits += batchRateLimits;
   } else {
@@ -125,6 +148,7 @@ async function processBatch(stocks, marketContext, model) {
   return results;
 }
 
+// ─── Main Handler ──────────────────────────────────────────────
 export default async function handler(req, res) {
   const startTime = Date.now();
 
@@ -198,7 +222,7 @@ export default async function handler(req, res) {
       limit: SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300,
       minPrice: SCAN_CONFIG.MIN_PRICE || 2,
       minVolume: SCAN_CONFIG.MIN_VOLUME || 200000,
-      minDollarVol: SCAN_CONFIG.MIN_DOLLAR_VOL || 500000,
+      minDollarVol: SCAN_CONFIG.MIN_DOLLAR_VOL || 1000000,
       maxChangePct: 15,
       minRvol: 1.5,
       maxGapPct: 5,
@@ -206,7 +230,7 @@ export default async function handler(req, res) {
 
     console.log('🔍 [scan.js] Filter options:', filterOptions);
 
-    // 5. استدعاء FilterEngine مع سجلات
+    // 5. استدعاء FilterEngine
     console.log('🔍 [scan.js] About to call FilterEngine.filter with universe length:', universe.length);
     let filtered = [];
     try {
@@ -236,6 +260,7 @@ export default async function handler(req, res) {
     // 6. معالجة الدفعات
     const processed = await processBatch(analysisStocks, marketContext, model);
 
+    // 7. بناء الإشارات والحفظ
     const finalSignals = [];
     const snapshotsBatch = [];
     const predictionsBatch = [];
@@ -277,7 +302,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 7. حفظ البيانات
+    // 8. حفظ البيانات
     if (snapshotsBatch.length > 0) {
       try {
         const savedSnapshots = await StorageEngine.saveSnapshotsBulk(snapshotsBatch);
@@ -297,7 +322,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 8. الإخراج
+    // 9. الإخراج
     res.status(200).json({
       signals: finalSignals.sort((a, b) => b.predictionScore - a.predictionScore),
       meta: {
