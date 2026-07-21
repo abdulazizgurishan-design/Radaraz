@@ -44,7 +44,7 @@ const getAdaptiveBatchSize = () => {
   return currentBatchSize;
 };
 
-// ─── processBatch مع سجلات تشخيصية كاملة ──────────────────────
+// ─── processBatch مع نقاط التتبع وطباعة الأخطاء ──────────────
 async function processBatch(stocks, marketContext, model) {
   console.log(`🚀 processBatch started with ${stocks.length} stocks`);
 
@@ -57,7 +57,8 @@ async function processBatch(stocks, marketContext, model) {
 
     const batchPromises = batch.map(async (stock) => {
       try {
-        // 1. جلب Daily Bars
+        // ─── النقطة 1: جلب Daily Bars ──────────────────────
+        console.log(stock.symbol, "1 daily");
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
           limit: 30,
@@ -65,17 +66,17 @@ async function processBatch(stocks, marketContext, model) {
           minRequired: 15,
         });
 
-        // 2. حساب ATR%
+        // ─── النقطة 2: حساب ATR% واختيار الفريم ──────────
+        console.log(stock.symbol, "2 timeframe");
         let atrPercent = 0;
         if (dailyBars && dailyBars.length >= 14) {
           const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
           atrPercent = stock.price > 0 ? (atr / stock.price) * 100 : 0;
         }
-
-        // 3. اختيار الفريم
         const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
 
-        // 4. جلب Intraday Bars
+        // ─── النقطة 3: جلب Intraday Bars ──────────────────
+        console.log(stock.symbol, "3 bars");
         const bars = await dataProvider.getBars(stock.symbol, {
           timeframe,
           limit: 50,
@@ -83,12 +84,8 @@ async function processBatch(stocks, marketContext, model) {
           minRequired: 10,
         });
 
-        // ✅ سجل تفصيلي لكل سهم
-        console.log(
-          `📊 ${stock.symbol}: daily=${dailyBars?.length || 0}, intraday=${bars?.length || 0}, timeframe=${timeframe}, atr%=${atrPercent.toFixed(2)}`
-        );
-
-        // 5. بناء Feature Vector
+        // ─── النقطة 4: بناء Feature Vector ────────────────
+        console.log(stock.symbol, "4 feature");
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
           bars || [],
@@ -97,7 +94,8 @@ async function processBatch(stocks, marketContext, model) {
           dailyBars || []
         );
 
-        // 6. حساب التوقع
+        // ─── النقطة 5: حساب التوقع (Score) ────────────────
+        console.log(stock.symbol, "5 score");
         const score = PredictionEngine.calculate(
           featureVector,
           model.weights,
@@ -105,8 +103,7 @@ async function processBatch(stocks, marketContext, model) {
           model.ai_weight
         );
 
-        console.log(`🎯 ${stock.symbol}: score=${score.toFixed(1)}, featureVector=${featureVector ? 'OK' : 'NULL'}`);
-
+        console.log(`✅ ${stock.symbol} completed`);
         return {
           stock,
           featureVector,
@@ -117,10 +114,13 @@ async function processBatch(stocks, marketContext, model) {
           atrPercent,
         };
       } catch (err) {
-        // ✅ سجل الخطأ مع الـ Stack كامل
-        console.error(`❌ ERROR ${stock.symbol}:`, err.message);
-        console.error(err.stack);
-        if (err.message?.includes('429')) batchRateLimits++;
+        // ─── طباعة الخطأ بالكامل مع الـ Stack ──────────────
+        console.error("=================================");
+        console.error("SYMBOL:", stock.symbol);
+        console.error("ERROR MESSAGE:", err.message);
+        console.error("ERROR STACK:", err.stack);
+        console.error("=================================");
+        if (err.message?.includes("429")) batchRateLimits++;
         return null;
       }
     });
@@ -134,7 +134,6 @@ async function processBatch(stocks, marketContext, model) {
     }
   }
 
-  // ✅ ملخص نهائي
   console.log(`✅ processBatch finished with ${results.length} results out of ${stocks.length}`);
 
   if (batchRateLimits > 0) {
