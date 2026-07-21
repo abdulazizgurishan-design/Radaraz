@@ -44,7 +44,7 @@ const getAdaptiveBatchSize = () => {
   return currentBatchSize;
 };
 
-// ─── processBatch ──────────────────────────────────────────
+// ─── processBatch (محسّن للسرعة) ──────────────────────────────
 async function processBatch(stocks, marketContext, model) {
   console.log(`🚀 processBatch started with ${stocks.length} stocks`);
 
@@ -57,14 +57,16 @@ async function processBatch(stocks, marketContext, model) {
 
     const batchPromises = batch.map(async (stock) => {
       try {
+        // ✅ 1. جلب Daily Bars (عدد أقل للسرعة)
         console.log(stock.symbol, "1 daily");
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
-          limit: 30,
+          limit: 20,        // ✅ مخفض من 30
           adjusted: true,
-          minRequired: 15,
+          minRequired: 3,   // ✅ مخفض من 15
         });
 
+        // 2. حساب ATR% واختيار الفريم
         console.log(stock.symbol, "2 timeframe");
         let atrPercent = 0;
         if (dailyBars && dailyBars.length >= 14) {
@@ -73,14 +75,16 @@ async function processBatch(stocks, marketContext, model) {
         }
         const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
 
+        // ✅ 3. جلب Intraday Bars (عدد أقل للسرعة)
         console.log(stock.symbol, "3 bars");
         const bars = await dataProvider.getBars(stock.symbol, {
           timeframe,
-          limit: 50,
+          limit: 30,        // ✅ مخفض من 50
           adjusted: true,
-          minRequired: 10,
+          minRequired: 3,   // ✅ مخفض من 10
         });
 
+        // 4. بناء Feature Vector
         console.log(stock.symbol, "4 feature");
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
@@ -90,6 +94,7 @@ async function processBatch(stocks, marketContext, model) {
           dailyBars || []
         );
 
+        // 5. حساب التوقع
         console.log(stock.symbol, "5 score");
         const score = PredictionEngine.calculate(
           featureVector,
@@ -139,7 +144,7 @@ async function processBatch(stocks, marketContext, model) {
   return results;
 }
 
-// ─── Main Handler ──────────────────────────────────────────
+// ─── Main Handler ──────────────────────────────────────────────
 export default async function handler(req, res) {
   const startTime = Date.now();
 
