@@ -44,7 +44,7 @@ const getAdaptiveBatchSize = () => {
   return currentBatchSize;
 };
 
-// ─── processBatch (محسّن للسرعة) ──────────────────────────────
+// ─── processBatch (محسّن للسرعة القصوى) ──────────────────────
 async function processBatch(stocks, marketContext, model) {
   console.log(`🚀 processBatch started with ${stocks.length} stocks`);
 
@@ -57,13 +57,13 @@ async function processBatch(stocks, marketContext, model) {
 
     const batchPromises = batch.map(async (stock) => {
       try {
-        // ✅ 1. جلب Daily Bars (عدد أقل للسرعة)
+        // ✅ 1. جلب Daily Bars (أقل عدد ممكن للسرعة)
         console.log(stock.symbol, "1 daily");
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
-          limit: 20,        // ✅ مخفض من 30
+          limit: 10,
           adjusted: true,
-          minRequired: 3,   // ✅ مخفض من 15
+          minRequired: 2,
         });
 
         // 2. حساب ATR% واختيار الفريم
@@ -75,13 +75,13 @@ async function processBatch(stocks, marketContext, model) {
         }
         const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
 
-        // ✅ 3. جلب Intraday Bars (عدد أقل للسرعة)
+        // ✅ 3. جلب Intraday Bars (أقل عدد ممكن للسرعة)
         console.log(stock.symbol, "3 bars");
         const bars = await dataProvider.getBars(stock.symbol, {
           timeframe,
-          limit: 30,        // ✅ مخفض من 50
+          limit: 20,
           adjusted: true,
-          minRequired: 3,   // ✅ مخفض من 10
+          minRequired: 2,
         });
 
         // 4. بناء Feature Vector
@@ -284,7 +284,8 @@ export default async function handler(req, res) {
         confidence_dist: confidence.breakdown,
       });
 
-      if (score >= 50) {
+      // ✅ تخفيف عتبة الـ Score إلى 40 مؤقتاً
+      if (score >= 40) {
         finalSignals.push({
           symbol,
           price: featureVector.price,
