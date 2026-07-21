@@ -45,8 +45,6 @@ const getAdaptiveBatchSize = () => {
 };
 
 async function processBatch(stocks, marketContext, model) {
-  console.log(`🚀 processBatch started with ${stocks.length} stocks`);
-
   const BATCH_SIZE = getAdaptiveBatchSize();
   const results = [];
   let batchRateLimits = 0;
@@ -56,37 +54,28 @@ async function processBatch(stocks, marketContext, model) {
 
     const batchPromises = batch.map(async (stock) => {
       try {
-        // 1. Daily Bars
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
-          limit: 10,
+          limit: 30,
           adjusted: true,
-          minRequired: 2,
+          minRequired: 15,
         });
 
-        // 2. ATR% & timeframe
         let atrPercent = 0;
-        if (dailyBars && dailyBars.length >= 10) {
+        if (dailyBars && dailyBars.length >= 14) {
           const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
           atrPercent = stock.price > 0 ? (atr / stock.price) * 100 : 0;
         }
+
         const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
 
-        // 3. Intraday Bars
-        let bars = await dataProvider.getBars(stock.symbol, {
+        const bars = await dataProvider.getBars(stock.symbol, {
           timeframe,
-          limit: 500,
+          limit: 50,
           adjusted: true,
-          minRequired: 2,
+          minRequired: 10,
         });
 
-        // Fallback للبيانات اليومية إذا فشل جلب الدقائق
-        if (!bars || bars.length < 2) {
-          console.log(`⚠️ ${stock.symbol}: minute bars failed (${timeframe}), using daily fallback`);
-          bars = dailyBars || [];
-        }
-
-        // 4. Feature Vector
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
           bars || [],
@@ -95,16 +84,12 @@ async function processBatch(stocks, marketContext, model) {
           dailyBars || []
         );
 
-        // 5. Prediction Score
         const score = PredictionEngine.calculate(
           featureVector,
           model.weights,
           model.rule_weight,
           model.ai_weight
         );
-
-        // ✅ سجل DEBUG لتحليل المشكلة
-        console.log(`🔍 [DEBUG] ${stock.symbol}: bars=${bars?.length || 0}, ema9=${featureVector.ema9?.toFixed(2) || 0}, ema21=${featureVector.ema21?.toFixed(2) || 0}, rsi=${featureVector.rsi?.toFixed(1) || 0}, atr=${featureVector.atr?.toFixed(3) || 0}, macd=${featureVector.macd ? '✅' : '❌'}, score=${score.toFixed(1)}`);
 
         return {
           stock,
@@ -116,12 +101,8 @@ async function processBatch(stocks, marketContext, model) {
           atrPercent,
         };
       } catch (err) {
-        console.error("=================================");
-        console.error("SYMBOL:", stock.symbol);
-        console.error("ERROR MESSAGE:", err.message);
-        console.error("ERROR STACK:", err.stack);
-        console.error("=================================");
-        if (err.message?.includes("429")) batchRateLimits++;
+        if (err.message?.includes('429')) batchRateLimits++;
+        console.error(`❌ خطأ في ${stock.symbol}:`, err.message);
         return null;
       }
     });
@@ -134,8 +115,6 @@ async function processBatch(stocks, marketContext, model) {
       }
     }
   }
-
-  console.log(`✅ processBatch finished with ${results.length} results out of ${stocks.length}`);
 
   if (batchRateLimits > 0) {
     consecutiveRateLimits += batchRateLimits;
@@ -150,7 +129,7 @@ export default async function handler(req, res) {
   const startTime = Date.now();
 
   try {
-    // 1. Market Context
+    // 1. سياق السوق
     let marketContext = {
       spy_change: 0,
       vix: 18,
@@ -178,7 +157,7 @@ export default async function handler(req, res) {
       console.warn('⚠️ Using default market context:', e.message);
     }
 
-    // 2. Champion Model
+    // 2. جلب النموذج النشط
     const { data: modelData } = await supabase
       .from('model_registry')
       .select('version, weights, rule_weight, ai_weight')
@@ -187,11 +166,22 @@ export default async function handler(req, res) {
 
     const model = modelData || DEFAULT_MODEL;
 
-    // 3. Universe
+    // 3. جلب القائمة الكاملة من Polygon
     let universe = [];
     try {
       universe = await dataProvider.getUniverse();
+
       console.log('🔍 [scan.js] Universe length:', universe.length);
+      if (universe.length > 0) {
+        console.log('🔍 [scan.js] First stock sample:', JSON.stringify(universe[0], null, 2));
+        console.log('🔍 [scan.js] Data quality:', {
+          price_gt_zero: universe.filter(s => Number(s.price) > 0).length,
+          volume_gt_zero: universe.filter(s => Number(s.volume) > 0).length,
+          dollar_gt_zero: universe.filter(s => Number(s.dollar_vol) > 0).length,
+        });
+      } else {
+        console.warn('⚠️ [scan.js] Universe is empty!');
+      }
     } catch (error) {
       console.error('❌ Failed to fetch universe:', error.message);
     }
@@ -203,25 +193,33 @@ export default async function handler(req, res) {
       });
     }
 
-    // 4. Filter
+    // 4. إعداد خيارات الفلترة
+    // ⚠️ TEMP DEBUG CHANGE: minRvol set to 0 to test whether the RVOL filter
+    // (avgVolume === volume bug) is the sole cause of totalFiltered = 0.
+    // Revert to 1.5 (or the real computed value) once a genuine average-volume
+    // source is implemented — do NOT leave this at 0 in production.
     const filterOptions = {
       limit: SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300,
       minPrice: SCAN_CONFIG.MIN_PRICE || 2,
       minVolume: SCAN_CONFIG.MIN_VOLUME || 200000,
-      minDollarVol: SCAN_CONFIG.MIN_DOLLAR_VOL || 1000000,
+      minDollarVol: SCAN_CONFIG.MIN_DOLLAR_VOL || 500000,
       maxChangePct: 15,
-      // ⚠️ TEMP DEBUG CHANGE: was 1.5. avgVolume currently always equals
-      // volume in DataProvider.getUniverse() (unfixed root cause), so real
-      // rvol is always 1 and any threshold above 1 zeroes out every stock
-      // at the RADAR/RVOL step. Set to 0 until a genuine average-volume
-      // source is implemented — do NOT leave this at 0 in production.
-      minRvol: 0, // was 1.5
+      minRvol: 0, // TEMP: was 1.5 — see comment above
       maxGapPct: 5,
     };
 
+    console.log('🔍 [scan.js] Filter options:', filterOptions);
+
+    // 5. استدعاء FilterEngine مع سجلات
+    console.log('🔍 [scan.js] About to call FilterEngine.filter with universe length:', universe.length);
     let filtered = [];
     try {
+      // Direct before/after log pair, independent of FilterEngine's own internal
+      // console.log calls — guarantees we see these two numbers in the same
+      // request's logs even if Vercel's log viewer truncates or samples output.
+      console.log('Universe:', universe.length);
       filtered = FilterEngine.filter(universe, filterOptions);
+      console.log('Filtered:', filtered.length);
       console.log('🔍 [scan.js] FilterEngine.filter returned:', filtered.length);
     } catch (error) {
       console.error('❌ [scan.js] FilterEngine.filter threw an error:', error.message);
@@ -230,6 +228,7 @@ export default async function handler(req, res) {
 
     const analysisLimit = SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300;
     const analysisStocks = filtered.slice(0, analysisLimit);
+
     console.log(`📊 بعد الفلاتر: ${filtered.length} سهم، سيتم تحليل: ${analysisStocks.length}`);
 
     if (analysisStocks.length === 0) {
@@ -243,11 +242,9 @@ export default async function handler(req, res) {
       });
     }
 
-    // 5. Process
+    // 6. معالجة الدفعات
     const processed = await processBatch(analysisStocks, marketContext, model);
-    console.log("🔍 processed.length =", processed.length);
 
-    // 6. Build signals
     const finalSignals = [];
     const snapshotsBatch = [];
     const predictionsBatch = [];
@@ -275,8 +272,7 @@ export default async function handler(req, res) {
         confidence_dist: confidence.breakdown,
       });
 
-      // ✅ عتبة مخفضة إلى 30 مؤقتاً للتشخيص
-      if (score >= 30) {
+      if (score >= 50) {
         finalSignals.push({
           symbol,
           price: featureVector.price,
@@ -290,10 +286,11 @@ export default async function handler(req, res) {
       }
     }
 
-    // 7. Save
+    // 7. حفظ البيانات
     if (snapshotsBatch.length > 0) {
       try {
         const savedSnapshots = await StorageEngine.saveSnapshotsBulk(snapshotsBatch);
+
         if (savedSnapshots.length > 0 && predictionsBatch.length > 0) {
           const finalPredictions = savedSnapshots.map((row, index) => ({
             feature_id: row.id,
@@ -301,6 +298,7 @@ export default async function handler(req, res) {
             predicted_score: predictionsBatch[index]?.predicted_score || 0,
             confidence_dist: predictionsBatch[index]?.confidence_dist || {},
           }));
+
           await StorageEngine.savePredictionsBulk(finalPredictions);
         }
       } catch (storageError) {
@@ -308,7 +306,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 8. Response
+    // 8. الإخراج
     res.status(200).json({
       signals: finalSignals.sort((a, b) => b.predictionScore - a.predictionScore),
       meta: {
