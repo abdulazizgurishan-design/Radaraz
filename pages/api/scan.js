@@ -44,7 +44,7 @@ const getAdaptiveBatchSize = () => {
   return currentBatchSize;
 };
 
-// ─── processBatch مع نقاط التتبع وطباعة الأخطاء ──────────────
+// ─── processBatch ──────────────────────────────────────────
 async function processBatch(stocks, marketContext, model) {
   console.log(`🚀 processBatch started with ${stocks.length} stocks`);
 
@@ -57,7 +57,6 @@ async function processBatch(stocks, marketContext, model) {
 
     const batchPromises = batch.map(async (stock) => {
       try {
-        // ─── النقطة 1: جلب Daily Bars ──────────────────────
         console.log(stock.symbol, "1 daily");
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
@@ -66,7 +65,6 @@ async function processBatch(stocks, marketContext, model) {
           minRequired: 15,
         });
 
-        // ─── النقطة 2: حساب ATR% واختيار الفريم ──────────
         console.log(stock.symbol, "2 timeframe");
         let atrPercent = 0;
         if (dailyBars && dailyBars.length >= 14) {
@@ -75,7 +73,6 @@ async function processBatch(stocks, marketContext, model) {
         }
         const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
 
-        // ─── النقطة 3: جلب Intraday Bars ──────────────────
         console.log(stock.symbol, "3 bars");
         const bars = await dataProvider.getBars(stock.symbol, {
           timeframe,
@@ -84,7 +81,6 @@ async function processBatch(stocks, marketContext, model) {
           minRequired: 10,
         });
 
-        // ─── النقطة 4: بناء Feature Vector ────────────────
         console.log(stock.symbol, "4 feature");
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
@@ -94,7 +90,6 @@ async function processBatch(stocks, marketContext, model) {
           dailyBars || []
         );
 
-        // ─── النقطة 5: حساب التوقع (Score) ────────────────
         console.log(stock.symbol, "5 score");
         const score = PredictionEngine.calculate(
           featureVector,
@@ -114,7 +109,6 @@ async function processBatch(stocks, marketContext, model) {
           atrPercent,
         };
       } catch (err) {
-        // ─── طباعة الخطأ بالكامل مع الـ Stack ──────────────
         console.error("=================================");
         console.error("SYMBOL:", stock.symbol);
         console.error("ERROR MESSAGE:", err.message);
@@ -145,7 +139,7 @@ async function processBatch(stocks, marketContext, model) {
   return results;
 }
 
-// ─── Main Handler ──────────────────────────────────────────────
+// ─── Main Handler ──────────────────────────────────────────
 export default async function handler(req, res) {
   const startTime = Date.now();
 
@@ -191,7 +185,7 @@ export default async function handler(req, res) {
     let universe = [];
     try {
       universe = await dataProvider.getUniverse();
-      console.log('🔍 [scan.js] Universe length:', universe.length);
+      console.log('🔍 [scan.js] Universe length BEFORE filter:', universe.length);
       if (universe.length > 0) {
         console.log('🔍 [scan.js] First stock sample:', JSON.stringify(universe[0], null, 2));
         console.log('🔍 [scan.js] Data quality:', {
@@ -199,6 +193,8 @@ export default async function handler(req, res) {
           volume_gt_zero: universe.filter(s => Number(s.volume) > 0).length,
           dollar_gt_zero: universe.filter(s => Number(s.dollar_vol) > 0).length,
         });
+      } else {
+        console.warn('⚠️ [scan.js] Universe is empty BEFORE filter!');
       }
     } catch (error) {
       console.error('❌ Failed to fetch universe:', error.message);
