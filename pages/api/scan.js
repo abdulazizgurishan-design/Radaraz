@@ -44,7 +44,7 @@ const getAdaptiveBatchSize = () => {
   return currentBatchSize;
 };
 
-// ─── processBatch (محسّن مع عرض الدرجات) ──────────────────────
+// ─── processBatch (محسّن مع طباعة featureVector) ────────────
 async function processBatch(stocks, marketContext, model) {
   console.log(`🚀 processBatch started with ${stocks.length} stocks`);
 
@@ -58,6 +58,7 @@ async function processBatch(stocks, marketContext, model) {
     const batchPromises = batch.map(async (stock) => {
       try {
         // 1. جلب Daily Bars
+        console.log(stock.symbol, "1 daily");
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
           limit: 10,
@@ -66,6 +67,7 @@ async function processBatch(stocks, marketContext, model) {
         });
 
         // 2. حساب ATR% واختيار الفريم
+        console.log(stock.symbol, "2 timeframe");
         let atrPercent = 0;
         if (dailyBars && dailyBars.length >= 14) {
           const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
@@ -74,6 +76,7 @@ async function processBatch(stocks, marketContext, model) {
         const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
 
         // 3. جلب Intraday Bars
+        console.log(stock.symbol, "3 bars");
         const bars = await dataProvider.getBars(stock.symbol, {
           timeframe,
           limit: 20,
@@ -82,6 +85,7 @@ async function processBatch(stocks, marketContext, model) {
         });
 
         // 4. بناء Feature Vector
+        console.log(stock.symbol, "4 feature");
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
           bars || [],
@@ -90,7 +94,39 @@ async function processBatch(stocks, marketContext, model) {
           dailyBars || []
         );
 
+        // ✅ طباعة featureVector للتحقق
+        console.log(`📊 ${stock.symbol} feature sample:`, JSON.stringify({
+          price: featureVector.price,
+          volume: featureVector.volume,
+          rvol: featureVector.rvol,
+          atr: featureVector.atr,
+          rsi: featureVector.rsi,
+          ema9: featureVector.ema9,
+          ema21: featureVector.ema21,
+          ema50: featureVector.ema50,
+          vwap: featureVector.vwap,
+          gap: featureVector.gap,
+          change_pct: featureVector.change_pct,
+          spy: featureVector.spy,
+          vix: featureVector.vix,
+          market_regime: featureVector.market_regime,
+          entry: featureVector.entry,
+          stop: featureVector.stop,
+          target1: featureVector.target1,
+          target2: featureVector.target2,
+          target3: featureVector.target3,
+          riskReward: featureVector.riskReward,
+          target_source: featureVector.target_source,
+          holding_period_hours: featureVector.holding_period_hours,
+          sector: featureVector.sector,
+          sectorRank: featureVector.sectorRank,
+          timing: featureVector.timing,
+          timeframe: featureVector.timeframe,
+          dataQuality: featureVector.dataQuality,
+        }, null, 2));
+
         // 5. حساب التوقع
+        console.log(stock.symbol, "5 score");
         const score = PredictionEngine.calculate(
           featureVector,
           model.weights,
@@ -98,7 +134,7 @@ async function processBatch(stocks, marketContext, model) {
           model.ai_weight
         );
 
-        // ✅ عرض الدرجة لكل سهم (للتشخيص)
+        // ✅ عرض الدرجة لكل سهم
         console.log(`🎯 ${stock.symbol}: score=${score.toFixed(1)}`);
 
         return {
