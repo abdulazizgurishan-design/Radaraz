@@ -44,7 +44,7 @@ const getAdaptiveBatchSize = () => {
   return currentBatchSize;
 };
 
-// ─── processBatch (محسّن للسرعة القصوى) ──────────────────────
+// ─── processBatch (محسّن مع عرض الدرجات) ──────────────────────
 async function processBatch(stocks, marketContext, model) {
   console.log(`🚀 processBatch started with ${stocks.length} stocks`);
 
@@ -57,8 +57,7 @@ async function processBatch(stocks, marketContext, model) {
 
     const batchPromises = batch.map(async (stock) => {
       try {
-        // ✅ 1. جلب Daily Bars (أقل عدد ممكن للسرعة)
-        console.log(stock.symbol, "1 daily");
+        // 1. جلب Daily Bars
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
           limit: 10,
@@ -67,7 +66,6 @@ async function processBatch(stocks, marketContext, model) {
         });
 
         // 2. حساب ATR% واختيار الفريم
-        console.log(stock.symbol, "2 timeframe");
         let atrPercent = 0;
         if (dailyBars && dailyBars.length >= 14) {
           const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
@@ -75,8 +73,7 @@ async function processBatch(stocks, marketContext, model) {
         }
         const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
 
-        // ✅ 3. جلب Intraday Bars (أقل عدد ممكن للسرعة)
-        console.log(stock.symbol, "3 bars");
+        // 3. جلب Intraday Bars
         const bars = await dataProvider.getBars(stock.symbol, {
           timeframe,
           limit: 20,
@@ -85,7 +82,6 @@ async function processBatch(stocks, marketContext, model) {
         });
 
         // 4. بناء Feature Vector
-        console.log(stock.symbol, "4 feature");
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
           bars || [],
@@ -95,7 +91,6 @@ async function processBatch(stocks, marketContext, model) {
         );
 
         // 5. حساب التوقع
-        console.log(stock.symbol, "5 score");
         const score = PredictionEngine.calculate(
           featureVector,
           model.weights,
@@ -103,7 +98,9 @@ async function processBatch(stocks, marketContext, model) {
           model.ai_weight
         );
 
-        console.log(`✅ ${stock.symbol} completed`);
+        // ✅ عرض الدرجة لكل سهم (للتشخيص)
+        console.log(`🎯 ${stock.symbol}: score=${score.toFixed(1)}`);
+
         return {
           stock,
           featureVector,
@@ -190,7 +187,7 @@ export default async function handler(req, res) {
     let universe = [];
     try {
       universe = await dataProvider.getUniverse();
-      console.log('🔍 [scan.js] Universe length BEFORE filter:', universe.length);
+      console.log('🔍 [scan.js] Universe length:', universe.length);
       if (universe.length > 0) {
         console.log('🔍 [scan.js] First stock sample:', JSON.stringify(universe[0], null, 2));
         console.log('🔍 [scan.js] Data quality:', {
@@ -198,8 +195,6 @@ export default async function handler(req, res) {
           volume_gt_zero: universe.filter(s => Number(s.volume) > 0).length,
           dollar_gt_zero: universe.filter(s => Number(s.dollar_vol) > 0).length,
         });
-      } else {
-        console.warn('⚠️ [scan.js] Universe is empty BEFORE filter!');
       }
     } catch (error) {
       console.error('❌ Failed to fetch universe:', error.message);
@@ -284,7 +279,7 @@ export default async function handler(req, res) {
         confidence_dist: confidence.breakdown,
       });
 
-      // ✅ تخفيف عتبة الـ Score إلى 40 مؤقتاً
+      // ✅ عتبة Score 40 (مؤقتاً للتشخيص)
       if (score >= 40) {
         finalSignals.push({
           symbol,
