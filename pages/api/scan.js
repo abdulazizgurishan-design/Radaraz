@@ -210,7 +210,12 @@ export default async function handler(req, res) {
       minVolume: SCAN_CONFIG.MIN_VOLUME || 200000,
       minDollarVol: SCAN_CONFIG.MIN_DOLLAR_VOL || 1000000,
       maxChangePct: 15,
-      minRvol: 1.5,
+      // ⚠️ TEMP DEBUG CHANGE: was 1.5. avgVolume currently always equals
+      // volume in DataProvider.getUniverse() (unfixed root cause), so real
+      // rvol is always 1 and any threshold above 1 zeroes out every stock
+      // at the RADAR/RVOL step. Set to 0 until a genuine average-volume
+      // source is implemented — do NOT leave this at 0 in production.
+      minRvol: 0, // was 1.5
       maxGapPct: 5,
     };
 
