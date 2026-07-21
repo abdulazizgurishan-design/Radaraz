@@ -45,6 +45,8 @@ const getAdaptiveBatchSize = () => {
 };
 
 async function processBatch(stocks, marketContext, model) {
+  console.log(`🚀 processBatch started with ${stocks.length} stocks`);
+
   const BATCH_SIZE = getAdaptiveBatchSize();
   const results = [];
   let batchRateLimits = 0;
@@ -54,42 +56,49 @@ async function processBatch(stocks, marketContext, model) {
 
     const batchPromises = batch.map(async (stock) => {
       try {
+        // 1. Daily Bars — الأساس الموثوق للتحليل.
+        // Polygon يُرجع البيانات اليومية بشكل كامل وموثوق (30+ شمعة فوراً)،
+        // بعكس الشموع الساعية التي تتعثّر بالصفحات. لذا نعتمد على اليومية.
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
-          limit: 30,
+          limit: 60,          // ~60 يوم تداول: كافٍ لكل المؤشرات (EMA50/RSI/MACD/RVOL20)
           adjusted: true,
-          minRequired: 15,
+          minRequired: 20,    // نحتاج 20+ شمعة لحساب RVOL الحقيقي و EMA بدقة
         });
 
+        // 2. ATR% (من نفس البيانات اليومية)
         let atrPercent = 0;
         if (dailyBars && dailyBars.length >= 14) {
           const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
           atrPercent = stock.price > 0 ? (atr / stock.price) * 100 : 0;
         }
 
-        const timeframe = SmartTimeframeEngine.getTimeframe(stock, atrPercent);
+        // 3. ✅ التحليل يعتمد على الإطار اليومي الموثوق.
+        // (SmartTimeframeEngine كان يختار أطراً ساعية متعثّرة؛ نتجاوزه ونثبّت
+        // 'day' لضمان نتائج موثوقة لكل سهم. يمكن إعادة تفعيل الأطر الساعية
+        // لاحقاً بعد حل مشكلة جلب الشموع الساعية من Polygon.)
+        const timeframe = 'day';
+        const bars = dailyBars || [];
 
-        const bars = await dataProvider.getBars(stock.symbol, {
-          timeframe,
-          limit: 50,
-          adjusted: true,
-          minRequired: 10,
-        });
-
+        // 4. Feature Vector
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
-          bars || [],
+          bars,
           marketContext,
           timeframe,
           dailyBars || []
         );
 
+        // 5. Prediction Score
         const score = PredictionEngine.calculate(
           featureVector,
           model.weights,
           model.rule_weight,
           model.ai_weight
         );
+
+        // ✅ سجل DEBUG
+        console.log(`🔍 [DEBUG] ${stock.symbol}: bars=${bars?.length || 0}, ema9=${featureVector.ema9?.toFixed(2) || 0}, ema21=${featureVector.ema21?.toFixed(2) || 0}, rsi=${featureVector.rsi?.toFixed(1) || 0}, atr=${featureVector.atr?.toFixed(3) || 0}, rvol=${featureVector.rvol?.toFixed(2) || 0}, rvolSrc=${featureVector.rvolSource || '-'}, macd=${featureVector.macd ? '✅' : '❌'}, score=${score.toFixed(1)}`);
 
         return {
           stock,
@@ -101,8 +110,12 @@ async function processBatch(stocks, marketContext, model) {
           atrPercent,
         };
       } catch (err) {
-        if (err.message?.includes('429')) batchRateLimits++;
-        console.error(`❌ خطأ في ${stock.symbol}:`, err.message);
+        console.error("=================================");
+        console.error("SYMBOL:", stock.symbol);
+        console.error("ERROR MESSAGE:", err.message);
+        console.error("ERROR STACK:", err.stack);
+        console.error("=================================");
+        if (err.message?.includes("429")) batchRateLimits++;
         return null;
       }
     });
@@ -115,6 +128,8 @@ async function processBatch(stocks, marketContext, model) {
       }
     }
   }
+
+  console.log(`✅ processBatch finished with ${results.length} results out of ${stocks.length}`);
 
   if (batchRateLimits > 0) {
     consecutiveRateLimits += batchRateLimits;
@@ -129,7 +144,7 @@ export default async function handler(req, res) {
   const startTime = Date.now();
 
   try {
-    // 1. سياق السوق
+    // 1. Market Context
     let marketContext = {
       spy_change: 0,
       vix: 18,
@@ -157,7 +172,7 @@ export default async function handler(req, res) {
       console.warn('⚠️ Using default market context:', e.message);
     }
 
-    // 2. جلب النموذج النشط
+    // 2. Champion Model
     const { data: modelData } = await supabase
       .from('model_registry')
       .select('version, weights, rule_weight, ai_weight')
@@ -166,22 +181,11 @@ export default async function handler(req, res) {
 
     const model = modelData || DEFAULT_MODEL;
 
-    // 3. جلب القائمة الكاملة من Polygon
+    // 3. Universe
     let universe = [];
     try {
       universe = await dataProvider.getUniverse();
-
       console.log('🔍 [scan.js] Universe length:', universe.length);
-      if (universe.length > 0) {
-        console.log('🔍 [scan.js] First stock sample:', JSON.stringify(universe[0], null, 2));
-        console.log('🔍 [scan.js] Data quality:', {
-          price_gt_zero: universe.filter(s => Number(s.price) > 0).length,
-          volume_gt_zero: universe.filter(s => Number(s.volume) > 0).length,
-          dollar_gt_zero: universe.filter(s => Number(s.dollar_vol) > 0).length,
-        });
-      } else {
-        console.warn('⚠️ [scan.js] Universe is empty!');
-      }
     } catch (error) {
       console.error('❌ Failed to fetch universe:', error.message);
     }
@@ -193,33 +197,23 @@ export default async function handler(req, res) {
       });
     }
 
-    // 4. إعداد خيارات الفلترة
-    // ⚠️ TEMP DEBUG CHANGE: minRvol set to 0 to test whether the RVOL filter
-    // (avgVolume === volume bug) is the sole cause of totalFiltered = 0.
-    // Revert to 1.5 (or the real computed value) once a genuine average-volume
-    // source is implemented — do NOT leave this at 0 in production.
+    // 4. Filter
     const filterOptions = {
       limit: SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300,
       minPrice: SCAN_CONFIG.MIN_PRICE || 2,
       minVolume: SCAN_CONFIG.MIN_VOLUME || 200000,
-      minDollarVol: SCAN_CONFIG.MIN_DOLLAR_VOL || 500000,
+      minDollarVol: SCAN_CONFIG.MIN_DOLLAR_VOL || 1000000,
       maxChangePct: 15,
-      minRvol: 0, // TEMP: was 1.5 — see comment above
+      // Kept at 0: FilterEngine RVOL relies on universe-level avgVolume which
+      // currently equals same-day volume (rvol always 1). Real rvol is computed
+      // in FeatureBuilder from daily bars and feeds the score.
+      minRvol: 0,
       maxGapPct: 5,
     };
 
-    console.log('🔍 [scan.js] Filter options:', filterOptions);
-
-    // 5. استدعاء FilterEngine مع سجلات
-    console.log('🔍 [scan.js] About to call FilterEngine.filter with universe length:', universe.length);
     let filtered = [];
     try {
-      // Direct before/after log pair, independent of FilterEngine's own internal
-      // console.log calls — guarantees we see these two numbers in the same
-      // request's logs even if Vercel's log viewer truncates or samples output.
-      console.log('Universe:', universe.length);
       filtered = FilterEngine.filter(universe, filterOptions);
-      console.log('Filtered:', filtered.length);
       console.log('🔍 [scan.js] FilterEngine.filter returned:', filtered.length);
     } catch (error) {
       console.error('❌ [scan.js] FilterEngine.filter threw an error:', error.message);
@@ -228,7 +222,6 @@ export default async function handler(req, res) {
 
     const analysisLimit = SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300;
     const analysisStocks = filtered.slice(0, analysisLimit);
-
     console.log(`📊 بعد الفلاتر: ${filtered.length} سهم، سيتم تحليل: ${analysisStocks.length}`);
 
     if (analysisStocks.length === 0) {
@@ -242,9 +235,11 @@ export default async function handler(req, res) {
       });
     }
 
-    // 6. معالجة الدفعات
+    // 5. Process
     const processed = await processBatch(analysisStocks, marketContext, model);
+    console.log("🔍 processed.length =", processed.length);
 
+    // 6. Build signals
     const finalSignals = [];
     const snapshotsBatch = [];
     const predictionsBatch = [];
@@ -272,7 +267,8 @@ export default async function handler(req, res) {
         confidence_dist: confidence.breakdown,
       });
 
-      if (score >= 50) {
+      // ✅ عتبة مخفضة إلى 30 مؤقتاً للتشخيص
+      if (score >= 30) {
         finalSignals.push({
           symbol,
           price: featureVector.price,
@@ -286,11 +282,10 @@ export default async function handler(req, res) {
       }
     }
 
-    // 7. حفظ البيانات
+    // 7. Save
     if (snapshotsBatch.length > 0) {
       try {
         const savedSnapshots = await StorageEngine.saveSnapshotsBulk(snapshotsBatch);
-
         if (savedSnapshots.length > 0 && predictionsBatch.length > 0) {
           const finalPredictions = savedSnapshots.map((row, index) => ({
             feature_id: row.id,
@@ -298,7 +293,6 @@ export default async function handler(req, res) {
             predicted_score: predictionsBatch[index]?.predicted_score || 0,
             confidence_dist: predictionsBatch[index]?.confidence_dist || {},
           }));
-
           await StorageEngine.savePredictionsBulk(finalPredictions);
         }
       } catch (storageError) {
@@ -306,7 +300,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 8. الإخراج
+    // 8. Response
     res.status(200).json({
       signals: finalSignals.sort((a, b) => b.predictionScore - a.predictionScore),
       meta: {
