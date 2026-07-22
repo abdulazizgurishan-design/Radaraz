@@ -9,7 +9,7 @@ if (typeof document !== "undefined" && !document.getElementById("az-kf")) {
   document.head.appendChild(_el);
 }
 
-const DISPLAY_MIN_SCORE = 50;
+const DISPLAY_MIN_SCORE = 45;
 
 // ─── دوال تنسيق الأرقام (للعرض) ──────────────────────────────────
 function formatMarketCapDisplay(value) {
@@ -1444,6 +1444,10 @@ export default function Radar() {
 
       const allSignals = [];
 
+      if (data.signals) {
+        allSignals.push(...data.signals);
+      }
+
       if (data.results) {
         allSignals.push(...data.results);
       }
@@ -1469,7 +1473,7 @@ export default function Radar() {
         }
       }
 
-      const raw = unique.filter(s => (s.score || 0) >= MIN);
+      const raw = unique.filter(s => ((s.score ?? s.predictionScore) || 0) >= MIN);
       const isReb = s => s.type === "ارتداد" || s.is_rebound;
       const isSniper = s => s.is_sniper || false;
 
@@ -1477,15 +1481,15 @@ export default function Radar() {
       const sniperRaw = raw.filter(isSniper);
       const regular = raw.filter(s => !isReb(s) && !isSniper(s));
 
-      const lead = (data.leaders ?? regular.filter(s => s.type === "استثمار")).filter(s => (s.score || 0) >= MIN);
-      const spec = (data.speculation ?? regular.filter(s => s.type !== "استثمار")).filter(s => (s.score || 0) >= MIN);
-      const early = (data.earlyWatch ?? raw.filter(s => s.early_watch)).filter(s => (s.score || 0) >= MIN);
+      const lead = (data.leaders ?? regular.filter(s => s.type === "استثمار")).filter(s => ((s.score ?? s.predictionScore) || 0) >= MIN);
+      const spec = (data.speculation ?? regular.filter(s => s.type !== "استثمار")).filter(s => ((s.score ?? s.predictionScore) || 0) >= MIN);
+      const early = (data.earlyWatch ?? raw.filter(s => s.early_watch)).filter(s => ((s.score ?? s.predictionScore) || 0) >= MIN);
 
       const toCard = s => ({
         symbol: s.symbol,
         price: s.price || 0,
         change_pct: s.change_pct || 0,
-        score: s.score || 0,
+        score: (s.score ?? s.predictionScore) || 0,
         signal: s.signal || (s.score >= 80 ? "💥 انفجاري" : "🔥 عالي"),
         type: s.type || "مضاربة",
         volume: s.volume || 0,
