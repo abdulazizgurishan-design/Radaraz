@@ -248,16 +248,16 @@ export default async function handler(req, res) {
     for (const item of processed) {
       if (!item) continue;
 
-      const { stock, featureVector, score, timeframe } = item;
-      const confidence = ConfidenceEngine.calculateBreakdown(featureVector);
+      const { stock, featureVector: fv, score, timeframe } = item;
+      const confidence = ConfidenceEngine.calculateBreakdown(fv);
       const symbol = stock.symbol;
 
       totalTimeframes[timeframe] = (totalTimeframes[timeframe] || 0) + 1;
 
       snapshotsBatch.push({
         symbol,
-        price: featureVector.price,
-        feature_vector: featureVector,
+        price: fv.price,
+        feature_vector: fv,
         context: FeatureBuilder.buildContext(marketContext),
       });
 
@@ -267,17 +267,83 @@ export default async function handler(req, res) {
         confidence_dist: confidence.breakdown,
       });
 
-      // ✅ عتبة مخفضة إلى 30 مؤقتاً للتشخيص
+      // ✅ عتبة مخفضة إلى 30 مؤقتاً للتشخيص (تُطابق DISPLAY_MIN_SCORE في الواجهة)
       if (score >= 30) {
+        const price = fv.price || 0;
+        const pct = (target) =>
+          (price > 0 && target != null) ? ((target - price) / price) * 100 : 0;
+
+        // ─── levels: الأهداف/الوقف (محسوبة أصلاً من ATR داخل FeatureBuilder) ───
+        // الواجهة تقرأ levels.t1/t2/t3/sl مع النسب المئوية.
+        const levels = {
+          t1: fv.target1, t1Pct: parseFloat(pct(fv.target1).toFixed(1)),
+          t2: fv.target2, t2Pct: parseFloat(pct(fv.target2).toFixed(1)),
+          t3: fv.target3, t3Pct: parseFloat(pct(fv.target3).toFixed(1)),
+          sl: fv.stop,    slPct: parseFloat(pct(fv.stop).toFixed(1)),
+          risk: fv.riskReward,
+        };
+
+        // ─── structure: خريطة مبسطة تقرأها StructureMap في الواجهة ───
+        const structure = {
+          support: fv.stop,
+          entry: fv.entry,
+          confirm: fv.resistance || price,
+          resistance: fv.resistance,
+          t1: fv.target1,
+          t2: fv.target2,
+          t3: fv.target3,
+          stop: fv.stop,
+          rr: fv.riskReward,
+          trend: fv.ema9 > fv.ema21 ? 'صاعد مؤكد ✅' : 'ينتظر تأكيد ⏳',
+        };
+
+        // ─── حالة الدخول ───
+        // اختراق مؤكد = ملاحقة (لا تدخل الآن)؛ قرب المقاومة = داخل المنطقة؛
+        // غير ذلك = انتظر ارتداداً لمنطقة الدخول.
+        let entry_state = null;
+        let wait_price = null;
+        if (fv.breakout) {
+          entry_state = 'chasing';
+        } else if (fv.nearResistance) {
+          entry_state = 'in_zone';
+        } else {
+          entry_state = 'wait_pullback';
+          wait_price = fv.entry;
+        }
+
         finalSignals.push({
           symbol,
-          price: featureVector.price,
+          price: parseFloat(price.toFixed(2)),
+          change_pct: parseFloat((fv.change_pct || 0).toFixed(2)),
+          // نرسل score و predictionScore معاً لتوافق الواجهة القديمة والجديدة
+          score: parseFloat(score.toFixed(1)),
           predictionScore: parseFloat(score.toFixed(1)),
           confidence: confidence.total,
+          predictionGrade: getGrade(score),
           grade: getGrade(score),
           brainVersion: model.version,
-          timing: featureVector.timing || 'BREAKOUT',
+          timing: fv.timing || 'BREAKOUT',
           timeframe,
+
+          // ─── مؤشرات البطاقة (تبويب المؤشرات) ───
+          rsi: fv.rsi != null ? parseFloat(fv.rsi.toFixed(1)) : null,
+          rvol: fv.rvol != null ? parseFloat(fv.rvol.toFixed(2)) : null,
+          atr14: fv.atr != null ? parseFloat(fv.atr.toFixed(2)) : null,
+          volume: fv.volume || 0,
+          ma_signal: fv.ema9 > fv.ema21 ? '🟡 تقاطع ذهبي' : null,
+
+          // ─── المستويات والبنية ───
+          levels,
+          structure,
+          entry_state,
+          wait_price,
+
+          // ─── شارات ───
+          breakout: fv.breakout || false,
+          preBreakout: fv.nearResistance || false,
+          aboveVWAP: fv.aboveVWAP || false,
+
+          type: 'مضاربة',
         });
       }
     }
