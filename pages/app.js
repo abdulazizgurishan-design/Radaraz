@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Radar from '../components/Radar';
+import Radar from '../components/AIBrain';
 
 const S = {
   root: { minHeight: '100vh', background: '#080c18', fontFamily: 'system-ui', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 },
