@@ -591,11 +591,10 @@ function StructureMap({ r, lang }) {
 }
 
 // ─── 📊 حركة السوق (Market Movers) مع خريطة البنية ───
-function MarketMovers({ movers, t, lang }) {
+function MarketMovers({ movers, signals, t, lang }) {
   const en = lang === "en";
   const [tab, setTab] = useState("gainers");
   const [openSym, setOpenSym] = useState(null);
-  const [structData, setStructData] = useState({});
 
   const tabs = [
     { id: "gainers", label: en ? "📈 Top Gainers" : "📈 أعلى ارتفاع", color: "#00d4aa" },
@@ -613,19 +612,11 @@ function MarketMovers({ movers, t, lang }) {
     return String(v);
   };
 
-  const toggleStruct = async (sym) => {
-    if (openSym === sym) { setOpenSym(null); return; }
-    setOpenSym(sym);
-    if (structData[sym]) return;
-    setStructData(p => ({ ...p, [sym]: { loading: true } }));
-    try {
-      const res = await fetch(`/api/structure?symbol=${encodeURIComponent(sym)}`);
-      const data = await res.json();
-      setStructData(p => ({ ...p, [sym]: { loading: false, ...data } }));
-    } catch {
-      setStructData(p => ({ ...p, [sym]: { loading: false, structure: null } }));
-    }
+  // ✅ بلا استدعاء /api/structure: نبحث في إشارات اليوم محلياً.
+  const toggleStruct = (sym) => {
+    setOpenSym((cur) => (cur === sym ? null : sym));
   };
+  const findSignal = (sym) => (signals || []).find((s) => s.symbol === sym) || null;
 
   return (
     <div style={{ marginTop: 8, marginBottom: 16 }}>
@@ -668,7 +659,7 @@ function MarketMovers({ movers, t, lang }) {
         {list.map((m, i) => {
           const up = m.change_pct >= 0;
           const isOpen = openSym === m.symbol;
-          const sd = structData[m.symbol];
+          const sig = isOpen ? findSignal(m.symbol) : null;
           return (
             <div key={m.symbol} style={{ borderBottom: i < list.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
               <div
@@ -714,22 +705,21 @@ function MarketMovers({ movers, t, lang }) {
               </div>
               {isOpen && (
                 <div style={{ padding: "4px 14px 14px", background: "rgba(6,10,20,0.5)" }}>
-                  {sd?.loading && (
-                    <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
-                      ⟳ {en ? "Loading structure..." : "جاري تحليل البنية..."}
-                    </div>
-                  )}
-                  {sd && !sd.loading && sd.structure && (
+                  {sig && sig.structure ? (
                     <div style={{ background: "rgba(6,10,20,0.6)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: 12 }}>
                       <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6, display: "flex", alignItems: "center", gap: 7, color: "#dbe2ff" }}>
                         🗺️ {en ? "AI-Az Structure" : "خريطة بنية AI-Az"}
                       </div>
-                      <StructureMap r={{ price: sd.price || m.price, structure: sd.structure }} lang={lang} />
+                      <StructureMap r={{ price: sig.price || m.price, structure: sig.structure, levels: sig.levels }} lang={lang} />
                     </div>
-                  )}
-                  {sd && !sd.loading && !sd.structure && (
-                    <div style={{ padding: "12px", textAlign: "center", fontSize: 11, color: "rgba(255,255,255,0.35)" }}>
-                      {en ? "Not enough data for structure analysis." : "لا تتوفر بيانات كافية لتحليل البنية."}
+                  ) : (
+                    <div style={{ padding: "12px 14px", background: "rgba(6,10,20,0.6)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, fontSize: 12.5, color: "rgba(255,255,255,0.7)", lineHeight: 1.8 }}>
+                      <div>💰 {en ? "Price" : "السعر"}: ${(+m.price).toFixed(2)}</div>
+                      <div>📊 {en ? "Change" : "التغيّر"}: <span style={{ color: up ? "#00d4aa" : "#ff4757" }}>{up ? "+" : ""}{m.change_pct.toFixed(2)}%</span></div>
+                      <div>📦 {en ? "Volume" : "الحجم"}: {fmtVol(m.volume)}</div>
+                      <div style={{ marginTop: 8, fontSize: 11, color: "rgba(255,255,255,0.35)" }}>
+                        ℹ️ {en ? "Not among analyzed signals — no structure map available." : "هذا السهم ليس ضمن الإشارات المحللة حالياً، لذلك لا توجد خريطة بنية متاحة."}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1746,7 +1736,7 @@ export default function Radar() {
               {loading ? (en ? "⟳ Scanning…" : "⟳ جاري المسح…") : (en ? "📡 Scan Market Now" : "📡 مسح السوق الآن")}
             </button>
             {movers ? (
-              <MarketMovers movers={movers} t={t} lang={lang} />
+              <MarketMovers movers={movers} signals={signals} t={t} lang={lang} />
             ) : (
               <div style={{ textAlign: "center", padding: "48px 24px", background: AIC.glass, border: `1px solid ${AIC.glassBorder}`, borderRadius: 20 }}>
                 <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
