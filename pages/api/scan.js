@@ -193,9 +193,13 @@ export default async function handler(req, res) {
     if (universe.length === 0) {
       return res.status(200).json({
         signals: [],
+        movers: { gainers: [], losers: [], volume: [], value: [] },
         meta: { message: 'لا توجد بيانات من Polygon', totalScanned: 0 },
       });
     }
+
+    // ─── Market Movers من الـ universe الكامل (بلا تكلفة إضافية) ───
+    const movers = buildMovers(universe);
 
     // 4. Filter
     const filterOptions = {
@@ -369,6 +373,7 @@ export default async function handler(req, res) {
     // 8. Response
     res.status(200).json({
       signals: finalSignals.sort((a, b) => b.predictionScore - a.predictionScore),
+      movers,
       meta: {
         totalScanned: universe.length,
         totalFiltered: filtered.length,
@@ -396,4 +401,29 @@ function getGrade(score) {
   if (score >= 65) return 'STRONG';
   if (score >= 55) return 'GOOD';
   return 'WATCH';
+}
+
+// ─── بناء قوائم حركة السوق من universe (بيانات لحظية خام) ───
+// لا تكلفة إضافية على Polygon: نرتّب الـ universe المُحمّل أصلاً.
+// كل عنصر خفيف (رمز/سعر/تغيّر/حجم/قيمة) — يكفي للعرض في تبويب حركة السوق.
+function buildMovers(universe) {
+  const valid = (universe || []).filter(s => s && s.symbol && s.price > 0 && s.volume > 0)
+    .map(s => ({
+      symbol: s.symbol,
+      price: s.price,
+      change_pct: s.change_pct || 0,
+      volume: s.volume || 0,
+      dollar_vol: s.dollar_vol != null ? s.dollar_vol : (s.price * s.volume),
+    }));
+
+  const byChange = [...valid].sort((a, b) => b.change_pct - a.change_pct);
+  const byVolume = [...valid].sort((a, b) => b.volume - a.volume);
+  const byValue  = [...valid].sort((a, b) => b.dollar_vol - a.dollar_vol);
+
+  return {
+    gainers: byChange.slice(0, 20),
+    losers:  byChange.slice(-20).reverse(),
+    volume:  byVolume.slice(0, 20),
+    value:   byValue.slice(0, 20),
+  };
 }
