@@ -82,9 +82,11 @@ export default async function handler(req, res) {
 
   try {
     // اجلب الإشارات غير المُقيّمة (success = null)، الأقدم أولاً
+    // ملاحظة: الأعمدة الفعلية في feature_store هي full_snapshot / success /
+    // evaluation_* / snapshot_timestamp. الـ feature_vector يعيش داخل full_snapshot.
     const { data: rows, error } = await supabase
       .from('feature_store')
-      .select('id, symbol, snapshot_timestamp, full_snapshot, feature_vector, price')
+      .select('id, symbol, snapshot_timestamp, full_snapshot')
       .is('success', null)
       .order('snapshot_timestamp', { ascending: true })
       .limit(200);
@@ -110,7 +112,10 @@ export default async function handler(req, res) {
         });
       }
 
-      const entryPrice = snapshot.price ?? extractLevels(fv, snapshot).entry;
+      const entryPrice =
+        fv.price ?? fv.entry ?? fv.entryPrice ??
+        snapshot.full_snapshot?.price ??
+        extractLevels(fv, snapshot).entry;
       const { target, stop } = extractLevels(fv, snapshot);
 
       if (!entryPrice || !target || !stop) {
