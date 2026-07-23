@@ -29,7 +29,8 @@ const supabase = createClient(
 // ── إعدادات النضج ──
 const MIN_MATURITY_DAYS = 2;   // أقل من هذا العمر = pending (لم ينضج للتقييم)
 const MAX_EVAL_DAYS = 10;      // أقدم من هذا بلا نتيجة = expired (انتهت نافذة التقييم)
-const DEBUG_KEYS = true;       // ← تشخيص مؤقت؛ اجعله false بعد التأكد
+const DEBUG_KEYS = false;      // تشخيص المفاتيح (أُطفئ بعد تأكيد الأسماء)
+const BATCH_LIMIT = 40;        // Hobby: مهلة 10 ثوانٍ — دفعة صغيرة تُنجز تحتها
 
 // قراءة feature_vector من كلا المسارين (توافق خلفي)
 function extractFV(snapshot) {
@@ -65,6 +66,17 @@ function extractLevels(fv, snapshot) {
 export default async function handler(req, res) {
   const startTime = Date.now();
 
+  // ── حماية: يُقبل فقط من Vercel Cron (يحمل Authorization: Bearer CRON_SECRET)
+  // أو بتمرير ?secret=... يدوياً. إن لم يُضبط CRON_SECRET، يُسمح (توافق).
+  const secret = process.env.CRON_SECRET;
+  if (secret) {
+    const authHeader = req.headers.authorization || '';
+    const provided = authHeader.replace('Bearer ', '') || req.query.secret || '';
+    if (provided !== secret) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+
   const results = {
     processed: 0,
     success: 0,      // ضربت الهدف
@@ -81,15 +93,17 @@ export default async function handler(req, res) {
   };
 
   try {
-    // اجلب الإشارات غير المُقيّمة (success = null)، الأقدم أولاً
+    // اجلب الإشارات غير المُقيّمة (success = null)، الأقدم أولاً.
+    // نستثني ما وُسم SKIPPED/EXPIRED مسبقاً كي لا يُعاد كل تشغيل.
     // ملاحظة: الأعمدة الفعلية في feature_store هي full_snapshot / success /
     // evaluation_* / snapshot_timestamp. الـ feature_vector يعيش داخل full_snapshot.
     const { data: rows, error } = await supabase
       .from('feature_store')
-      .select('id, symbol, snapshot_timestamp, full_snapshot')
+      .select('id, symbol, snapshot_timestamp, full_snapshot, evaluation_status')
       .is('success', null)
+      .or('evaluation_status.is.null,evaluation_status.eq.PENDING')
       .order('snapshot_timestamp', { ascending: true })
-      .limit(200);
+      .limit(BATCH_LIMIT);
 
     if (error) throw error;
 
@@ -121,6 +135,8 @@ export default async function handler(req, res) {
       if (!entryPrice || !target || !stop) {
         results.missingLevels++;
         addSample('missingLevels', { symbol, entryPrice, target, stop, fvKeys: Object.keys(fv || {}) });
+        // وسمها كي لا تُعاد معالجتها كل تشغيل (إشارات قديمة بلا مستويات)
+        await markResult(snapshot.id, { evaluation_status: 'SKIPPED', evaluation_reason: 'missing_levels' });
         continue;
       }
 
