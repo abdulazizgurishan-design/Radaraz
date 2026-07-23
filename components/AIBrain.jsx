@@ -1475,8 +1475,54 @@ export default function Radar() {
       const order = ["WATCH", "GOOD", "STRONG", "PRIME", "ELITE"];
       return order.indexOf(s.predictionGrade) > order.indexOf(best) ? s.predictionGrade : best;
     }, "WATCH");
-    return { n, avg, breakouts, near, strong, topGrade, coverage: meta?.totalScanned || 0, version: meta?.brainVersion || "v20.2" };
+    // أقوى إشارة اليوم (أعلى ثقة)
+    const top = n ? [...signals].sort((a, b) => (b.predictionScore || 0) - (a.predictionScore || 0))[0] : null;
+    return { n, avg, breakouts, near, strong, topGrade, top, coverage: meta?.totalScanned || 0, version: meta?.brainVersion || "v20.2" };
   }, [signals, meta]);
+
+  // ── حالة السوق (من market_regime الحقيقي) ──
+  const regime = useMemo(() => {
+    const raw = String(marketRegime || "").toLowerCase();
+    const hasStrong = raw.includes("قوي") || raw.includes("strong") || raw.includes("bull");
+    const hasWeak = raw.includes("ضعيف") || raw.includes("weak") || raw.includes("bear");
+    if (hasStrong) return { key: "strong", label: en ? "Strong market" : "سوق قوي", c: AIC.green, icon: "✅",
+      note: en ? "Favorable conditions for signals." : "ظروف مواتية للإشارات — فرص أكثر جودة." };
+    if (hasWeak) return { key: "weak", label: en ? "Weak market" : "سوق ضعيف", c: AIC.amber, icon: "🛡️",
+      note: en ? "The radar is stricter to protect you. Fewer, higher-quality signals." : "الرادار متشدد لحمايتك — فرص أقل لكن أعلى جودة." };
+    if (!marketRegime) return null;
+    return { key: "neutral", label: en ? "Neutral market" : "سوق متوسط", c: AIC.cyan, icon: "〰️",
+      note: en ? "Mixed conditions — trade selectively." : "ظروف متباينة — انتقِ الفرص بعناية." };
+  }, [marketRegime, en]);
+
+  // ── حالة الجلسة (بتوقيت نيويورك الحقيقي) ──
+  const session = useMemo(() => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+      const get = (t) => parts.find((p) => p.type === t)?.value;
+      const wd = get("weekday");
+      let h = parseInt(get("hour"), 10); if (h === 24) h = 0;
+      const mins = h * 60 + parseInt(get("minute"), 10);
+      const weekend = wd === "Sat" || wd === "Sun";
+      if (weekend) return { key: "closed", label: en ? "Market closed" : "السوق مغلق", c: AIC.faint, icon: "🌙", note: en ? "Weekend" : "عطلة نهاية الأسبوع" };
+      if (mins >= 570 && mins < 960) return { key: "open", label: en ? "Market open" : "السوق مفتوح", c: AIC.green, icon: "🟢", note: en ? "Live data" : "بيانات حيّة" };
+      if (mins >= 240 && mins < 570) return { key: "pre", label: en ? "Pre-market" : "قبل الافتتاح", c: AIC.cyan, icon: "🌅", note: en ? "Based on yesterday's close" : "مبني على إغلاق أمس" };
+      return { key: "closed", label: en ? "Market closed" : "السوق مغلق", c: AIC.faint, icon: "🌙", note: en ? "Last saved signals" : "آخر إشارات محفوظة" };
+    } catch { return null; }
+  }, [en]);
+
+  // ── تقسيم الفرص إلى أقسام حقيقية ──
+  const tiers = useMemo(() => {
+    const t2 = { ready: [], watch: [], late: [], breakout: [], elite: [] };
+    for (const s of signals) {
+      if (s.entry_state === "in_zone") t2.ready.push(s);
+      else if (s.entry_state === "wait_pullback") t2.watch.push(s);
+      else if (s.entry_state === "chasing") t2.late.push(s);
+      if (s.breakout) t2.breakout.push(s);
+      if (s.predictionGrade === "PRIME" || s.predictionGrade === "ELITE") t2.elite.push(s);
+    }
+    for (const k of Object.keys(t2)) t2[k].sort((a, b) => (b.predictionScore || 0) - (a.predictionScore || 0));
+    return t2;
+  }, [signals]);
 
   const thinkWords = en ? ["Scanning market…", "Analyzing momentum…", "Finding opportunities…", "Detecting patterns…", "Thinking…"]
     : ["يمسح السوق…", "يحلّل الزخم…", "يبحث عن فرص…", "يرصد الأنماط…", "يفكّر…"];
@@ -1485,7 +1531,8 @@ export default function Radar() {
   const navBtns = [
     { id: "brain", label: en ? "🧠 AI Brain" : "🧠 عقل الذكاء" },
     { id: "radar", label: en ? "📡 Radar" : "📡 الرادار" },
-    { id: "predictions", label: en ? "🎯 Predictions" : "🎯 التوقعات" },
+    { id: "movers", label: en ? "📊 Movers" : "📊 حركة السوق" },
+    { id: "favorites", label: en ? `⭐ Favorites${favorites.length ? " (" + favorites.length + ")" : ""}` : `⭐ المفضلة${favorites.length ? " (" + favorites.length + ")" : ""}` },
     { id: "performance", label: en ? "📊 Performance" : "📊 الأداء", soon: true },
     { id: "learning", label: en ? "🌱 Learning" : "🌱 التعلّم", soon: true },
   ];
@@ -1514,7 +1561,7 @@ export default function Radar() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 34, height: 34, borderRadius: 10, background: `linear-gradient(135deg, ${AIC.iris}, ${AIC.iris2})`, display: "grid", placeItems: "center", fontSize: 18, boxShadow: `0 0 20px ${AIC.iris}66` }}>🧠</div>
             <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 1 }}>
-              RADAR <span style={{ background: `linear-gradient(135deg, ${AIC.iris2}, ${AIC.teal})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{en ? "AI" : "الذكاء"}</span>
+              RADARAZ<span style={{ background: `linear-gradient(135deg, ${AIC.iris2}, ${AIC.teal})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>-AI</span>
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -1545,6 +1592,67 @@ export default function Radar() {
           <>
             <AICore active={loading} />
             <ThinkingLine words={thinkWords} />
+
+            {/* حالة السوق + حالة الجلسة */}
+            {(regime || session) && (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "20px 0 4px" }}>
+                {regime && (
+                  <div style={{ flex: 1, minWidth: 200, background: `${regime.c}12`, border: `1px solid ${regime.c}40`, borderRadius: 16, padding: "14px 16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18 }}>{regime.icon}</span>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: regime.c }}>{regime.label}</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: AIC.sub, marginTop: 6, lineHeight: 1.6 }}>{regime.note}</div>
+                  </div>
+                )}
+                {session && (
+                  <div style={{ flex: 1, minWidth: 200, background: `${session.c}12`, border: `1px solid ${session.c}40`, borderRadius: 16, padding: "14px 16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18 }}>{session.icon}</span>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: session.c }}>{session.label}</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: AIC.sub, marginTop: 6, lineHeight: 1.6 }}>{session.note}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* أقوى إشارة اليوم */}
+            {M.top && (
+              <div style={{ margin: "12px 0 4px", background: `linear-gradient(135deg, ${AIC.iris}18, ${AIC.iris2}10)`, border: `1px solid ${AIC.iris}44`, borderRadius: 16, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ fontSize: 22 }}>⭐</span>
+                  <div>
+                    <div style={{ fontSize: 10.5, color: AIC.sub }}>{en ? "Top signal today" : "أقوى إشارة اليوم"}</div>
+                    <div style={{ fontSize: 17, fontWeight: 800, fontFamily: "ui-monospace, monospace", color: AIC.ink }}>
+                      {M.top.symbol} <span style={{ fontSize: 12, color: AIC.sub }}>${(+M.top.price).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ textAlign: en ? "right" : "left" }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: confColor(M.top.predictionScore), fontFamily: "ui-monospace, monospace" }}>{Math.round(M.top.predictionScore)}%</div>
+                  <div style={{ fontSize: 9, color: AIC.sub }}>{en ? "AI Confidence" : "ثقة الذكاء"}</div>
+                </div>
+              </div>
+            )}
+
+            {/* توزيع الفرص */}
+            {M.n > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "12px 0 4px" }}>
+                {[
+                  { label: en ? "🟢 In Zone" : "🟢 جاهزة", v: tiers.ready.length, c: AIC.green },
+                  { label: en ? "🔵 Watch" : "🔵 مراقبة", v: tiers.watch.length, c: "#60a5fa" },
+                  { label: en ? "🚀 Breakout" : "🚀 اختراق", v: tiers.breakout.length, c: AIC.teal },
+                  { label: en ? "💎 Elite" : "💎 نخبة", v: tiers.elite.length, c: "#00d4aa" },
+                ].map((x) => (
+                  <div key={x.label} style={{ flex: 1, minWidth: 78, background: AIC.glass, border: `1px solid ${AIC.glassBorder}`, borderRadius: 14, padding: "12px 10px", textAlign: "center" }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: x.c, fontFamily: "ui-monospace, monospace" }}>{x.v}</div>
+                    <div style={{ fontSize: 10, color: AIC.sub, marginTop: 3 }}>{x.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "22px 0 14px" }}>
               <AIStat label={en ? "Market Coverage" : "تغطية السوق"} value={M.coverage ? M.coverage.toLocaleString() : "—"} sub={en ? "symbols" : "رمز"} accent={AIC.iris2} />
               <AIStat label={en ? "Signals Today" : "إشارات اليوم"} value={M.n || "—"} accent={AIC.teal} />
@@ -1576,7 +1684,7 @@ export default function Radar() {
         )}
 
         {/* ===== الرادار / التوقعات — البطاقة الكاملة SmartCard ===== */}
-        {(tab === "radar" || tab === "predictions") && (
+        {tab === "radar" && (
           <>
             <button onClick={scan} disabled={loading} style={{ ...primaryBtn, width: "100%", marginBottom: 16 }}>
               {loading ? (en ? "⟳ Scanning…" : "⟳ جاري المسح…") : (en ? "📡 Scan Market Now" : "📡 مسح السوق الآن")}
@@ -1597,12 +1705,76 @@ export default function Radar() {
               </div>
             )}
 
-            {!loading && signals.length > 0 && (
+            {!loading && signals.length > 0 && (() => {
+              // أقسام حقيقية — يظهر القسم فقط إن كان فيه إشارات
+              const sections = [
+                { key: "ready", list: tiers.ready, title: en ? "🔥 Ready to enter" : "🔥 جاهزة للدخول", sub: en ? "Price in entry zone now" : "السعر في منطقة الدخول الآن", color: "#ff6b35", bg: "rgba(255,107,53,0.08)", border: "rgba(255,107,53,0.3)", open: true },
+                { key: "breakout", list: tiers.breakout, title: en ? "🚀 Breakouts" : "🚀 اختراقات", sub: en ? "Broke above resistance" : "تجاوزت المقاومة", color: "#2dd4bf", bg: "rgba(45,212,191,0.08)", border: "rgba(45,212,191,0.3)", open: true },
+                { key: "elite", list: tiers.elite, title: en ? "💎 Elite" : "💎 نخبة", sub: en ? "Highest quality (Prime/Elite)" : "أعلى جودة (ممتاز/نخبة)", color: "#00d4aa", bg: "rgba(0,212,170,0.08)", border: "rgba(0,212,170,0.3)", open: true },
+                { key: "watch", list: tiers.watch, title: en ? "🔵 Watch zones" : "🔵 مناطق مراقبة", sub: en ? "Wait for a pullback to entry" : "انتظر ارتداداً لمنطقة الدخول", color: "#60a5fa", bg: "rgba(96,165,250,0.08)", border: "rgba(96,165,250,0.3)", open: false },
+                { key: "late", list: tiers.late, title: en ? "🚀 Late momentum" : "🚀 زخم متأخر", sub: en ? "Extended — higher risk" : "ممتد — مخاطرة أعلى", color: "#fbbf24", bg: "rgba(251,191,36,0.08)", border: "rgba(251,191,36,0.3)", open: false },
+              ].filter((s) => s.list.length > 0);
+
+              if (sections.length === 0) {
+                // إشارات موجودة لكن بلا حالة دخول — اعرضها كقائمة واحدة بدل إخفائها
+                return (
+                  <>
+                    <div style={{ fontSize: 11, color: AIC.faint, marginBottom: 12 }}>{signals.length} {en ? "opportunities" : "فرصة"}</div>
+                    {sortedSignals.map((r, i) => (
+                      <SmartCard key={r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />
+                    ))}
+                  </>
+                );
+              }
+
+              return sections.map((sec) => (
+                <CollapsibleSection key={sec.key} title={sec.title} subtitle={sec.sub} count={sec.list.length}
+                  color={sec.color} bg={sec.bg} border={sec.border} t={t} defaultOpen={sec.open}>
+                  {sec.list.map((r, i) => (
+                    <SmartCard key={sec.key + "-" + r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />
+                  ))}
+                </CollapsibleSection>
+              ));
+            })()}
+          </>
+        )}
+
+        {/* ===== حركة السوق ===== */}
+        {tab === "movers" && (
+          <>
+            <button onClick={scan} disabled={loading} style={{ ...primaryBtn, width: "100%", marginBottom: 16 }}>
+              {loading ? (en ? "⟳ Scanning…" : "⟳ جاري المسح…") : (en ? "📡 Scan Market Now" : "📡 مسح السوق الآن")}
+            </button>
+            {movers ? (
+              <MarketMovers movers={movers} t={t} lang={lang} />
+            ) : (
+              <div style={{ textAlign: "center", padding: "48px 24px", background: AIC.glass, border: `1px solid ${AIC.glassBorder}`, borderRadius: 20 }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{en ? "Market movers not available yet" : "بيانات حركة السوق غير متوفّرة بعد"}</div>
+                <div style={{ fontSize: 12, color: AIC.sub, lineHeight: 1.7 }}>{en ? "Enable movers in the scan API to populate this section." : "تُفعّل حركة السوق بإضافة قائمة movers في واجهة المسح."}</div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ===== المفضلة ===== */}
+        {tab === "favorites" && (
+          <>
+            {favorites.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "64px 24px", background: AIC.glass, border: `1px solid ${AIC.glassBorder}`, borderRadius: 20 }}>
+                <div style={{ fontSize: 44, marginBottom: 14 }}>⭐</div>
+                <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>{en ? "No favorites yet" : "لا توجد أسهم في المفضلة"}</div>
+                <div style={{ fontSize: 12.5, color: AIC.sub }}>{en ? "Tap ⭐ on any stock to save it here" : "اضغط ⭐ على أي سهم لحفظه هنا"}</div>
+              </div>
+            ) : (
               <>
-                <div style={{ fontSize: 11, color: AIC.faint, marginBottom: 12 }}>{signals.length} {en ? "opportunities" : "فرصة"}</div>
-                {sortedSignals.map((r, i) => (
-                  <SmartCard key={r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />
-                ))}
+                <div style={{ fontSize: 11, color: AIC.faint, marginBottom: 12 }}>{favorites.length} {en ? "saved" : "محفوظة"}</div>
+                {favorites.map((fav, i) => {
+                  // ادمج البيانات الحيّة إن كان السهم ضمن إشارات اليوم
+                  const live = signals.find((s) => s.symbol === fav.symbol);
+                  const row = live || { symbol: fav.symbol, price: fav.entry || 0, change_pct: 0, predictionScore: 0, predictionGrade: "WATCH", structure: fav.structure || null, levels: { t1: 0, sl: 0 } };
+                  return <SmartCard key={"fav-" + fav.symbol} r={row} idx={i} t={t} lang={lang} isFav={true} onToggleFav={toggleFav} />;
+                })}
               </>
             )}
           </>
