@@ -248,6 +248,7 @@ export default async function handler(req, res) {
     const snapshotsBatch = [];
     const predictionsBatch = [];
     let totalTimeframes = {};
+    let structureSkipped = 0; // ✅ عدّاد الإشارات المُستبعدة لعدم اتساق البنية
 
     for (const item of processed) {
       if (!item) continue;
@@ -258,6 +259,9 @@ export default async function handler(req, res) {
 
       totalTimeframes[timeframe] = (totalTimeframes[timeframe] || 0) + 1;
 
+      // ملاحظة: الـ snapshot يُحفظ لكل سهم (بغضّ النظر عن score/البنية) ويحمل
+      // feature_vector.structureValid — فالداتا الخام لا تُفقد أبداً، ويمكن
+      // للتعلّم لاحقاً الترشيح على هذا العلم.
       snapshotsBatch.push({
         symbol,
         price: fv.price,
@@ -273,6 +277,20 @@ export default async function handler(req, res) {
 
       // ✅ عتبة مخفضة إلى 30 مؤقتاً للتشخيص (تُطابق DISPLAY_MIN_SCORE في الواجهة)
       if (score >= 30) {
+        // ─── حارس البنية (v20.2) ───────────────────────────────
+        // لا نعرض/نتاجر بإشارة مستوياتها غير متّسقة منطقياً. الحارس لا
+        // يُصلح المستويات صامتاً (حتى لا نُلوّث الصفقات المصنّفة)، بل يُسقِط
+        // الإشارة ويُسجّل السبب. الـ snapshot أعلاه محفوظ ويحمل العلم.
+        if (fv.structureValid === false) {
+          structureSkipped++;
+          console.warn(
+            `⚠️ [STRUCT] ${symbol} skipped: inconsistent levels ` +
+            `(price=${fv.price}, entry=${fv.entry}, support=${fv.support}, ` +
+            `resistance=${fv.resistance}, stop=${fv.stop}, t1=${fv.target1})`
+          );
+          continue;
+        }
+
         const price = fv.price || 0;
         const pct = (target) =>
           (price > 0 && target != null) ? ((target - price) / price) * 100 : 0;
@@ -288,11 +306,19 @@ export default async function handler(req, res) {
         };
 
         // ─── structure: خريطة مبسطة تقرأها StructureMap في الواجهة ───
+        // ✅ v20.2:
+        //   - support صار الدعم الحقيقي (fv.support = أقرب أرضية) لا الوقف.
+        //   - أضفنا منطقة الدخول entry_low/entry_high/entry_zone + entry_type.
+        //   - resistance = أقرب مقاومة فوق السعر (أو null عند الاختراق).
         const structure = {
-          support: fv.stop,
-          entry: fv.entry,
+          support: fv.support ?? fv.stop,   // الدعم الحقيقي مع fallback للوقف عند غيابه
+          entry: fv.entry,                  // = entry_high (السعر) — تعبئة سوقية
+          entry_low: fv.entry_low,
+          entry_high: fv.entry_high,
+          entry_zone: fv.entry_zone,        // [entry_low, entry_high]
+          entry_type: fv.entry_type,        // 'breakout' | 'pullback_zone' | 'momentum'
           confirm: fv.resistance || price,
-          resistance: fv.resistance,
+          resistance: fv.resistance,        // أقرب مقاومة فوق السعر (أو null عند الاختراق)
           t1: fv.target1,
           t2: fv.target2,
           t3: fv.target3,
@@ -303,7 +329,7 @@ export default async function handler(req, res) {
 
         // ─── حالة الدخول ───
         // اختراق مؤكد = ملاحقة (لا تدخل الآن)؛ قرب المقاومة = داخل المنطقة؛
-        // غير ذلك = انتظر ارتداداً لمنطقة الدخول.
+        // غير ذلك = انتظر ارتداداً لقاع منطقة الدخول.
         let entry_state = null;
         let wait_price = null;
         if (fv.breakout) {
@@ -312,7 +338,7 @@ export default async function handler(req, res) {
           entry_state = 'in_zone';
         } else {
           entry_state = 'wait_pullback';
-          wait_price = fv.entry;
+          wait_price = fv.entry_low ?? fv.entry;  // قاع منطقة الدخول = هدف الارتداد
         }
 
         finalSignals.push({
@@ -342,6 +368,14 @@ export default async function handler(req, res) {
           entry_state,
           wait_price,
 
+          // ─── منطقة الدخول والمستويات (top-level للتوافق مع الواجهة) ───
+          entry_low: fv.entry_low,
+          entry_high: fv.entry_high,
+          entry_zone: fv.entry_zone,
+          entry_type: fv.entry_type,
+          support: fv.support ?? fv.stop,
+          resistance: fv.resistance,
+
           // ─── شارات ───
           breakout: fv.breakout || false,
           preBreakout: fv.nearResistance || false,
@@ -350,6 +384,10 @@ export default async function handler(req, res) {
           type: 'مضاربة',
         });
       }
+    }
+
+    if (structureSkipped > 0) {
+      console.log(`🛡️ [STRUCT] استُبعدت ${structureSkipped} إشارة لعدم اتساق البنية (محفوظة في snapshots مع العلم).`);
     }
 
     // 7. Save
@@ -378,6 +416,7 @@ export default async function handler(req, res) {
         totalScanned: universe.length,
         totalFiltered: filtered.length,
         totalSignals: finalSignals.length,
+        structureSkipped, // ✅ عدد الإشارات المُستبعدة بالحارس
         savedSnapshots: snapshotsBatch.length,
         executionTime: `${((Date.now() - startTime) / 1000).toFixed(2)}s`,
         brainVersion: model.version,
