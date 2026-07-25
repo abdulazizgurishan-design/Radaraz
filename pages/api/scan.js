@@ -19,6 +19,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// عتبة عرض التوصيات الجاهزة (تُطابق DISPLAY_MIN_SCORE في الواجهة).
+const DISPLAY_MIN_SCORE = 30;
+
 const DEFAULT_MODEL = {
   version: 'v20.1',
   weights: {
@@ -56,31 +59,22 @@ async function processBatch(stocks, marketContext, model) {
 
     const batchPromises = batch.map(async (stock) => {
       try {
-        // 1. Daily Bars — الأساس الموثوق للتحليل.
-        // Polygon يُرجع البيانات اليومية بشكل كامل وموثوق (30+ شمعة فوراً)،
-        // بعكس الشموع الساعية التي تتعثّر بالصفحات. لذا نعتمد على اليومية.
         const dailyBars = await dataProvider.getBars(stock.symbol, {
           timeframe: 'day',
-          limit: 60,          // ~60 يوم تداول: كافٍ لكل المؤشرات (EMA50/RSI/MACD/RVOL20)
+          limit: 60,
           adjusted: true,
-          minRequired: 20,    // نحتاج 20+ شمعة لحساب RVOL الحقيقي و EMA بدقة
+          minRequired: 20,
         });
 
-        // 2. ATR% (من نفس البيانات اليومية)
         let atrPercent = 0;
         if (dailyBars && dailyBars.length >= 14) {
           const atr = IndicatorEngine.calculateATRWilder(dailyBars, 14);
           atrPercent = stock.price > 0 ? (atr / stock.price) * 100 : 0;
         }
 
-        // 3. ✅ التحليل يعتمد على الإطار اليومي الموثوق.
-        // (SmartTimeframeEngine كان يختار أطراً ساعية متعثّرة؛ نتجاوزه ونثبّت
-        // 'day' لضمان نتائج موثوقة لكل سهم. يمكن إعادة تفعيل الأطر الساعية
-        // لاحقاً بعد حل مشكلة جلب الشموع الساعية من Polygon.)
         const timeframe = 'day';
         const bars = dailyBars || [];
 
-        // 4. Feature Vector
         const featureVector = FeatureBuilder.buildFromBars(
           stock,
           bars,
@@ -89,7 +83,6 @@ async function processBatch(stocks, marketContext, model) {
           dailyBars || []
         );
 
-        // 5. Prediction Score
         const score = PredictionEngine.calculate(
           featureVector,
           model.weights,
@@ -97,18 +90,9 @@ async function processBatch(stocks, marketContext, model) {
           model.ai_weight
         );
 
-        // ✅ سجل DEBUG
         console.log(`🔍 [DEBUG] ${stock.symbol}: bars=${bars?.length || 0}, ema9=${featureVector.ema9?.toFixed(2) || 0}, ema21=${featureVector.ema21?.toFixed(2) || 0}, rsi=${featureVector.rsi?.toFixed(1) || 0}, atr=${featureVector.atr?.toFixed(3) || 0}, rvol=${featureVector.rvol?.toFixed(2) || 0}, rvolSrc=${featureVector.rvolSource || '-'}, macd=${featureVector.macd ? '✅' : '❌'}, score=${score.toFixed(1)}`);
 
-        return {
-          stock,
-          featureVector,
-          score,
-          bars,
-          timeframe,
-          dailyBars,
-          atrPercent,
-        };
+        return { stock, featureVector, score, bars, timeframe, dailyBars, atrPercent };
       } catch (err) {
         console.error("=================================");
         console.error("SYMBOL:", stock.symbol);
@@ -121,23 +105,108 @@ async function processBatch(stocks, marketContext, model) {
     });
 
     const batchResults = await Promise.allSettled(batchPromises);
-
     for (const result of batchResults) {
-      if (result.status === 'fulfilled' && result.value) {
-        results.push(result.value);
-      }
+      if (result.status === 'fulfilled' && result.value) results.push(result.value);
     }
   }
 
   console.log(`✅ processBatch finished with ${results.length} results out of ${stocks.length}`);
 
-  if (batchRateLimits > 0) {
-    consecutiveRateLimits += batchRateLimits;
-  } else {
-    consecutiveRateLimits = Math.max(0, consecutiveRateLimits - 1);
-  }
+  if (batchRateLimits > 0) consecutiveRateLimits += batchRateLimits;
+  else consecutiveRateLimits = Math.max(0, consecutiveRateLimits - 1);
 
   return results;
+}
+
+// ─────────────────────────────────────────────────────────
+// بناء كائن الإشارة الكامل (مشترك بين التوصيات الجاهزة والاختراقات).
+// ─────────────────────────────────────────────────────────
+function buildSignalObject(item, score, confidence, setup) {
+  const { stock, featureVector: fv, timeframe } = item;
+  const symbol = stock.symbol;
+  const price = fv.price || 0;
+  const pct = (target) =>
+    (price > 0 && target != null) ? ((target - price) / price) * 100 : 0;
+
+  const levels = {
+    t1: fv.target1, t1Pct: parseFloat(pct(fv.target1).toFixed(1)),
+    t2: fv.target2, t2Pct: parseFloat(pct(fv.target2).toFixed(1)),
+    t3: fv.target3, t3Pct: parseFloat(pct(fv.target3).toFixed(1)),
+    sl: fv.stop,    slPct: parseFloat(pct(fv.stop).toFixed(1)),
+    risk: fv.riskReward,
+  };
+
+  const structure = {
+    support: fv.support ?? fv.stop,
+    entry: fv.entry,
+    entry_low: fv.entry_low,
+    entry_high: fv.entry_high,
+    entry_zone: fv.entry_zone,
+    entry_type: fv.entry_type,
+    confirm: fv.resistance || price,
+    resistance: fv.resistance,
+    t1: fv.target1,
+    t2: fv.target2,
+    t3: fv.target3,
+    stop: fv.stop,
+    rr: fv.riskReward,
+    trend: fv.ema9 > fv.ema21 ? 'صاعد مؤكد ✅' : 'ينتظر تأكيد ⏳',
+  };
+
+  // حالة الدخول التفصيلية (تُبقى للتوافق مع الواجهة القديمة).
+  let entry_state = null;
+  let wait_price = null;
+  if (fv.breakout) {
+    entry_state = 'chasing';
+  } else if (fv.nearResistance) {
+    entry_state = 'in_zone';
+  } else {
+    entry_state = 'wait_pullback';
+    wait_price = fv.entry_low ?? fv.entry;
+  }
+
+  return {
+    symbol,
+    price: parseFloat(price.toFixed(2)),
+    change_pct: parseFloat((fv.change_pct || 0).toFixed(2)),
+    score: parseFloat(score.toFixed(1)),
+    predictionScore: parseFloat(score.toFixed(1)),
+    confidence: confidence.total,
+    predictionGrade: getGrade(score),
+    grade: getGrade(score),
+    brainVersion: item.brainVersion,
+    timing: fv.timing || 'BREAKOUT',
+    timeframe,
+
+    // ─── مرحلة الإعداد (التنبؤ الاستباقي) ───
+    setup_stage: setup.stage,      // pre_breakout | approaching | pullback | building | breakout | extended
+    setup_label: setup.label,
+    actionable: setup.actionable,  // true = توصية جاهزة | false = فات الدخول (اختراق/ممتد)
+
+    rsi: fv.rsi != null ? parseFloat(fv.rsi.toFixed(1)) : null,
+    rvol: fv.rvol != null ? parseFloat(fv.rvol.toFixed(2)) : null,
+    atr14: fv.atr != null ? parseFloat(fv.atr.toFixed(2)) : null,
+    volume: fv.volume || 0,
+    ma_signal: fv.ema9 > fv.ema21 ? '🟡 تقاطع ذهبي' : null,
+
+    levels,
+    structure,
+    entry_state,
+    wait_price,
+
+    entry_low: fv.entry_low,
+    entry_high: fv.entry_high,
+    entry_zone: fv.entry_zone,
+    entry_type: fv.entry_type,
+    support: fv.support ?? fv.stop,
+    resistance: fv.resistance,
+
+    breakout: fv.breakout || false,
+    preBreakout: fv.nearResistance || false,
+    aboveVWAP: fv.aboveVWAP || false,
+
+    type: 'مضاربة',
+  };
 }
 
 export default async function handler(req, res) {
@@ -193,12 +262,12 @@ export default async function handler(req, res) {
     if (universe.length === 0) {
       return res.status(200).json({
         signals: [],
+        breakouts: [],
         movers: { gainers: [], losers: [], volume: [], value: [] },
         meta: { message: 'لا توجد بيانات من Polygon', totalScanned: 0 },
       });
     }
 
-    // ─── Market Movers من الـ universe الكامل (بلا تكلفة إضافية) ───
     const movers = buildMovers(universe);
 
     // 4. Filter
@@ -208,9 +277,6 @@ export default async function handler(req, res) {
       minVolume: SCAN_CONFIG.MIN_VOLUME || 200000,
       minDollarVol: SCAN_CONFIG.MIN_DOLLAR_VOL || 1000000,
       maxChangePct: 15,
-      // Kept at 0: FilterEngine RVOL relies on universe-level avgVolume which
-      // currently equals same-day volume (rvol always 1). Real rvol is computed
-      // in FeatureBuilder from daily bars and feeds the score.
       minRvol: 0,
       maxGapPct: 5,
     };
@@ -231,6 +297,7 @@ export default async function handler(req, res) {
     if (analysisStocks.length === 0) {
       return res.status(200).json({
         signals: [],
+        breakouts: [],
         meta: {
           totalScanned: universe.length,
           totalFiltered: filtered.length,
@@ -243,25 +310,25 @@ export default async function handler(req, res) {
     const processed = await processBatch(analysisStocks, marketContext, model);
     console.log("🔍 processed.length =", processed.length);
 
-    // 6. Build signals
-    const finalSignals = [];
+    // 6. Build signals — قسمان: توصيات جاهزة (actionable) واختراقات جارية.
+    const readySignals = [];     // ← data.signals (الأساسي)
+    const breakoutSignals = [];  // ← data.breakouts (اختراقات جارية / تنبيه)
     const snapshotsBatch = [];
     const predictionsBatch = [];
     let totalTimeframes = {};
-    let structureSkipped = 0; // ✅ عدّاد الإشارات المُستبعدة لعدم اتساق البنية
+    let structureSkipped = 0;
 
     for (const item of processed) {
       if (!item) continue;
 
       const { stock, featureVector: fv, score, timeframe } = item;
+      item.brainVersion = model.version;
       const confidence = ConfidenceEngine.calculateBreakdown(fv);
       const symbol = stock.symbol;
 
       totalTimeframes[timeframe] = (totalTimeframes[timeframe] || 0) + 1;
 
-      // ملاحظة: الـ snapshot يُحفظ لكل سهم (بغضّ النظر عن score/البنية) ويحمل
-      // feature_vector.structureValid — فالداتا الخام لا تُفقد أبداً، ويمكن
-      // للتعلّم لاحقاً الترشيح على هذا العلم.
+      // الـ snapshot يُحفظ لكل سهم (خام، للتعلّم) ويحمل structureValid + scan_type.
       snapshotsBatch.push({
         symbol,
         price: fv.price,
@@ -275,120 +342,36 @@ export default async function handler(req, res) {
         confidence_dist: confidence.breakdown,
       });
 
-      // ✅ عتبة مخفضة إلى 30 مؤقتاً للتشخيص (تُطابق DISPLAY_MIN_SCORE في الواجهة)
-      if (score >= 30) {
-        // ─── حارس البنية (v20.2) ───────────────────────────────
-        // لا نعرض/نتاجر بإشارة مستوياتها غير متّسقة منطقياً. الحارس لا
-        // يُصلح المستويات صامتاً (حتى لا نُلوّث الصفقات المصنّفة)، بل يُسقِط
-        // الإشارة ويُسجّل السبب. الـ snapshot أعلاه محفوظ ويحمل العلم.
-        if (fv.structureValid === false) {
-          structureSkipped++;
-          console.warn(
-            `⚠️ [STRUCT] ${symbol} skipped: inconsistent levels ` +
-            `(price=${fv.price}, entry=${fv.entry}, support=${fv.support}, ` +
-            `resistance=${fv.resistance}, stop=${fv.stop}, t1=${fv.target1})`
-          );
-          continue;
-        }
-
-        const price = fv.price || 0;
-        const pct = (target) =>
-          (price > 0 && target != null) ? ((target - price) / price) * 100 : 0;
-
-        // ─── levels: الأهداف/الوقف (محسوبة أصلاً من ATR داخل FeatureBuilder) ───
-        // الواجهة تقرأ levels.t1/t2/t3/sl مع النسب المئوية.
-        const levels = {
-          t1: fv.target1, t1Pct: parseFloat(pct(fv.target1).toFixed(1)),
-          t2: fv.target2, t2Pct: parseFloat(pct(fv.target2).toFixed(1)),
-          t3: fv.target3, t3Pct: parseFloat(pct(fv.target3).toFixed(1)),
-          sl: fv.stop,    slPct: parseFloat(pct(fv.stop).toFixed(1)),
-          risk: fv.riskReward,
-        };
-
-        // ─── structure: خريطة مبسطة تقرأها StructureMap في الواجهة ───
-        // ✅ v20.2:
-        //   - support صار الدعم الحقيقي (fv.support = أقرب أرضية) لا الوقف.
-        //   - أضفنا منطقة الدخول entry_low/entry_high/entry_zone + entry_type.
-        //   - resistance = أقرب مقاومة فوق السعر (أو null عند الاختراق).
-        const structure = {
-          support: fv.support ?? fv.stop,   // الدعم الحقيقي مع fallback للوقف عند غيابه
-          entry: fv.entry,                  // = entry_high (السعر) — تعبئة سوقية
-          entry_low: fv.entry_low,
-          entry_high: fv.entry_high,
-          entry_zone: fv.entry_zone,        // [entry_low, entry_high]
-          entry_type: fv.entry_type,        // 'breakout' | 'pullback_zone' | 'momentum'
-          confirm: fv.resistance || price,
-          resistance: fv.resistance,        // أقرب مقاومة فوق السعر (أو null عند الاختراق)
-          t1: fv.target1,
-          t2: fv.target2,
-          t3: fv.target3,
-          stop: fv.stop,
-          rr: fv.riskReward,
-          trend: fv.ema9 > fv.ema21 ? 'صاعد مؤكد ✅' : 'ينتظر تأكيد ⏳',
-        };
-
-        // ─── حالة الدخول ───
-        // اختراق مؤكد = ملاحقة (لا تدخل الآن)؛ قرب المقاومة = داخل المنطقة؛
-        // غير ذلك = انتظر ارتداداً لقاع منطقة الدخول.
-        let entry_state = null;
-        let wait_price = null;
-        if (fv.breakout) {
-          entry_state = 'chasing';
-        } else if (fv.nearResistance) {
-          entry_state = 'in_zone';
-        } else {
-          entry_state = 'wait_pullback';
-          wait_price = fv.entry_low ?? fv.entry;  // قاع منطقة الدخول = هدف الارتداد
-        }
-
-        finalSignals.push({
-          symbol,
-          price: parseFloat(price.toFixed(2)),
-          change_pct: parseFloat((fv.change_pct || 0).toFixed(2)),
-          // نرسل score و predictionScore معاً لتوافق الواجهة القديمة والجديدة
-          score: parseFloat(score.toFixed(1)),
-          predictionScore: parseFloat(score.toFixed(1)),
-          confidence: confidence.total,
-          predictionGrade: getGrade(score),
-          grade: getGrade(score),
-          brainVersion: model.version,
-          timing: fv.timing || 'BREAKOUT',
-          timeframe,
-
-          // ─── مؤشرات البطاقة (تبويب المؤشرات) ───
-          rsi: fv.rsi != null ? parseFloat(fv.rsi.toFixed(1)) : null,
-          rvol: fv.rvol != null ? parseFloat(fv.rvol.toFixed(2)) : null,
-          atr14: fv.atr != null ? parseFloat(fv.atr.toFixed(2)) : null,
-          volume: fv.volume || 0,
-          ma_signal: fv.ema9 > fv.ema21 ? '🟡 تقاطع ذهبي' : null,
-
-          // ─── المستويات والبنية ───
-          levels,
-          structure,
-          entry_state,
-          wait_price,
-
-          // ─── منطقة الدخول والمستويات (top-level للتوافق مع الواجهة) ───
-          entry_low: fv.entry_low,
-          entry_high: fv.entry_high,
-          entry_zone: fv.entry_zone,
-          entry_type: fv.entry_type,
-          support: fv.support ?? fv.stop,
-          resistance: fv.resistance,
-
-          // ─── شارات ───
-          breakout: fv.breakout || false,
-          preBreakout: fv.nearResistance || false,
-          aboveVWAP: fv.aboveVWAP || false,
-
-          type: 'مضاربة',
-        });
+      // ─── حارس البنية (يطبّق على القسمين معاً) ───
+      if (fv.structureValid === false) {
+        structureSkipped++;
+        console.warn(
+          `⚠️ [STRUCT] ${symbol} skipped: inconsistent levels ` +
+          `(price=${fv.price}, entry=${fv.entry}, support=${fv.support}, ` +
+          `resistance=${fv.resistance}, stop=${fv.stop}, t1=${fv.target1})`
+        );
+        continue;
       }
+
+      // ─── تصنيف مرحلة الإعداد (استباقي مقابل مطاردة) ───
+      const setup = PredictionEngine.classifySetup(fv);
+
+      const isReady = setup.actionable && score >= DISPLAY_MIN_SCORE; // توصية جاهزة
+      const isBreakout = setup.stage === 'breakout';                  // اختراق جارٍ
+
+      // extended أو ضعيف غير قابل للدخول → snapshot فقط، لا يُعرض.
+      if (!isReady && !isBreakout) continue;
+
+      const signalObj = buildSignalObject(item, score, confidence, setup);
+
+      if (isReady) readySignals.push(signalObj);
+      else breakoutSignals.push(signalObj);
     }
 
     if (structureSkipped > 0) {
-      console.log(`🛡️ [STRUCT] استُبعدت ${structureSkipped} إشارة لعدم اتساق البنية (محفوظة في snapshots مع العلم).`);
+      console.log(`🛡️ [STRUCT] استُبعدت ${structureSkipped} إشارة لعدم اتساق البنية (محفوظة في snapshots).`);
     }
+    console.log(`🎯 توصيات جاهزة: ${readySignals.length} | اختراقات جارية: ${breakoutSignals.length}`);
 
     // 7. Save
     if (snapshotsBatch.length > 0) {
@@ -410,13 +393,18 @@ export default async function handler(req, res) {
 
     // 8. Response
     res.status(200).json({
-      signals: finalSignals.sort((a, b) => b.predictionScore - a.predictionScore),
+      // التوصيات الجاهزة (استباقية) — القسم الأساسي.
+      signals: readySignals.sort((a, b) => b.predictionScore - a.predictionScore),
+      // الاختراقات الجارية — تُعرض في قسم منفصل كتنبيه (فات الدخول المثالي).
+      // تُرتّب بالحركة اليومية لأن درجاتها الاستباقية منخفضة بحكم التصميم.
+      breakouts: breakoutSignals.sort((a, b) => b.change_pct - a.change_pct),
       movers,
       meta: {
         totalScanned: universe.length,
         totalFiltered: filtered.length,
-        totalSignals: finalSignals.length,
-        structureSkipped, // ✅ عدد الإشارات المُستبعدة بالحارس
+        totalSignals: readySignals.length,
+        totalBreakouts: breakoutSignals.length,
+        structureSkipped,
         savedSnapshots: snapshotsBatch.length,
         executionTime: `${((Date.now() - startTime) / 1000).toFixed(2)}s`,
         brainVersion: model.version,
@@ -442,9 +430,6 @@ function getGrade(score) {
   return 'WATCH';
 }
 
-// ─── بناء قوائم حركة السوق من universe (بيانات لحظية خام) ───
-// لا تكلفة إضافية على Polygon: نرتّب الـ universe المُحمّل أصلاً.
-// كل عنصر خفيف (رمز/سعر/تغيّر/حجم/قيمة) — يكفي للعرض في تبويب حركة السوق.
 function buildMovers(universe) {
   const valid = (universe || []).filter(s => s && s.symbol && s.price > 0 && s.volume > 0)
     .map(s => ({
