@@ -405,14 +405,9 @@ export default async function handler(req, res) {
     }
 
     // 8. Response
-    res.status(200).json({
-      // التوصيات الجاهزة (استباقية) — القسم الأساسي.
-      signals: readySignals.sort((a, b) => b.predictionScore - a.predictionScore),
-      // الاختراقات الجارية — تُعرض في قسم منفصل كتنبيه (فات الدخول المثالي).
-      // تُرتّب بالحركة اليومية لأن درجاتها الاستباقية منخفضة بحكم التصميم.
-      breakouts: breakoutSignals.sort((a, b) => b.change_pct - a.change_pct),
-      movers,
-      meta: {
+    // وضع خفيف للكرون (?light=1): لا نُرجّع الإشارات الكاملة (الكرون لا يحتاجها،
+    // والواجهة تقرأ من /api/signals) — يتفادى حدّ حجم الرد في cron-job.org.
+    const meta8 = {
         totalScanned: universe.length,
         totalFiltered: filtered.length,
         totalSignals: readySignals.length,
@@ -424,7 +419,17 @@ export default async function handler(req, res) {
         timeframeBreakdown: totalTimeframes,
         batchSizeUsed: currentBatchSize,
         analysisLimit: analysisLimit,
-      },
+    };
+
+    if (req.query && (req.query.light === '1' || req.query.light === 'true')) {
+      return res.status(200).json({ ok: true, meta: meta8 });
+    }
+
+    res.status(200).json({
+      signals: readySignals.sort((a, b) => b.predictionScore - a.predictionScore),
+      breakouts: breakoutSignals.sort((a, b) => b.change_pct - a.change_pct),
+      movers,
+      meta: meta8,
     });
   } catch (error) {
     console.error('❌ خطأ عام:', error);
