@@ -345,12 +345,8 @@ export default async function handler(req, res) {
       console.error('❌ [lowprice] فشل كتابة latest_signals (غير حرج):', lsError.message);
     }
 
-    // Response
-    res.status(200).json({
-      signals: readySignals.sort((a, b) => b.predictionScore - a.predictionScore),
-      breakouts: breakoutSignals.sort((a, b) => b.change_pct - a.change_pct),
-      movers,
-      meta: {
+    // Response — وضع خفيف للكرون (?light=1) يتفادى حدّ حجم الرد.
+    const meta8 = {
         scan_type: 'lowprice',
         priceBand: { min: LOWPRICE_CONFIG.MIN_PRICE, max: LOWPRICE_CONFIG.MAX_PRICE },
         liquidity: { minVolume: LOWPRICE_CONFIG.MIN_VOLUME, minDollarVol: LOWPRICE_CONFIG.MIN_DOLLAR_VOL },
@@ -364,7 +360,17 @@ export default async function handler(req, res) {
         executionTime: `${((Date.now() - startTime) / 1000).toFixed(2)}s`,
         brainVersion: model.version,
         batchSizeUsed: currentBatchSize,
-      },
+    };
+
+    if (req.query && (req.query.light === '1' || req.query.light === 'true')) {
+      return res.status(200).json({ ok: true, meta: meta8 });
+    }
+
+    res.status(200).json({
+      signals: readySignals.sort((a, b) => b.predictionScore - a.predictionScore),
+      breakouts: breakoutSignals.sort((a, b) => b.change_pct - a.change_pct),
+      movers,
+      meta: meta8,
     });
   } catch (error) {
     console.error('❌ [lowprice] خطأ عام:', error);
