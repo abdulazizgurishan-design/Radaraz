@@ -50,16 +50,6 @@ const DEFAULT_MODEL = {
   ai_weight: 0.4,
 };
 
-// ─── حارس الكرون (متساهل عند غياب CRON_SECRET) ───
-function cronGuard(req) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  const auth = req.headers?.authorization || '';
-  const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  const provided = bearer || req.query?.secret || '';
-  return provided === secret;
-}
-
 let currentBatchSize = 20;
 let consecutiveRateLimits = 0;
 const getAdaptiveBatchSize = () => {
@@ -191,10 +181,6 @@ function buildSignalObject(item, score, confidence, setup) {
 
 export default async function handler(req, res) {
   const startTime = Date.now();
-
-  if (!cronGuard(req)) {
-    return res.status(401).json({ error: 'unauthorized — scan is cron-only' });
-  }
 
   try {
     // Market Context
@@ -352,6 +338,7 @@ export default async function handler(req, res) {
       const batchId = new Date().toISOString();
       await StorageEngine.saveLatestSignalsBulk(readySignals, 'lowprice', 'ready', batchId);
       await StorageEngine.saveLatestSignalsBulk(breakoutSignals, 'lowprice', 'breakout', batchId);
+      await StorageEngine.saveLatestMovers(movers, 'lowprice', batchId);
       await StorageEngine.pruneOldBatches('lowprice', 3);
       console.log(`🗂️ latest_signals[lowprice] batch=${batchId} ready=${readySignals.length} breakout=${breakoutSignals.length}`);
     } catch (lsError) {
