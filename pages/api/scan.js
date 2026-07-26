@@ -22,18 +22,6 @@ const supabase = createClient(
 // عتبة عرض التوصيات الجاهزة (تُطابق DISPLAY_MIN_SCORE في الواجهة).
 const DISPLAY_MIN_SCORE = 30;
 
-// ─── حارس الكرون: يمنع المشترك من تشغيل المسح ───
-// متساهل عند غياب CRON_SECRET (حتى لا ينكسر أثناء الإعداد)؛ يُقفل حالما يُضبط.
-// الكرون يمرّر الترويسة: Authorization: Bearer <CRON_SECRET>  (أو ?secret=).
-function cronGuard(req) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // غير مضبوط بعد → مفتوح مؤقتاً
-  const auth = req.headers?.authorization || '';
-  const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  const provided = bearer || req.query?.secret || '';
-  return provided === secret;
-}
-
 const DEFAULT_MODEL = {
   version: 'v20.1',
   weights: {
@@ -224,11 +212,6 @@ function buildSignalObject(item, score, confidence, setup) {
 export default async function handler(req, res) {
   const startTime = Date.now();
 
-  // ─── الحارس: المسح للكرون فقط، لا للمشترك ───
-  if (!cronGuard(req)) {
-    return res.status(401).json({ error: 'unauthorized — scan is cron-only' });
-  }
-
   try {
     // 1. Market Context
     let marketContext = {
@@ -414,6 +397,7 @@ export default async function handler(req, res) {
       const batchId = new Date().toISOString(); // طابع الدفعة
       await StorageEngine.saveLatestSignalsBulk(readySignals, 'main', 'ready', batchId);
       await StorageEngine.saveLatestSignalsBulk(breakoutSignals, 'main', 'breakout', batchId);
+      await StorageEngine.saveLatestMovers(movers, 'main', batchId);
       await StorageEngine.pruneOldBatches('main', 3); // يُبقي أحدث 3 دُفعات
       console.log(`🗂️ latest_signals[main] batch=${batchId} ready=${readySignals.length} breakout=${breakoutSignals.length}`);
     } catch (lsError) {
