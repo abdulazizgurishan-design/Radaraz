@@ -1,4 +1,4 @@
-// components/Radar.js — التصميم الأصلي مع إضافة الحقول الجديدة فقط
+// components/Radar.js — يقرأ من /api/signals (المشترك قارئ فقط) + قسم اختراقات جارية + شارة الحالة
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 
 // حقن حركة نبض اللمبة مرة واحدة (آمن مع SSR)
@@ -653,7 +653,7 @@ function MarketMovers({ movers, signals, t, lang }) {
       }}>
         {list.length === 0 && (
           <div style={{ padding: "24px", textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
-            {en ? "No data yet — scan first" : "لا توجد بيانات — امسح أولاً"}
+            {en ? "No data yet" : "لا توجد بيانات بعد"}
           </div>
         )}
         {list.map((m, i) => {
@@ -759,7 +759,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
     try {
       const res = await fetch(`/api/company-details?symbol=${symbol}`);
       const data = await res.json();
-      
+
       setCompanyData({
         ...data,
         marketCapFormatted: data.marketCapFormatted || formatMarketCapDisplay(Number(data.marketCap)),
@@ -920,7 +920,7 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
   return (
     <div style={{
       background: "linear-gradient(135deg, rgba(15,20,35,0.95), rgba(20,28,48,0.95))",
-      border: "1px solid rgba(255,255,255,0.08)",
+      border: r.actionable === false ? "1px solid rgba(244,63,94,0.35)" : "1px solid rgba(255,255,255,0.08)",
       borderRadius: "16px",
       padding: "16px 18px",
       marginBottom: "10px",
@@ -996,6 +996,19 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
       </div>
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 13, fontWeight: 600, alignItems: "center" }}>
+        {/* 🆕 v20.3: مرحلة الإعداد (توصية جاهزة مقابل مطاردة) */}
+        {r.setup_label && (
+          <span style={{
+            color: r.actionable === false ? "#f43f5e" : "#34d399",
+            background: r.actionable === false ? "rgba(244,63,94,0.12)" : "rgba(52,211,153,0.12)",
+            padding: "2px 12px",
+            borderRadius: 20,
+            border: `1px solid ${r.actionable === false ? "#f43f5e" : "#34d399"}55`,
+            fontWeight: 700,
+          }}>
+            {r.setup_label}
+          </span>
+        )}
         {/* شارة الدخول */}
         {entryBadge && (
           <span style={{ color: entryBadge.c, background: entryBadge.bg, padding: "2px 12px", borderRadius: 20, border: `1px solid ${entryBadge.c}55`, fontWeight: 700 }}>
@@ -1033,6 +1046,13 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
           </span>
         )}
       </div>
+
+      {/* 🆕 v20.3: تحذير أسهم أقل من 1$ */}
+      {r.risk_warning && (
+        <div style={{ fontSize: 11.5, color: "#fca5a5", background: "rgba(244,63,94,0.1)", border: "1px solid rgba(244,63,94,0.25)", borderRadius: 10, padding: "8px 12px", marginBottom: 10, lineHeight: 1.6 }}>
+          {r.risk_warning}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button onClick={() => setShowSimple(!showSimple)} style={{ padding: "6px 14px", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: showSimple ? "rgba(99,102,241,0.3)" : "rgba(99,102,241,0.15)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)" }}>
@@ -1362,6 +1382,7 @@ export default function Radar() {
   const [authChecked, setAuthChecked] = useState(false);
   const [tab, setTab] = useState("brain");
   const [signals, setSignals] = useState([]);
+  const [breakouts, setBreakouts] = useState([]);
   const [meta, setMeta] = useState(null);
   const [movers, setMovers] = useState(null);
   const [marketRegime, setMarketRegime] = useState(null);
@@ -1422,17 +1443,15 @@ export default function Radar() {
     setAuth(null);
   };
 
-  // ── جلب الإشارات ──
+  // ── قراءة الإشارات المخزّنة (المشترك قارئ فقط — لا يُشغّل مسحاً) ──
   const scan = useCallback(async () => {
-    if (Date.now() - lastScan.current < 8000) return;
+    if (Date.now() - lastScan.current < 4000) return;
     lastScan.current = Date.now();
     setLoading(true);
     try {
-      const res = await fetch("/api/scan");
+      const res = await fetch("/api/signals");
       const data = await res.json();
-      const list = data.signals || data.results || [];
-      // خريطة الحقول لبطاقة SmartCard (score/predictionScore متوافقان)
-      const mapped = (Array.isArray(list) ? list : []).map((s) => ({
+      const mapRow = (s) => ({
         ...s,
         score: (s.score ?? s.predictionScore) || 0,
         predictionScore: (s.predictionScore ?? s.score) || 0,
@@ -1440,13 +1459,17 @@ export default function Radar() {
         timing: s.timing || "UNKNOWN",
         levels: s.levels || { t1: 0, t1Pct: 0, t2: 0, t2Pct: 0, t3: 0, t3Pct: 0, sl: 0, slPct: 0, risk: 0 },
         structure: s.structure || null,
-      }));
-      setSignals(mapped);
+      });
+      const list = data.signals || data.results || [];
+      const breaks = data.breakouts || [];
+      setSignals((Array.isArray(list) ? list : []).map(mapRow));
+      setBreakouts((Array.isArray(breaks) ? breaks : []).map(mapRow));
       setMeta(data.meta || null);
       if (data.movers) setMovers(data.movers);
       if (data.market_regime) setMarketRegime(data.market_regime);
     } catch {
       setSignals([]);
+      setBreakouts([]);
     } finally {
       setLoading(false);
     }
@@ -1458,7 +1481,7 @@ export default function Radar() {
   const M = useMemo(() => {
     const n = signals.length;
     const avg = n ? Math.round(signals.reduce((a, s) => a + (s.predictionScore || 0), 0) / n) : 0;
-    const breakouts = signals.filter((s) => s.breakout).length;
+    const breakoutsCount = breakouts.length;
     const near = signals.filter((s) => s.preBreakout).length;
     const strong = signals.filter((s) => (s.predictionScore || 0) >= 65).length;
     const topGrade = signals.reduce((best, s) => {
@@ -1467,8 +1490,8 @@ export default function Radar() {
     }, "WATCH");
     // أقوى إشارة اليوم (أعلى ثقة)
     const top = n ? [...signals].sort((a, b) => (b.predictionScore || 0) - (a.predictionScore || 0))[0] : null;
-    return { n, avg, breakouts, near, strong, topGrade, top, coverage: meta?.totalScanned || 0, version: meta?.brainVersion || "v20.2" };
-  }, [signals, meta]);
+    return { n, avg, breakouts: breakoutsCount, near, strong, topGrade, top, coverage: meta?.totalScanned || 0, version: meta?.brainVersion || "v20.3" };
+  }, [signals, breakouts, meta]);
 
   // ── حالة السوق (من market_regime الحقيقي) ──
   const regime = useMemo(() => {
@@ -1514,8 +1537,8 @@ export default function Radar() {
     return t2;
   }, [signals]);
 
-  const thinkWords = en ? ["Scanning market…", "Analyzing momentum…", "Finding opportunities…", "Detecting patterns…", "Thinking…"]
-    : ["يمسح السوق…", "يحلّل الزخم…", "يبحث عن فرص…", "يرصد الأنماط…", "يفكّر…"];
+  const thinkWords = en ? ["Loading signals…", "Reading latest scan…", "Ranking opportunities…", "Preparing view…", "Ready…"]
+    : ["يحمّل الإشارات…", "يقرأ آخر مسح…", "يرتّب الفرص…", "يجهّز العرض…", "جاهز…"];
   const soonLabel = en ? "Soon" : "قريباً";
 
   const navBtns = [
@@ -1632,7 +1655,7 @@ export default function Radar() {
                 {[
                   { label: en ? "🟢 In Zone" : "🟢 جاهزة", v: tiers.ready.length, c: AIC.green },
                   { label: en ? "🔵 Watch" : "🔵 مراقبة", v: tiers.watch.length, c: "#60a5fa" },
-                  { label: en ? "🚀 Breakout" : "🚀 اختراق", v: tiers.breakout.length, c: AIC.teal },
+                  { label: en ? "🔴 Breakouts" : "🔴 اختراقات", v: breakouts.length, c: "#f43f5e" },
                   { label: en ? "💎 Elite" : "💎 نخبة", v: tiers.elite.length, c: "#00d4aa" },
                 ].map((x) => (
                   <div key={x.label} style={{ flex: 1, minWidth: 78, background: AIC.glass, border: `1px solid ${AIC.glassBorder}`, borderRadius: 14, padding: "12px 10px", textAlign: "center" }}>
@@ -1652,13 +1675,13 @@ export default function Radar() {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 22 }}>
               <AIStat label={en ? "Top Grade" : "أعلى تصنيف"} value={M.n ? (en ? AI_GRADE[M.topGrade].en : AI_GRADE[M.topGrade].ar) : "—"} accent={AI_GRADE[M.topGrade]?.c} />
               <AIStat label={en ? "Model" : "إصدار النموذج"} value={M.version} accent={AIC.cyan} />
-              <AIStat label={en ? "State" : "الحالة الحيّة"} value={loading ? (en ? "Scanning" : "يمسح") : (en ? "Focused" : "مُركّز")} accent={AIC.amber} />
+              <AIStat label={en ? "State" : "الحالة الحيّة"} value={loading ? (en ? "Refreshing" : "يحدّث") : (en ? "Focused" : "مُركّز")} accent={AIC.amber} />
             </div>
 
             <div style={{ fontSize: 13, fontWeight: 800, color: AIC.sub, margin: "6px 0 12px" }}>🧠 {en ? "AI Memory" : "ذاكرة الذكاء"}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
               {[
-                en ? `Detected today: ${M.breakouts} breakout patterns` : `رصد اليوم: ${M.breakouts} نمط اختراق`,
+                en ? `Ongoing breakouts: ${M.breakouts}` : `اختراقات جارية: ${M.breakouts}`,
                 en ? `Near breakout: ${M.near} stocks below resistance` : `قرب اختراق: ${M.near} سهم تحت المقاومة`,
                 en ? `High-quality signals: ${M.strong}` : `إشارات عالية الجودة: ${M.strong}`,
                 en ? `Full scan: ${M.coverage.toLocaleString()} symbols` : `مسح شامل: ${M.coverage.toLocaleString()} رمز`,
@@ -1668,7 +1691,7 @@ export default function Radar() {
             </div>
 
             <button onClick={scan} disabled={loading} style={{ ...primaryBtn, width: "100%" }}>
-              {loading ? (en ? "⟳ Scanning…" : "⟳ جاري المسح…") : (en ? "📡 Scan Market Now" : "📡 مسح السوق الآن")}
+              {loading ? (en ? "⟳ Refreshing…" : "⟳ جاري التحديث…") : (en ? "🔄 Refresh" : "🔄 تحديث")}
             </button>
           </>
         )}
@@ -1677,7 +1700,7 @@ export default function Radar() {
         {tab === "radar" && (
           <>
             <button onClick={scan} disabled={loading} style={{ ...primaryBtn, width: "100%", marginBottom: 16 }}>
-              {loading ? (en ? "⟳ Scanning…" : "⟳ جاري المسح…") : (en ? "📡 Scan Market Now" : "📡 مسح السوق الآن")}
+              {loading ? (en ? "⟳ Refreshing…" : "⟳ جاري التحديث…") : (en ? "🔄 Refresh" : "🔄 تحديث")}
             </button>
 
             {loading && (
@@ -1687,7 +1710,7 @@ export default function Radar() {
               </div>
             )}
 
-            {!loading && signals.length === 0 && (
+            {!loading && signals.length === 0 && breakouts.length === 0 && (
               <div style={{ textAlign: "center", padding: "64px 24px", background: AIC.glass, border: `1px solid ${AIC.glassBorder}`, borderRadius: 20 }}>
                 <div style={{ fontSize: 44, marginBottom: 14 }}>🔭</div>
                 <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>{en ? "AI is searching for high-quality opportunities" : "الذكاء يبحث عن فرص عالية الجودة"}</div>
@@ -1695,36 +1718,55 @@ export default function Radar() {
               </div>
             )}
 
-            {!loading && signals.length > 0 && (() => {
+            {!loading && (signals.length > 0 || breakouts.length > 0) && (() => {
+              // قسم الاختراقات الجارية (توصية فات دخولها — تنبيه فقط)
+              const BreakoutsBlock = () => breakouts.length === 0 ? null : (
+                <CollapsibleSection title={en ? "🔴 Ongoing breakouts" : "🔴 اختراقات جارية"}
+                  subtitle={en ? "Already moved — entry missed (alert)" : "بدأت الحركة — فات الدخول (تنبيه)"}
+                  count={breakouts.length} color="#f43f5e" bg="rgba(244,63,94,0.08)" border="rgba(244,63,94,0.3)"
+                  t={t} defaultOpen={false}>
+                  {breakouts.map((r, i) => (
+                    <SmartCard key={"bk-" + r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />
+                  ))}
+                </CollapsibleSection>
+              );
+
               // أقسام حقيقية — يظهر القسم فقط إن كان فيه إشارات
               const sections = [
                 { key: "ready", list: tiers.ready, title: en ? "🔥 Ready to enter" : "🔥 جاهزة للدخول", sub: en ? "Price in entry zone now" : "السعر في منطقة الدخول الآن", color: "#ff6b35", bg: "rgba(255,107,53,0.08)", border: "rgba(255,107,53,0.3)", open: true },
-                { key: "breakout", list: tiers.breakout, title: en ? "🚀 Breakouts" : "🚀 اختراقات", sub: en ? "Broke above resistance" : "تجاوزت المقاومة", color: "#2dd4bf", bg: "rgba(45,212,191,0.08)", border: "rgba(45,212,191,0.3)", open: true },
                 { key: "elite", list: tiers.elite, title: en ? "💎 Elite" : "💎 نخبة", sub: en ? "Highest quality (Prime/Elite)" : "أعلى جودة (ممتاز/نخبة)", color: "#00d4aa", bg: "rgba(0,212,170,0.08)", border: "rgba(0,212,170,0.3)", open: true },
                 { key: "watch", list: tiers.watch, title: en ? "🔵 Watch zones" : "🔵 مناطق مراقبة", sub: en ? "Wait for a pullback to entry" : "انتظر ارتداداً لمنطقة الدخول", color: "#60a5fa", bg: "rgba(96,165,250,0.08)", border: "rgba(96,165,250,0.3)", open: false },
                 { key: "late", list: tiers.late, title: en ? "🚀 Late momentum" : "🚀 زخم متأخر", sub: en ? "Extended — higher risk" : "ممتد — مخاطرة أعلى", color: "#fbbf24", bg: "rgba(251,191,36,0.08)", border: "rgba(251,191,36,0.3)", open: false },
               ].filter((s) => s.list.length > 0);
 
               if (sections.length === 0) {
-                // إشارات موجودة لكن بلا حالة دخول — اعرضها كقائمة واحدة بدل إخفائها
+                // إشارات جاهزة بلا حالة دخول — اعرضها كقائمة، ثم الاختراقات
                 return (
                   <>
-                    <div style={{ fontSize: 11, color: AIC.faint, marginBottom: 12 }}>{signals.length} {en ? "opportunities" : "فرصة"}</div>
+                    {sortedSignals.length > 0 && (
+                      <div style={{ fontSize: 11, color: AIC.faint, marginBottom: 12 }}>{sortedSignals.length} {en ? "opportunities" : "فرصة"}</div>
+                    )}
                     {sortedSignals.map((r, i) => (
                       <SmartCard key={r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />
                     ))}
+                    <BreakoutsBlock />
                   </>
                 );
               }
 
-              return sections.map((sec) => (
-                <CollapsibleSection key={sec.key} title={sec.title} subtitle={sec.sub} count={sec.list.length}
-                  color={sec.color} bg={sec.bg} border={sec.border} t={t} defaultOpen={sec.open}>
-                  {sec.list.map((r, i) => (
-                    <SmartCard key={sec.key + "-" + r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />
+              return (
+                <>
+                  {sections.map((sec) => (
+                    <CollapsibleSection key={sec.key} title={sec.title} subtitle={sec.sub} count={sec.list.length}
+                      color={sec.color} bg={sec.bg} border={sec.border} t={t} defaultOpen={sec.open}>
+                      {sec.list.map((r, i) => (
+                        <SmartCard key={sec.key + "-" + r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />
+                      ))}
+                    </CollapsibleSection>
                   ))}
-                </CollapsibleSection>
-              ));
+                  <BreakoutsBlock />
+                </>
+              );
             })()}
           </>
         )}
@@ -1733,7 +1775,7 @@ export default function Radar() {
         {tab === "movers" && (
           <>
             <button onClick={scan} disabled={loading} style={{ ...primaryBtn, width: "100%", marginBottom: 16 }}>
-              {loading ? (en ? "⟳ Scanning…" : "⟳ جاري المسح…") : (en ? "📡 Scan Market Now" : "📡 مسح السوق الآن")}
+              {loading ? (en ? "⟳ Refreshing…" : "⟳ جاري التحديث…") : (en ? "🔄 Refresh" : "🔄 تحديث")}
             </button>
             {movers ? (
               <MarketMovers movers={movers} signals={signals} t={t} lang={lang} />
@@ -1741,7 +1783,7 @@ export default function Radar() {
               <div style={{ textAlign: "center", padding: "48px 24px", background: AIC.glass, border: `1px solid ${AIC.glassBorder}`, borderRadius: 20 }}>
                 <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{en ? "Market movers not available yet" : "بيانات حركة السوق غير متوفّرة بعد"}</div>
-                <div style={{ fontSize: 12, color: AIC.sub, lineHeight: 1.7 }}>{en ? "Enable movers in the scan API to populate this section." : "تُفعّل حركة السوق بإضافة قائمة movers في واجهة المسح."}</div>
+                <div style={{ fontSize: 12, color: AIC.sub, lineHeight: 1.7 }}>{en ? "Data appears after the next scheduled scan." : "تظهر البيانات بعد المسح المجدول التالي."}</div>
               </div>
             )}
           </>
@@ -1760,8 +1802,8 @@ export default function Radar() {
               <>
                 <div style={{ fontSize: 11, color: AIC.faint, marginBottom: 12 }}>{favorites.length} {en ? "saved" : "محفوظة"}</div>
                 {favorites.map((fav, i) => {
-                  // ادمج البيانات الحيّة إن كان السهم ضمن إشارات اليوم
-                  const live = signals.find((s) => s.symbol === fav.symbol);
+                  // ادمج البيانات الحيّة إن كان السهم ضمن إشارات اليوم (توصيات أو اختراقات)
+                  const live = signals.find((s) => s.symbol === fav.symbol) || breakouts.find((s) => s.symbol === fav.symbol);
                   const row = live || { symbol: fav.symbol, price: fav.entry || 0, change_pct: 0, predictionScore: 0, predictionGrade: "WATCH", structure: fav.structure || null, levels: { t1: 0, sl: 0 } };
                   return <SmartCard key={"fav-" + fav.symbol} r={row} idx={i} t={t} lang={lang} isFav={true} onToggleFav={toggleFav} />;
                 })}
