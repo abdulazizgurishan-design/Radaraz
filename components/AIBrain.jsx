@@ -1383,6 +1383,9 @@ export default function Radar() {
   const [tab, setTab] = useState("brain");
   const [signals, setSignals] = useState([]);
   const [breakouts, setBreakouts] = useState([]);
+  const [lpSignals, setLpSignals] = useState([]);
+  const [lpBreakouts, setLpBreakouts] = useState([]);
+  const [lpLoaded, setLpLoaded] = useState(false);
   const [meta, setMeta] = useState(null);
   const [movers, setMovers] = useState(null);
   const [marketRegime, setMarketRegime] = useState(null);
@@ -1475,7 +1478,38 @@ export default function Radar() {
     }
   }, []);
 
-  useEffect(() => { if (auth) scan(); }, [auth, scan]);
+  // ── قراءة قسم الأسهم منخفضة السعر (0.20$–10$) — قراءة فقط ──
+  const scanLowprice = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/signals?type=lowprice");
+      const data = await res.json();
+      const mapRow = (s) => ({
+        ...s,
+        score: (s.score ?? s.predictionScore) || 0,
+        predictionScore: (s.predictionScore ?? s.score) || 0,
+        predictionGrade: s.predictionGrade || "WATCH",
+        timing: s.timing || "UNKNOWN",
+        levels: s.levels || { t1: 0, t1Pct: 0, t2: 0, t2Pct: 0, t3: 0, t3Pct: 0, sl: 0, slPct: 0, risk: 0 },
+        structure: s.structure || null,
+      });
+      const list = data.signals || [];
+      const breaks = data.breakouts || [];
+      setLpSignals((Array.isArray(list) ? list : []).map(mapRow));
+      setLpBreakouts((Array.isArray(breaks) ? breaks : []).map(mapRow));
+    } catch {
+      setLpSignals([]);
+      setLpBreakouts([]);
+    } finally {
+      setLpLoaded(true);
+      setLoading(false);
+    }
+  }, []);
+
+  // حمّل القسم منخفض السعر أول مرة يفتح المشترك تبويبه
+  useEffect(() => { if (auth && tab === "lowprice" && !lpLoaded) scanLowprice(); }, [auth, tab, lpLoaded, scanLowprice]);
+
+    useEffect(() => { if (auth) scan(); }, [auth, scan]);
 
   // ── مقاييس حقيقية ──
   const M = useMemo(() => {
@@ -1545,6 +1579,7 @@ export default function Radar() {
     { id: "brain", label: en ? "🧠 AI Brain" : "🧠 عقل الذكاء" },
     { id: "radar", label: en ? "📡 Radar" : "📡 الرادار" },
     { id: "movers", label: en ? "📊 Movers" : "📊 حركة السوق" },
+    { id: "lowprice", label: en ? "💰 Under $10" : "💰 أقل من ١٠$" },
     { id: "favorites", label: en ? `⭐ Favorites${favorites.length ? " (" + favorites.length + ")" : ""}` : `⭐ المفضلة${favorites.length ? " (" + favorites.length + ")" : ""}` },
     { id: "performance", label: en ? "📊 Performance" : "📊 الأداء", soon: true },
     { id: "learning", label: en ? "🌱 Learning" : "🌱 التعلّم", soon: true },
@@ -1554,6 +1589,7 @@ export default function Radar() {
   const primaryBtn = { background: `linear-gradient(135deg, ${AIC.iris}, ${AIC.iris2})`, border: "none", borderRadius: 14, padding: "14px 24px", color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 8px 28px ${AIC.iris}55` };
 
   const sortedSignals = useMemo(() => [...signals].sort((a, b) => (b.predictionScore || 0) - (a.predictionScore || 0)), [signals]);
+  const sortedLpSignals = useMemo(() => [...lpSignals].sort((a, b) => (b.predictionScore || 0) - (a.predictionScore || 0)), [lpSignals]);
 
   if (!authChecked) return null;
 
@@ -1808,6 +1844,65 @@ export default function Radar() {
                   return <SmartCard key={"fav-" + fav.symbol} r={row} idx={i} t={t} lang={lang} isFav={true} onToggleFav={toggleFav} />;
                 })}
               </>
+            )}
+          </>
+        )}
+
+        {/* ===== الأسهم منخفضة السعر (💰 أقل من ١٠$) ===== */}
+        {tab === "lowprice" && (
+          <>
+            {/* لافتة تحذير عالية المخاطر */}
+            <div style={{ background: "linear-gradient(135deg, rgba(244,63,94,0.14), rgba(239,68,68,0.06))", border: "1px solid rgba(244,63,94,0.4)", borderRadius: 16, padding: "14px 16px", marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <span style={{ fontSize: 22, lineHeight: 1 }}>⚠️</span>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#fca5a5", marginBottom: 4 }}>
+                  {en ? "High-risk section" : "قسم عالي المخاطر"}
+                </div>
+                <div style={{ fontSize: 12, color: "rgba(255,210,210,0.75)", lineHeight: 1.7 }}>
+                  {en
+                    ? "Stocks priced $0.20–$10. Sharp volatility, wide spreads, and liquidity that can be misleading. Use small size and strict stop-loss. Not investment advice."
+                    : "أسهم من ٢٠ سنت إلى ١٠$. تقلّب حادّ، فروقات سعرية واسعة، وسيولة قد تكون خادعة. استخدم حجمًا صغيرًا ووقف خسارة صارمًا. ليست نصيحة استثمارية."}
+                </div>
+              </div>
+            </div>
+
+            <button onClick={scanLowprice} disabled={loading} style={{ ...primaryBtn, width: "100%", marginBottom: 16 }}>
+              {loading ? (en ? "⟳ Refreshing…" : "⟳ جاري التحديث…") : (en ? "🔄 Refresh" : "🔄 تحديث")}
+            </button>
+
+            {loading && !lpLoaded && (
+              <div style={{ textAlign: "center", padding: "50px 0" }}>
+                <AICore active />
+                <ThinkingLine words={thinkWords} />
+              </div>
+            )}
+
+            {lpLoaded && sortedLpSignals.length === 0 && lpBreakouts.length === 0 && (
+              <div style={{ textAlign: "center", padding: "64px 24px", background: AIC.glass, border: `1px solid ${AIC.glassBorder}`, borderRadius: 20 }}>
+                <div style={{ fontSize: 44, marginBottom: 14 }}>💰</div>
+                <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>{en ? "No low-price opportunities right now" : "لا توجد فرص منخفضة السعر الآن"}</div>
+                <div style={{ fontSize: 12.5, color: AIC.sub }}>{en ? "Strict liquidity filters active · updated on schedule" : "فلاتر سيولة صارمة نشطة · تُحدَّث حسب الجدول"}</div>
+              </div>
+            )}
+
+            {sortedLpSignals.length > 0 && (
+              <>
+                <div style={{ fontSize: 11, color: AIC.faint, marginBottom: 12 }}>{sortedLpSignals.length} {en ? "opportunities" : "فرصة"}</div>
+                {sortedLpSignals.map((r, i) => (
+                  <SmartCard key={"lp-" + r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />
+                ))}
+              </>
+            )}
+
+            {lpBreakouts.length > 0 && (
+              <CollapsibleSection title={en ? "🔴 Ongoing breakouts" : "🔴 اختراقات جارية"}
+                subtitle={en ? "Already moved — entry missed (alert)" : "بدأت الحركة — فات الدخول (تنبيه)"}
+                count={lpBreakouts.length} color="#f43f5e" bg="rgba(244,63,94,0.08)" border="rgba(244,63,94,0.3)"
+                t={t} defaultOpen={false}>
+                {lpBreakouts.map((r, i) => (
+                  <SmartCard key={"lpbk-" + r.symbol} r={r} idx={i} t={t} lang={lang} isFav={favSet.has(r.symbol)} onToggleFav={toggleFav} />
+                ))}
+              </CollapsibleSection>
             )}
           </>
         )}
