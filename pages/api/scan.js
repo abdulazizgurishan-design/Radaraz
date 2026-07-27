@@ -425,6 +425,21 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, meta: meta8 });
     }
 
+    // ── توافق مع صفحة الأدمن: تتوقّع success/total/hot/saved ──
+    const isAdmin = req.headers && req.headers['x-admin-scan'] === 'true';
+    if (isAdmin) {
+      return res.status(200).json({
+        success: true,
+        total: readySignals.length + breakoutSignals.length,
+        hot: breakoutSignals.length,
+        saved: meta8.savedSnapshots || 0,
+        signals: readySignals.sort((a, b) => b.predictionScore - a.predictionScore),
+        breakouts: breakoutSignals.sort((a, b) => b.change_pct - a.change_pct),
+        movers,
+        meta: meta8,
+      });
+    }
+
     res.status(200).json({
       signals: readySignals.sort((a, b) => b.predictionScore - a.predictionScore),
       breakouts: breakoutSignals.sort((a, b) => b.change_pct - a.change_pct),
