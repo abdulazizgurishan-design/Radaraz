@@ -252,8 +252,16 @@ export default async function handler(req, res) {
     const closedAll = (await sr.json()) || [];
 
     // صف بلا result_pct معروف لا يدخل أي حساب إحصائي
-    const closed = closedAll.filter(s => s.result_pct != null);
-    const excludedNoResult = closedAll.length - closed.length;
+    // 🆕 v6: عزل الجيلين — نستبعد أيضاً الصفوف القديمة المشوّهة التي
+    //   target1_hit فيها null (قُيّمت بنظام قديم مختلف، حقولها غير متوافقة
+    //   مع التعريف الموحّد). بدونه يظهر win_rate كاذب (5.2%) يخلط جيلين.
+    const closed = closedAll.filter(
+      s => s.result_pct != null && s.target1_hit != null && s.stop_hit != null
+    );
+    const excludedNoResult = closedAll.filter(s => s.result_pct == null).length;
+    const excludedLegacy = closedAll.filter(
+      s => s.result_pct != null && (s.target1_hit == null || s.stop_hit == null)
+    ).length;
 
     // 🆕 v5: التعريف الموحّد
     const wins = closed.filter(isWinTrade);
@@ -278,6 +286,12 @@ export default async function handler(req, res) {
         definition: "WIN = target1_hit && !stop_hit && result_pct > 0 (موحّد مع /api/backtest)",
         closed_total: closed.length,
         excluded_no_result: excludedNoResult,
+        excluded_legacy: excludedLegacy,   // 🆕 v6: صفوف قديمة مشوّهة استُبعدت
+        // 🆕 v6: علم أمان للتسويق — لا تنشر الأرقام قبل عيّنة كافية نظيفة
+        marketing_safe: closed.length >= 30,
+        sample_note: closed.length < 30
+          ? `عيّنة صغيرة (${closed.length}) — لا تُنشر للتسويق قبل بلوغ 30+`
+          : 'عيّنة كافية',
         win_rate_pct: closed.length ? +((wins.length / closed.length) * 100).toFixed(1) : null,
         avg_win_pct: avg(wins),
         avg_loss_pct: avg(stops),
