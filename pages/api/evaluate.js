@@ -1,25 +1,21 @@
-// pages/api/evaluate.js — v4 (إصلاح تلوث الإحصائيات + بداية نظيفة)
+// pages/api/evaluate.js — v5 (توحيد تعريف الربح مع الباك-تيست)
 // ═══════════════════════════════════════════════════════════════════
-//  🏗️ مبني على v3 — نفس منطق التقييم (شموع دقائق لليوم الأول + شموع يومية
-//     للأيام التالية + حسم الترتيب المتحفظ) — لم يُمس، فقط طبقة الإحصائيات.
+//  🏗️ مبني على v4 — نفس منطق التقييم (شموع دقائق لليوم الأول + شموع يومية
+//     للأيام التالية + حسم الترتيب المتحفظ) — لم يُمس.
 //
-//  🆕 v4 — إصلاح تلوث الإحصائيات الذي ظهر في أول تشغيل:
-//   🔴 المشكلة: avg_win_pct طلع 0.38% (رقم مستحيل) لأن 700 صف قديم كان
-//      result_pct فيها NULL (العمود أُنشئ للتو)، والكود كان يعوّضها بصفر
-//      عبر (result_pct ?? close_gain_pct ?? 0) — يسحب المتوسط للأسفل زوراً.
-//   ✅ الإصلاح: avg() الآن تستبعد أي صف result_pct = null من الحساب تماماً
-//      بدل احتسابه صفراً — صف بلا نتيجة معروفة لا يدخل المتوسط، لا يُشوّهه.
-//   ✅ عتبة "بداية نظيفة" STATS_SINCE قابلة للتعديل عبر ?statsSince=YYYY-MM-DD
-//      — تفصل إحصائيات ما بعد نشر v11/v12 عن تراث v10/evaluate-v2 المختلط
-//      (ذاك كان يُغلق كل إشارة بعد يوم واحد حتى لو هدفها T2/T3 بعيد).
-//   ✅ عدّاد شفاف جديد: excluded_no_result — كم صفاً استُبعد من الحساب
-//      لأنه بلا result_pct، حتى تعرف حجم "التلوث" القديم بوضوح.
-//   ✅ by_score تستبعد نفس الصفوف — المقارنة بين الشرائح تصير ذات معنى فعلي.
+//  🆕 v5 — توحيد تعريف "الربح" مع /api/backtest (مصدر حقيقة واحد):
+//   🔴 المشكلة: كان isWin = target1_hit === true — يعتبر الصفقة رابحة لمجرّد
+//      لمس الهدف، حتى لو أُغلقت بخسارة (result_pct سالب) أو ضربت الوقف أيضاً.
+//      فينتج win_rate متفائل يناقض العائد الفعلي.
+//   ✅ الإصلاح: التعريف الصادق الموحّد —
+//        WIN  = target1_hit && !stop_hit && result_pct > 0
+//        غير ذلك (بما فيها الملتبسة t1+stop) = ليست ربحاً.
+//      نفس تعريف /api/backtest بالضبط، فتتطابق كل التقارير.
+//   (منطق التقييم وكتابة الحقول لم يتغيّر — فقط تعريف الإحصائيات.)
 //
 //  🎛️ الاستخدام:
 //   /api/evaluate?secret=...                          → دورة تقييم عادية
 //   /api/evaluate?secret=...&statsSince=2026-07-13     → إحصائيات بعد تاريخ محدد فقط
-//   (بدون statsSince: الافتراضي 30 يوماً كالسابق، لكن مع استبعاد التلوث)
 // ═══════════════════════════════════════════════════════════════════
 
 const POLYGON_KEY = process.env.POLYGON_API_KEY;
@@ -28,11 +24,20 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_AN
 const CRON_SECRET = process.env.CRON_SECRET;
 const BASE = "https://api.polygon.io";
 
-const MAX_HOLD_DAYS = 10;   // أيام تداول قبل الإغلاق كـ EXPIRED — عدّلها حسب استراتيجيتك
+const MAX_HOLD_DAYS = 10;   // أيام تداول قبل الإغلاق كـ EXPIRED
 
 export const config = { maxDuration: 60 };
 
 const pct = (v, entry) => +(((v - entry) / entry) * 100).toFixed(2);
+
+// ── التعريف الموحّد للربح (مطابق /api/backtest) ──
+// رابحة = لمست الهدف الأول، ولم تضرب الوقف، وأُغلقت بعائد موجب فعلي.
+function isWinTrade(s) {
+  return s.target1_hit === true
+    && s.stop_hit !== true
+    && s.result_pct != null
+    && Number(s.result_pct) > 0;
+}
 
 async function fetchRetry(url, options = {}, retries = 2) {
   for (let i = 0; i < retries; i++) {
@@ -68,7 +73,7 @@ async function fetchJsonTimeout(url, ms) {
   }
 }
 
-// ── تقييم اليوم الأول بشموع الدقائق (كما في v3 — لم يُمس) ───────────
+// ── تقييم اليوم الأول بشموع الدقائق (لم يُمس) ───────────
 async function evalFirstDay(sig, day, today) {
   const sameDay = sig.created_at && String(sig.created_at).split("T")[0] === day;
   const cutoff = sameDay ? new Date(sig.created_at).getTime() : 0;
@@ -233,9 +238,7 @@ export default async function handler(req, res) {
       return null;
     });
 
-    // 4) 📊 إحصائيات الأداء — 🆕 v4: نظيفة من التلوث + بداية قابلة للتحديد
-    // statsSince: افتراضياً 30 يوماً كالسابق، لكن يمكن تحديد تاريخ نشر v11/v12
-    // يدوياً عبر ?statsSince=YYYY-MM-DD لفصل البيانات الحديثة عن التراث القديم
+    // 4) 📊 إحصائيات الأداء — v5: التعريف الموحّد الصادق
     const defaultSince = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
     const statsSince = (req.query.statsSince && /^\d{4}-\d{2}-\d{2}$/.test(req.query.statsSince))
       ? req.query.statsSince
@@ -243,24 +246,23 @@ export default async function handler(req, res) {
 
     const sr = await fetchRetry(
       `${SUPABASE_URL}/rest/v1/signals?status=neq.OPEN&signal_date=gte.${statsSince}` +
-      `&select=status,result_pct,close_gain_pct,score,is_hot,type,target1_hit&limit=1000`,
+      `&select=status,result_pct,close_gain_pct,score,is_hot,type,target1_hit,stop_hit&limit=1000`,
       { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
     );
     const closedAll = (await sr.json()) || [];
 
-    // 🆕 v4: الفصل الحاسم — صف بلا result_pct معروف لا يدخل أي حساب إحصائي
-    // (كان الكود القديم يعوّضه بـ close_gain_pct ?? 0 فيُلوّث المتوسط بأصفار وهمية)
+    // صف بلا result_pct معروف لا يدخل أي حساب إحصائي
     const closed = closedAll.filter(s => s.result_pct != null);
     const excludedNoResult = closedAll.length - closed.length;
 
-    const isWin = s => ["T1_HIT", "T2_HIT", "T3_HIT"].includes(s.status) || s.target1_hit === true;
-    const wins = closed.filter(isWin);
-    const stops = closed.filter(s => s.status === "STOPPED");
-    const avg = arr => arr.length ? +(arr.reduce((a, s) => a + s.result_pct, 0) / arr.length).toFixed(2) : 0;
+    // 🆕 v5: التعريف الموحّد
+    const wins = closed.filter(isWinTrade);
+    const stops = closed.filter(s => s.stop_hit === true || Number(s.result_pct) <= 0);
+    const avg = arr => arr.length ? +(arr.reduce((a, s) => a + Number(s.result_pct), 0) / arr.length).toFixed(2) : 0;
 
     const bucket = (lo, hi) => {
       const g = closed.filter(s => (s.score ?? 0) >= lo && (s.score ?? 0) < hi);
-      const w = g.filter(isWin);
+      const w = g.filter(isWinTrade);
       return g.length ? { count: g.length, win_rate: +((w.length / g.length) * 100).toFixed(1) } : null;
     };
 
@@ -272,9 +274,10 @@ export default async function handler(req, res) {
       total_open: signals.length,
       no_data: signals.length - valid.length,
       performance_30d: {
-        stats_since: statsSince,   // 🆕 v4: شفافية — من أي تاريخ حُسبت هذه الأرقام
+        stats_since: statsSince,
+        definition: "WIN = target1_hit && !stop_hit && result_pct > 0 (موحّد مع /api/backtest)",
         closed_total: closed.length,
-        excluded_no_result: excludedNoResult,   // 🆕 v4: كم صفاً قديماً استُبعد (بلا result_pct)
+        excluded_no_result: excludedNoResult,
         win_rate_pct: closed.length ? +((wins.length / closed.length) * 100).toFixed(1) : null,
         avg_win_pct: avg(wins),
         avg_loss_pct: avg(stops),
@@ -286,7 +289,7 @@ export default async function handler(req, res) {
         },
         hot_signals: (() => {
           const h = closed.filter(s => s.is_hot);
-          const w = h.filter(isWin);
+          const w = h.filter(isWinTrade);
           return h.length ? { count: h.length, win_rate: +((w.length / h.length) * 100).toFixed(1) } : null;
         })(),
       },
