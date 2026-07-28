@@ -404,6 +404,15 @@ export default async function handler(req, res) {
       console.error('❌ فشل كتابة latest_signals (غير حرج):', lsError.message);
     }
 
+    // 7.c ─── كتابة جدول الأدمن القديم (signals) — يقرأه /api/summary والتقارير ───
+    // معزولة تماماً: فشلها لا يؤثّر على المشترك ولا على feature_store.
+    try {
+      await StorageEngine.saveSignalsForAdmin(readySignals, { isHot: false });
+      await StorageEngine.saveSignalsForAdmin(breakoutSignals, { isHot: true });
+    } catch (adminErr) {
+      console.error('❌ فشل كتابة signals للأدمن (غير حرج):', adminErr.message);
+    }
+
     // 8. Response
     // وضع خفيف للكرون (?light=1): لا نُرجّع الإشارات الكاملة (الكرون لا يحتاجها،
     // والواجهة تقرأ من /api/signals) — يتفادى حدّ حجم الرد في cron-job.org.
