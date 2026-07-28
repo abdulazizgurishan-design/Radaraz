@@ -32,12 +32,21 @@ const supabase = createClient(
 const PAGE = 1000; // حجم صفحة القراءة من Supabase
 
 // ── تصنيف صفقة واحدة إلى: win | loss | ambiguous | pending ──
+// التعريف الموحّد (مطابق /api/evaluate v5):
+//   win  = target1_hit && !stop_hit && result_pct > 0  (ربح فعلي، لا مجرّد لمس)
+//   loss = stop_hit، أو أُغلقت بعائد ≤ 0
+//   ambiguous = لمست الهدف والوقف معاً
+//   pending = لم تُقيَّم بعد (لا result_pct)
 function classify(s) {
   const t1 = s.target1_hit === true;
   const stop = s.stop_hit === true;
+  const hasResult = s.result_pct != null;
+  // معلّقة: لا هدف ولا وقف ولا نتيجة مُسجّلة بعد
+  if (!hasResult && !t1 && !stop) return 'pending';
   if (t1 && stop) return 'ambiguous';
-  if (t1 && !stop) return 'win';
-  if (stop && !t1) return 'loss';
+  if (t1 && !stop && hasResult && Number(s.result_pct) > 0) return 'win';
+  if (stop || (hasResult && Number(s.result_pct) <= 0)) return 'loss';
+  // لمست الهدف لكن بلا نتيجة موجبة مؤكّدة بعد → معلّقة
   return 'pending';
 }
 
