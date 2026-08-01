@@ -396,6 +396,76 @@ function AIStat({ label, value, accent, sub }) {
     </div>
   );
 }
+// ─── 💡 نصائح AI الديناميكية (تعليمية + حالة السوق، بلا أوامر شراء) ───
+function AITips({ signals, breakouts, regime, session, lang }) {
+  const en = lang === "en";
+
+  // نصائح تعليمية ثابتة (تُعرض بالتناوب) — مبنية على ما تعلّمناه بالأرقام
+  const eduTips = en ? [
+    "Patience beats chasing: stocks caught early (quiet accumulation) outperform ones chased after they explode.",
+    "Respect the stop loss — a small loss is part of the plan; a big one breaks it.",
+    "A calm stock (moderate RVOL, RSI 40-60) often sets up better than an overheated one.",
+    "Never risk more than a small fraction of your account on one trade.",
+    "The first target secures profit; let a portion run for the bigger move.",
+    "High RSI (>70) means overbought — the move may be late, not early.",
+  ] : [
+    "الصبر يتفوّق على المطاردة: الأسهم المرصودة مبكراً (تجميع هادئ) تتفوّق على المُطارَدة بعد انفجارها.",
+    "احترم وقف الخسارة — الخسارة الصغيرة جزء من الخطة، والكبيرة تكسرها.",
+    "السهم الهادئ (حجم معتدل، RSI بين 40-60) غالباً أفضل من المتفجّر المُشبَع.",
+    "لا تخاطر بأكثر من جزء صغير من حسابك في صفقة واحدة.",
+    "الهدف الأول يؤمّن الربح؛ اترك جزءاً يركض للحركة الأكبر.",
+    "RSI مرتفع (>70) يعني إشباعاً شرائياً — الحركة قد تكون متأخرة لا مبكرة.",
+  ];
+
+  const [tipIdx, setTipIdx] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTipIdx((i) => (i + 1) % eduTips.length), 8000);
+    return () => clearInterval(id);
+  }, [eduTips.length]);
+
+  // نصيحة ديناميكية حسب حالة السوق والإشارات (توجيه، لا أمر شراء)
+  const dynamicTip = (() => {
+    const n = (signals || []).length;
+    if (session && session.key === "closed")
+      return en ? "Market is closed — review setups now, act when it opens." : "السوق مغلق — راجع الفرص الآن ونفّذ عند الافتتاح.";
+    if (regime && regime.key === "weak")
+      return en ? "Market looks weak — the radar is stricter. Fewer signals is normal; prioritize quality." : "السوق يبدو ضعيفاً — الرادار أكثر تشدّداً. قلّة الإشارات طبيعية؛ فضّل الجودة.";
+    if (regime && regime.key === "strong")
+      return en ? "Market looks strong — more opportunities, but keep your risk discipline." : "السوق يبدو قوياً — فرص أكثر، لكن حافظ على انضباط المخاطرة.";
+    if (n === 0)
+      return en ? "No ready setups right now — patience is a position too." : "لا فرص جاهزة الآن — الصبر موقفٌ أيضاً.";
+    if (n > 0)
+      return en ? `${n} setup(s) on the radar — check the entry zone and stop before acting.` : `${n} فرصة على الرادار — راجع منطقة الدخول والوقف قبل أي قرار.`;
+    return "";
+  })();
+
+  return (
+    <div style={{ marginTop: 18, marginBottom: 6 }}>
+      {/* نصيحة اليوم الديناميكية */}
+      {dynamicTip && (
+        <div style={{ background: `${AIC.teal}12`, border: `1px solid ${AIC.teal}40`, borderRadius: 16, padding: "14px 16px", marginBottom: 10, display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <span style={{ fontSize: 20, lineHeight: 1 }}>🧭</span>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: AIC.teal, marginBottom: 3 }}>{en ? "AI Market Note" : "ملاحظة الذكاء اليوم"}</div>
+            <div style={{ fontSize: 12.5, color: AIC.ink, opacity: 0.9, lineHeight: 1.7 }}>{dynamicTip}</div>
+          </div>
+        </div>
+      )}
+      {/* نصيحة تعليمية بالتناوب */}
+      <div style={{ background: AIC.glass, border: `1px solid ${AIC.glassBorder}`, borderRadius: 16, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <span style={{ fontSize: 20, lineHeight: 1 }}>💡</span>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: AIC.iris2, marginBottom: 3 }}>{en ? "Trading Wisdom" : "حكمة تداول"}</div>
+          <div key={tipIdx} style={{ fontSize: 12.5, color: AIC.ink, opacity: 0.9, lineHeight: 1.7, animation: "aicFade 0.5s ease" }}>{eduTips[tipIdx]}</div>
+        </div>
+      </div>
+      <div style={{ fontSize: 10, color: AIC.faint, marginTop: 8, textAlign: "center", lineHeight: 1.6 }}>
+        {en ? "Educational only · not financial advice · you decide your own trades" : "تعليمي فقط · ليست نصيحة استثمارية · قرارك أنت"}
+      </div>
+    </div>
+  );
+}
+
 function SoonPanel({ title, sub, soonLabel }) {
   return (
     <div style={{ background: AIC.glass, border: `1px dashed ${AIC.glassBorder}`, borderRadius: 20, padding: "40px 28px", textAlign: "center", backdropFilter: "blur(10px)" }}>
@@ -1641,6 +1711,9 @@ export default function Radar() {
           <>
             <AICore active={loading} />
             <ThinkingLine words={thinkWords} />
+
+            {/* 💡 نصائح الذكاء الديناميكية */}
+            <AITips signals={signals} breakouts={breakouts} regime={regime} session={session} lang={lang} />
 
             {/* حالة السوق + حالة الجلسة */}
             {(regime || session) && (
