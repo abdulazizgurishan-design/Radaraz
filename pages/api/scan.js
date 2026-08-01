@@ -406,9 +406,12 @@ export default async function handler(req, res) {
 
     // 7.c ─── كتابة جدول الأدمن القديم (signals) — يقرأه /api/summary والتقارير ───
     // معزولة تماماً: فشلها لا يؤثّر على المشترك ولا على feature_store.
+    // 🆕 v20.5: نحفظ التوصيات الجاهزة فقط. الاختراقات (breakout) أثبتت بالأرقام
+    //   أنها تخسر دائماً (صفر رابحة من 10، عائد -5.5%)، فلا نحفظها كتوصيات مُقيّمة
+    //   ولا نعرضها في الأداء. تبقى في latest_signals كتنبيه «اختراقات جارية» فقط.
     try {
       await StorageEngine.saveSignalsForAdmin(readySignals, { isHot: false });
-      await StorageEngine.saveSignalsForAdmin(breakoutSignals, { isHot: true });
+      // (لم نعد نحفظ breakoutSignals — أثبتت خسارتها المستمرة)
     } catch (adminErr) {
       console.error('❌ فشل كتابة signals للأدمن (غير حرج):', adminErr.message);
     }
