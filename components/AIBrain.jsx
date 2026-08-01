@@ -1079,6 +1079,22 @@ function SmartCard({ r, idx, t, lang, isFav, onToggleFav }) {
             {r.setup_label}
           </span>
         )}
+        {/* 🆕 شارة الأخبار (مشاعر Polygon) */}
+        {r.news_sentiment && r.news_fresh && r.news_sentiment !== "neutral" && (
+          <span style={{
+            color: r.news_sentiment === "positive" ? "#34d399" : "#f43f5e",
+            background: r.news_sentiment === "positive" ? "rgba(52,211,153,0.12)" : "rgba(244,63,94,0.12)",
+            padding: "2px 12px", borderRadius: 20,
+            border: `1px solid ${r.news_sentiment === "positive" ? "#34d399" : "#f43f5e"}55`,
+            fontWeight: 700,
+          }}
+          title={r.news_headline || ""}>
+            {r.news_sentiment === "positive"
+              ? (en ? "📰 Positive news" : "📰 خبر إيجابي")
+              : (en ? "📰 Negative news" : "📰 خبر سلبي")}
+            {r.news_age_h != null ? ` · ${r.news_age_h}h` : ""}
+          </span>
+        )}
         {/* شارة الدخول */}
         {entryBadge && (
           <span style={{ color: entryBadge.c, background: entryBadge.bg, padding: "2px 12px", borderRadius: 20, border: `1px solid ${entryBadge.c}55`, fontWeight: 700 }}>
