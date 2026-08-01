@@ -423,19 +423,19 @@ function AITips({ signals, breakouts, regime, session, lang }) {
     return () => clearInterval(id);
   }, [eduTips.length]);
 
-  // نصيحة ديناميكية حسب حالة السوق والإشارات (توجيه، لا أمر شراء)
+  // نصيحة ديناميكية حسب حالة السوق والإشارات — تُظهر الانتقائية كقوّة، لا عجزاً
   const dynamicTip = (() => {
     const n = (signals || []).length;
     if (session && session.key === "closed")
-      return en ? "Market is closed — review setups now, act when it opens." : "السوق مغلق — راجع الفرص الآن ونفّذ عند الافتتاح.";
+      return en ? "Market is closed — a good time to study today's setups and plan your entries." : "السوق مغلق — وقتٌ مثالي لدراسة فرص اليوم والتخطيط لدخولك.";
     if (regime && regime.key === "weak")
-      return en ? "Market looks weak — the radar is stricter. Fewer signals is normal; prioritize quality." : "السوق يبدو ضعيفاً — الرادار أكثر تشدّداً. قلّة الإشارات طبيعية؛ فضّل الجودة.";
+      return en ? "The radar is running stricter filters today to protect you — quality over quantity." : "الرادار يشغّل فلاتر أكثر تشدّداً اليوم لحمايتك — الجودة قبل الكثرة.";
     if (regime && regime.key === "strong")
-      return en ? "Market looks strong — more opportunities, but keep your risk discipline." : "السوق يبدو قوياً — فرص أكثر، لكن حافظ على انضباط المخاطرة.";
+      return en ? "Strong market conditions — more high-quality setups are passing the filters." : "ظروف سوق قوية — فرص أعلى جودة تجتاز الفلاتر.";
     if (n === 0)
-      return en ? "No ready setups right now — patience is a position too." : "لا فرص جاهزة الآن — الصبر موقفٌ أيضاً.";
+      return en ? "The radar scanned 12,000+ stocks and is holding out for the best setups — selectivity is an edge." : "مسح الرادار أكثر من 12,000 سهم وينتظر أفضل الفرص فقط — الانتقائية ميزة.";
     if (n > 0)
-      return en ? `${n} setup(s) on the radar — check the entry zone and stop before acting.` : `${n} فرصة على الرادار — راجع منطقة الدخول والوقف قبل أي قرار.`;
+      return en ? `${n} high-quality setup(s) passed the radar's filters today — review the entry zone and stop.` : `${n} فرصة عالية الجودة اجتازت فلاتر الرادار اليوم — راجع منطقة الدخول والوقف.`;
     return "";
   })();
 
