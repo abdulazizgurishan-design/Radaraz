@@ -1,5 +1,6 @@
 // pages/api/scan.js
 import { dataProvider } from '../../lib/radar/core/DataProvider';
+import { analyzeNewsBatch } from '../../lib/radar/services/NewsEngine';
 import { FilterEngine } from '../../lib/radar/core/FilterEngine';
 import { SmartTimeframeEngine } from '../../lib/radar/core/SmartTimeframeEngine';
 import { IndicatorEngine } from '../../lib/radar/core/IndicatorEngine';
@@ -372,6 +373,39 @@ export default async function handler(req, res) {
       console.log(`🛡️ [STRUCT] استُبعدت ${structureSkipped} إشارة لعدم اتساق البنية (محفوظة في snapshots).`);
     }
     console.log(`🎯 توصيات جاهزة: ${readySignals.length} | اختراقات جارية: ${breakoutSignals.length}`);
+
+    // 7.b ─── إثراء التوصيات الجاهزة بتحليل الأخبار (Polygon sentiment) ───
+    // مقتصد: نجلب الأخبار للمرشّحين فقط (لا كل الـuniverse). معزول: فشله لا يكسر المسح.
+    // الأثر: خبر إيجابي حديث يعزّز الدرجة (+15%)، سلبي يخفضها (-30%)، محايد/قديم بلا أثر.
+    try {
+      const NEWS_ENABLED = process.env.NEWS_ENABLED !== 'false'; // مفعّل افتراضياً؛ لإطفائه: NEWS_ENABLED=false
+      if (NEWS_ENABLED && readySignals.length > 0) {
+        const symbols = readySignals.map((s) => s.symbol).slice(0, 40); // سقف أمان للنداءات
+        const newsMap = await analyzeNewsBatch(symbols, 5);
+        for (const sig of readySignals) {
+          const nw = newsMap[sig.symbol];
+          if (!nw || !nw.available) continue;
+          // خزّن حقول الأخبار للعرض
+          sig.news_sentiment = nw.sentiment;      // positive | negative | neutral
+          sig.news_fresh = nw.fresh;
+          sig.news_age_h = nw.age_h;
+          sig.news_headline = nw.headline;
+          // طبّق عامل الدرجة (مع إبقاء الأصل للمقارنة)
+          if (nw.score_factor && nw.score_factor !== 1.0) {
+            sig.score_before_news = sig.predictionScore;
+            sig.predictionScore = Math.round(Math.min(100, Math.max(0, sig.predictionScore * nw.score_factor)));
+            sig.score = sig.predictionScore;
+          }
+        }
+        // أعد ترتيب التوصيات بعد تأثير الأخبار
+        readySignals.sort((a, b) => b.predictionScore - a.predictionScore);
+        const boosted = readySignals.filter((s) => s.news_sentiment === 'positive' && s.news_fresh).length;
+        const flagged = readySignals.filter((s) => s.news_sentiment === 'negative' && s.news_fresh).length;
+        console.log(`📰 أخبار: ${boosted} معزّزة (إيجابي) · ${flagged} مخفّضة (سلبي)`);
+      }
+    } catch (newsErr) {
+      console.error('❌ فشل إثراء الأخبار (غير حرج):', newsErr.message);
+    }
 
     // 7. Save
     if (snapshotsBatch.length > 0) {
