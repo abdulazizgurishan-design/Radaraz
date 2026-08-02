@@ -41,6 +41,14 @@ const LOWPRICE_CONFIG = {
   ENABLE_MCAP: true,
   MIN_MARKET_CAP: 10_000_000,   // 10 مليون
   MAX_MARKET_CAP: 50_000_000,   // 50 مليون
+  // 🆕 v20.5: بوابة «الفرصة الحيّة» — تلتقط بداية الحركة قبل انتهائها.
+  // المنطق: سيولة نسبية كافية + حجم يستيقظ (لا ينفجر) + لم يرتفع بعد.
+  ENABLE_LIVE_GATE: true,
+  TURNOVER_MIN: 0.20,        // نسبة الدوران: التداول اليومي ≥ 20% من القيمة السوقية (لا سهم ميت)
+  RVOL_WAKE_MIN: 1.0,        // الحجم بدأ يفوق معدّله (بداية اهتمام في المايكرو-كاب)
+  RVOL_WAKE_MAX: 5.0,        // لا ينفجر (فوقه = فات الأوان)
+  CHANGE_MIN: -2,            // لم ينهَر
+  CHANGE_MAX: 8,             // لم ينفجر (فوقه = الفرصة انتهت)
 };
 
 const DEFAULT_MODEL = {
@@ -334,13 +342,38 @@ export default async function handler(req, res) {
       const isBreakout = setup.stage === 'breakout';
       if (!isReady && !isBreakout) continue;
 
+      // 🆕 v20.5: بوابة «الفرصة الحيّة» — تُطبّق على التوصيات الجاهزة فقط.
+      // تستبعد: السهم الميّت (سيولة نسبية ضعيفة)، المنفجر (حجم/صعود تجاوز)،
+      // والممتد. تُبقي: بداية الحركة قرب القاعدة قبل الانفجار.
+      if (isReady && LOWPRICE_CONFIG.ENABLE_LIVE_GATE) {
+        const L = LOWPRICE_CONFIG;
+        const dv = stock.dollar_vol != null ? stock.dollar_vol : (price * (fv.volume || 0));
+        const mcap = stock.market_cap || 0;
+        const turnover = mcap > 0 ? dv / mcap : 0;
+        const rvol = fv.rvol != null ? fv.rvol : 0;
+        const chg = fv.change_pct != null ? fv.change_pct : 0;
+
+        // بوابة 1: سيولة نسبية (لا سهم ميت)
+        const liquidOk = turnover >= L.TURNOVER_MIN;
+        // بوابة 2: الحجم يستيقظ ولا ينفجر
+        const volOk = rvol >= L.RVOL_WAKE_MIN && rvol <= L.RVOL_WAKE_MAX;
+        // بوابة 3: لم يرتفع كثيراً بعد (الفرصة حيّة) + مرحلة مبكرة
+        const priceOk = chg >= L.CHANGE_MIN && chg <= L.CHANGE_MAX;
+        const stageOk = setup.stage !== 'extended' && setup.stage !== 'breakout';
+
+        if (!(liquidOk && volOk && priceOk && stageOk)) {
+          // لا تظهر للمشترك — فرصة ميتة أو منتهية
+          continue;
+        }
+      }
+
       const signalObj = buildSignalObject(item, score, confidence, setup);
       if (isReady) readySignals.push(signalObj);
       else breakoutSignals.push(signalObj);
     }
 
     if (structureSkipped > 0) console.log(`🛡️ [lowprice/STRUCT] استُبعدت ${structureSkipped} إشارة.`);
-    console.log(`🎯 [lowprice] جاهزة: ${readySignals.length} | اختراقات: ${breakoutSignals.length}`);
+    console.log(`🎯 [lowprice] جاهزة: ${readySignals.length} | اختراقات: ${breakoutSignals.length}${LOWPRICE_CONFIG.ENABLE_LIVE_GATE ? ' (بعد بوابة الفرصة الحيّة)' : ''}`);
 
     // Save snapshots (بيانات التعلّم)
     if (snapshotsBatch.length > 0) {
