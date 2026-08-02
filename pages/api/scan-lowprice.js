@@ -7,6 +7,7 @@
 // ============================================================
 
 import { dataProvider } from '../../lib/radar/core/DataProvider';
+import { filterByMarketCap } from '../../lib/radar/services/MarketCapEngine';
 import { FilterEngine } from '../../lib/radar/core/FilterEngine';
 import { IndicatorEngine } from '../../lib/radar/core/IndicatorEngine';
 import { FeatureBuilder } from '../../lib/radar/core/FeatureBuilder';
@@ -35,6 +36,11 @@ const LOWPRICE_CONFIG = {
   MAX_GAP_PCT: 15,
   MAX_ANALYSIS_STOCKS: SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300,
   DISPLAY_MIN_SCORE: 30,
+  // 🆕 v20.5: نطاق القيمة السوقية — استهداف الأسهم الصغيرة النامية (مايكرو-كاب).
+  // قابل للضبط: وسّعه إن مرّت أسهم قليلة جداً. اجعل ENABLE_MCAP=false لتعطيله.
+  ENABLE_MCAP: true,
+  MIN_MARKET_CAP: 10_000_000,   // 10 مليون
+  MAX_MARKET_CAP: 50_000_000,   // 50 مليون
 };
 
 const DEFAULT_MODEL = {
@@ -171,9 +177,11 @@ function buildSignalObject(item, score, confidence, setup) {
     scan_type: 'lowprice',
     price_tier: isSubDollar ? 'sub_dollar' : 'low',
     sub_dollar: isSubDollar,
+    market_cap: stock.market_cap != null ? Math.round(stock.market_cap) : null,
+    market_cap_m: stock.market_cap != null ? Math.round(stock.market_cap / 1e6) : null, // بالمليون للعرض
     risk_warning: isSubDollar
-      ? '⚠️ سهم دون 1$: تقلب وسبريد مرتفعان، وقد تكون السيولة وهمية. حجم صغير وإدارة مخاطر صارمة.'
-      : null,
+      ? '⚠️ سهم دون 1$ ومايكرو-كاب: تقلب وسبريد مرتفعان، سيولة قد تكون وهمية، واحتمال تلاعب. حجم صغير جداً وإدارة مخاطر صارمة.'
+      : '⚠️ سهم مايكرو-كاب صغير: تقلب عالٍ واحتمال تلاعب. للمضاربة الواعية فقط بحجم صغير.',
 
     type: 'مضاربة',
   };
@@ -260,6 +268,25 @@ export default async function handler(req, res) {
       const dv = s.dollar_vol != null ? s.dollar_vol : (Number(s.price) * Number(s.volume));
       return dv >= LOWPRICE_CONFIG.MIN_DOLLAR_VOL && Number(s.volume) >= LOWPRICE_CONFIG.MIN_VOLUME;
     });
+
+    // 🆕 v20.5: فلتر القيمة السوقية — نطبّقه على الناجين القلائل فقط (نداء لكل سهم).
+    // يستهدف الأسهم الصغيرة النامية (10-50 مليون)، لا العمالقة الرخيصة.
+    if (LOWPRICE_CONFIG.ENABLE_MCAP && filtered.length > 0) {
+      try {
+        const capped = filtered.slice(0, LOWPRICE_CONFIG.MAX_ANALYSIS_STOCKS); // سقف نداءات
+        const { kept, checked, withCapCount } = await filterByMarketCap(
+          capped,
+          LOWPRICE_CONFIG.MIN_MARKET_CAP,
+          LOWPRICE_CONFIG.MAX_MARKET_CAP,
+          5
+        );
+        console.log(`🏢 [lowprice/MCAP] فُحص ${checked}، له قيمة ${withCapCount}، ضمن النطاق [${LOWPRICE_CONFIG.MIN_MARKET_CAP/1e6}-${LOWPRICE_CONFIG.MAX_MARKET_CAP/1e6}M]: ${kept.length}`);
+        filtered = kept;
+      } catch (mcapErr) {
+        console.error('❌ [lowprice] فشل فلتر القيمة السوقية (نُبقي القائمة كما هي):', mcapErr.message);
+        // عند الفشل: لا نكسر المسح — نُبقي filtered كما هو (fail-open)
+      }
+    }
 
     const analysisStocks = filtered.slice(0, LOWPRICE_CONFIG.MAX_ANALYSIS_STOCKS);
     console.log(`📊 [lowprice] بعد الفلاتر الصارمة: ${filtered.length}، سيُحلَّل: ${analysisStocks.length}`);
