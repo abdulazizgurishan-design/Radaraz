@@ -45,10 +45,12 @@ const LOWPRICE_CONFIG = {
   // المنطق: سيولة نسبية كافية + حجم يستيقظ (لا ينفجر) + لم يرتفع بعد.
   ENABLE_LIVE_GATE: true,
   TURNOVER_MIN: 0.20,        // نسبة الدوران: التداول اليومي ≥ 20% من القيمة السوقية (لا سهم ميت)
-  RVOL_WAKE_MIN: 1.0,        // الحجم بدأ يفوق معدّله (بداية اهتمام في المايكرو-كاب)
+  // ✅ التعديل 1: خفض RVOL_WAKE_MIN من 1.0 إلى 0.5 (للقبول بالمايكرو-كاب الهادئة)
+  RVOL_WAKE_MIN: 0.5,        // ✅ معدل: 0.5 (بدلاً من 1.0)
   RVOL_WAKE_MAX: 5.0,        // لا ينفجر (فوقه = فات الأوان)
-  CHANGE_MIN: -2,            // لم ينهَر
-  CHANGE_MAX: 8,             // لم ينفجر (فوقه = الفرصة انتهت)
+  // ✅ التعديل 2: توسيع نطاق التغير من [-2, 8] إلى [-5, 12]
+  CHANGE_MIN: -5,            // ✅ معدل: -5 (بدلاً من -2)
+  CHANGE_MAX: 12,            // ✅ معدل: 12 (بدلاً من 8)
 };
 
 const DEFAULT_MODEL = {
@@ -93,6 +95,10 @@ async function processBatch(stocks, marketContext, model) {
         const timeframe = 'day';
         const bars = dailyBars || [];
         const featureVector = FeatureBuilder.buildFromBars(stock, bars, marketContext, timeframe, dailyBars || []);
+        // ✅ التعديل 3: إضافة timing و target_source لتصنيف السنتات
+        featureVector.timing = 'LOWPRICE';
+        featureVector.target_source = 'lowprice';
+        featureVector.scan_type = 'lowprice';
         const score = PredictionEngine.calculate(featureVector, model.weights, model.rule_weight, model.ai_weight);
         return { stock, featureVector, score, bars, timeframe, dailyBars, atrPercent };
       } catch (err) {
@@ -355,9 +361,9 @@ export default async function handler(req, res) {
 
         // بوابة 1: سيولة نسبية (لا سهم ميت)
         const liquidOk = turnover >= L.TURNOVER_MIN;
-        // بوابة 2: الحجم يستيقظ ولا ينفجر
+        // بوابة 2: الحجم يستيقظ ولا ينفجر (باستخدام RVOL_WAKE_MIN المعدل 0.5)
         const volOk = rvol >= L.RVOL_WAKE_MIN && rvol <= L.RVOL_WAKE_MAX;
-        // بوابة 3: لم يرتفع كثيراً بعد (الفرصة حيّة) + مرحلة مبكرة
+        // بوابة 3: لم يرتفع كثيراً بعد (الفرصة حيّة) + مرحلة مبكرة (باستخدام CHANGE_MIN/MAX المعدلين)
         const priceOk = chg >= L.CHANGE_MIN && chg <= L.CHANGE_MAX;
         const stageOk = setup.stage !== 'extended' && setup.stage !== 'breakout';
 
