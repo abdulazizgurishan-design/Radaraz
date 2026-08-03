@@ -21,7 +21,7 @@ const supabase = createClient(
 );
 
 // عتبة عرض التوصيات الجاهزة (تُطابق DISPLAY_MIN_SCORE في الواجهة).
-const DISPLAY_MIN_SCORE = 30;
+const DISPLAY_MIN_SCORE = 43;
 
 const DEFAULT_MODEL = {
   version: 'v20.1',
