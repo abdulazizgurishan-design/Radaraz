@@ -35,7 +35,7 @@ const LOWPRICE_CONFIG = {
   MAX_CHANGE_PCT: 30,
   MAX_GAP_PCT: 15,
   MAX_ANALYSIS_STOCKS: SCAN_CONFIG.MAX_ANALYSIS_STOCKS || 300,
-  DISPLAY_MIN_SCORE: 30,
+  DISPLAY_MIN_SCORE: 43,   // v20.6: رُفع من 30 مع تطبيع السكور (÷0.7 ≈ ×1.43)
   // 🆕 v20.5: نطاق القيمة السوقية — استهداف الأسهم الصغيرة النامية (مايكرو-كاب).
   // قابل للضبط: وسّعه إن مرّت أسهم قليلة جداً. اجعل ENABLE_MCAP=false لتعطيله.
   ENABLE_MCAP: true,
