@@ -362,7 +362,13 @@ export default async function handler(req, res) {
         const stageOk = setup.stage !== 'extended' && setup.stage !== 'breakout';
 
         if (!(liquidOk && volOk && priceOk && stageOk)) {
-          // لا تظهر للمشترك — فرصة ميتة أو منتهية
+          // تشخيص: لماذا رُفض هذا السهم؟
+          const reasons = [];
+          if (!liquidOk) reasons.push(`turnover ${turnover.toFixed(2)}<${L.TURNOVER_MIN}`);
+          if (!volOk) reasons.push(`rvol ${rvol.toFixed(2)} خارج[${L.RVOL_WAKE_MIN},${L.RVOL_WAKE_MAX}]`);
+          if (!priceOk) reasons.push(`chg ${chg.toFixed(1)}% خارج[${L.CHANGE_MIN},${L.CHANGE_MAX}]`);
+          if (!stageOk) reasons.push(`stage=${setup.stage}`);
+          console.log(`  ⊘ [gate] ${stock.symbol}: ${reasons.join(' · ')}`);
           continue;
         }
       }
