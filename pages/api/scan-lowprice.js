@@ -400,6 +400,15 @@ export default async function handler(req, res) {
       await StorageEngine.saveLatestSignalsBulk(breakoutSignals, 'lowprice', 'breakout', batchId);
       await StorageEngine.saveLatestMovers(movers, 'lowprice', batchId);
       await StorageEngine.pruneOldBatches('lowprice', 3);
+
+      // 🆕 v20.6: اكتب التوصيات الجاهزة في جدول signals (الأدمن/الباك-تيست/التقييم).
+      //   كان مفقوداً — لهذا لم تظهر السنتات في signals منذ استبدال الملف.
+      //   نميّزها بـ scan_type='lowprice' (يُستبعدها البوت، وتُقاس منفصلة).
+      try {
+        await StorageEngine.saveSignalsForAdmin(readySignals, { isHot: false, scanType: 'lowprice' });
+      } catch (adminErr) {
+        console.error('❌ [lowprice] فشل كتابة signals (غير حرج):', adminErr.message);
+      }
       console.log(`🗂️ latest_signals[lowprice] batch=${batchId} ready=${readySignals.length} breakout=${breakoutSignals.length}`);
     } catch (lsError) {
       console.error('❌ [lowprice] فشل كتابة latest_signals (غير حرج):', lsError.message);
